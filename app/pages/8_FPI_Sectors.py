@@ -118,29 +118,42 @@ tab_ov, tab_trend, tab_cum, tab_hm, tab_auc = st.tabs([
 with tab_ov:
     st.subheader("Sector Explorer")
 
-    ov_col1, ov_col2 = st.columns([3, 1])
-    period_opts = {
-        "Latest fortnight": 1, "3 months": 6, "6 months": 12,
-        "1 Year": 24, "2 Years": 48, "All time": len(sorted_dates),
-    }
-    period_sel = ov_col1.radio(
-        "View period:", list(period_opts.keys()), index=0, horizontal=True, key="ov_period"
-    )
-    half_sel = ov_col2.radio(
-        "Fortnight half:", ["Combined", "First Half (1–15)", "Second Half (16–EOM)"],
-        index=0, key="ov_half"
+    # ── Step 1: pick half → this filters which dates appear in dropdowns ───────
+    half_sel = st.radio(
+        "Fortnight half:",
+        ["Combined", "First Half (1–15)", "Second Half (16–EOM)"],
+        index=0, horizontal=True, key="ov_half",
+        help="First Half = 15th reports | Second Half = month-end reports | Combined = all",
     )
 
-    n_periods  = min(period_opts[period_sel], len(sorted_dates))
-    base_dates = sorted_dates[:n_periods]
-    sel_dates  = _filter_by_half(base_dates, half_sel)
+    # Build date pool based on half selection (all available dates, newest first)
+    pool = _filter_by_half(sorted_dates, half_sel)  # newest first
+    pool_labels = [d.strftime("%d %b %Y") for d in pool]
 
-    if not sel_dates:
-        st.warning("No data for selected combination. Try 'Combined'.")
+    if not pool:
+        st.warning("No data for selected half. Try 'Combined'.")
     else:
-        if period_sel == "Latest fortnight" and half_sel == "Combined":
-            # Single fortnight horizontal bar
-            df_show = latest_df.sort_values("net_curr_eq", ascending=True)
+        # ── Step 2: To / From date dropdowns (filtered by half) ────────────────
+        dc1, dc2 = st.columns(2)
+        to_lbl_ov   = dc1.selectbox("To date (latest):",  pool_labels, index=0,           key="ov_to")
+        from_lbl_ov = dc2.selectbox("From date (older):", pool_labels,
+                                     index=min(11, len(pool_labels) - 1), key="ov_from")
+
+        to_date_ov   = pool[pool_labels.index(to_lbl_ov)]
+        from_date_ov = pool[pool_labels.index(from_lbl_ov)]
+        if from_date_ov > to_date_ov:
+            from_date_ov, to_date_ov = to_date_ov, from_date_ov
+            from_lbl_ov, to_lbl_ov   = to_lbl_ov, from_lbl_ov
+
+        sel_dates = [d for d in pool if from_date_ov <= d <= to_date_ov]
+
+        n_f = len(sel_dates)
+        half_tag = {"Combined": "", "First Half (1–15)": " · First Half", "Second Half (16–EOM)": " · Second Half"}[half_sel]
+        st.caption(f"**{n_f} fortnights** · {from_lbl_ov} → {to_lbl_ov}{half_tag}")
+
+        if n_f == 1:
+            # Single fortnight — show individual bar (not cumulative)
+            df_show = all_periods[sel_dates[0]].sort_values("net_curr_eq", ascending=True)
             colors  = ["#00C853" if v >= 0 else "#D50000" for v in df_show["net_curr_eq"]]
             fig = go.Figure(go.Bar(
                 x=df_show["net_curr_eq"], y=df_show["nsdl_sector"],
@@ -150,7 +163,7 @@ with tab_ov:
             ))
             fig.update_layout(
                 template="plotly_dark", height=600,
-                title=f"FPI Net Investment — {latest_date.strftime('%d %b %Y')} (₹ Crore)",
+                title=f"FPI Net Investment — {sel_dates[0].strftime('%d %b %Y')} (₹ Crore)",
                 xaxis_title="₹ Crore", margin=dict(l=240, r=140, t=50, b=20),
                 xaxis_zeroline=True, xaxis_zerolinecolor="rgba(255,255,255,0.3)",
             )
@@ -161,8 +174,6 @@ with tab_ov:
             cum_df = pd.DataFrame(list(cum.items()), columns=["Sector", "Cumulative ₹ Cr"])
             cum_df = cum_df.sort_values("Cumulative ₹ Cr", ascending=True)
             colors = ["#00C853" if v >= 0 else "#D50000" for v in cum_df["Cumulative ₹ Cr"]]
-            lbl = f"{sel_dates[-1].strftime('%d %b %y')} → {sel_dates[0].strftime('%d %b %y')}"
-            half_lbl = f" · {half_sel}" if half_sel != "Combined" else ""
             fig = go.Figure(go.Bar(
                 x=cum_df["Cumulative ₹ Cr"], y=cum_df["Sector"],
                 orientation="h", marker_color=colors,
@@ -171,7 +182,7 @@ with tab_ov:
             ))
             fig.update_layout(
                 template="plotly_dark", height=600,
-                title=f"Cumulative FPI Investment — {lbl}{half_lbl} ({len(sel_dates)} fortnights)",
+                title=f"Cumulative FPI Investment — {from_lbl_ov} to {to_lbl_ov}{half_tag} ({n_f} fortnights)",
                 xaxis_title="₹ Crore", margin=dict(l=240, r=140, t=50, b=20),
             )
             st.plotly_chart(fig, use_container_width=True)
