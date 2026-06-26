@@ -41,7 +41,9 @@ def _get_ticker_data():
             SELECT nsdl_sector, net_curr_eq, report_date
             FROM nsdl_fii_sector
             WHERE report_date = (SELECT MAX(report_date) FROM nsdl_fii_sector)
-            ORDER BY net_curr_eq DESC
+            ORDER BY
+              CASE WHEN net_curr_eq >= 0 THEN 0 ELSE 1 END,
+              CASE WHEN net_curr_eq >= 0 THEN -net_curr_eq ELSE net_curr_eq END
         """).fetchall()
         con.close()
         from datetime import datetime
