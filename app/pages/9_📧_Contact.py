@@ -1,16 +1,13 @@
 """
-Contact page — sends via Web3Forms API (web3forms.com).
-No SMTP credentials needed. Only requires a free Web3Forms access key.
-Recipient email is stored in secrets, never shown in UI.
+Contact page — Web3Forms submitted client-side via browser fetch() (free plan compatible).
+Access key is a routing key, not a security credential.
 """
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import streamlit as st
-import requests
-import re
-from datetime import datetime
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Contact | NSE Sector Analysis", page_icon="📧", layout="wide")
 
@@ -20,49 +17,15 @@ inject_seo("Contact")
 from app.utils.logo import show_logo
 show_logo()
 
+# Access key — not a password, just a routing token (safe to embed in browser HTML)
+try:
+    _KEY = st.secrets["contact"]["web3forms_key"]
+except Exception:
+    _KEY = "6be66989-c986-4010-b28a-0a277fe52ba5"
 
-def _is_valid_email(email: str) -> bool:
-    return bool(re.match(r"^[\w\.\+\-]+@[\w\-]+\.[a-z]{2,}$", email.strip(), re.IGNORECASE))
-
-
-def _send_via_web3forms(name: str, user_email: str, topic: str, message: str) -> tuple[bool, str]:
-    """
-    Send via Web3Forms API — no SMTP setup, no password.
-    Requires only a free access key from https://web3forms.com
-    """
-    try:
-        key = st.secrets["contact"]["web3forms_key"]
-    except (KeyError, FileNotFoundError):
-        # Fallback: try smtplib if secrets not set up
-        return False, "not_configured"
-
-    payload = {
-        "access_key":  key,
-        "subject":     f"[NSE Dashboard] {topic} — from {name}",
-        "from_name":   "NSE Sector Analysis",
-        "name":        name,
-        "email":       user_email,
-        "message":     f"Topic: {topic}\n\n{message}",
-        "botcheck":    "",   # honeypot
-    }
-    try:
-        r = requests.post("https://api.web3forms.com/submit",
-                          json=payload, timeout=10)
-        data = r.json()
-        if data.get("success"):
-            return True, ""
-        return False, data.get("message", "Web3Forms returned an error.")
-    except requests.Timeout:
-        return False, "Request timed out. Please try again."
-    except Exception as e:
-        return False, str(e)
-
-
-# ── Page ──────────────────────────────────────────────────────────────────────
+# ── Page header ───────────────────────────────────────────────────────────────
 st.title("📧 Contact Us")
-st.markdown(
-    "Have feedback, a data issue, or a feature request? Fill in the form and we'll get back to you."
-)
+st.markdown("Have feedback, a data issue, or a feature request? Fill in the form and we'll get back to you.")
 st.markdown("---")
 
 col_form, col_info = st.columns([3, 2], gap="large")
@@ -70,57 +33,103 @@ col_form, col_info = st.columns([3, 2], gap="large")
 with col_form:
     st.subheader("Send a Message")
 
-    with st.form("contact_form", clear_on_submit=True):
-        name    = st.text_input("Your Name *",  placeholder="e.g. Rahul Sharma", max_chars=80)
-        email   = st.text_input("Your Email *", placeholder="you@example.com", max_chars=120)
-        topic   = st.selectbox("Topic *", [
-            "General Feedback",
-            "Data Issue / Incorrect Data",
-            "Feature Request",
-            "Bug Report",
-            "Question about FII / FPI Data",
-            "Other",
-        ])
-        message = st.text_area(
-            "Message *",
-            placeholder="Describe your question or feedback in detail...",
-            height=180, max_chars=2000,
-        )
-        submitted = st.form_submit_button(
-            "📨 Send Message", type="primary", use_container_width=True
-        )
+    FORM_HTML = f"""
+<style>
+  body {{ margin:0; padding:0; background:transparent; font-family:'Source Sans Pro',sans-serif; color:#fafafa; }}
+  .cf-wrap {{ max-width:560px; }}
+  .cf-wrap label {{ display:block; font-size:13px; color:#aaa; margin:14px 0 4px; }}
+  .cf-wrap input, .cf-wrap select, .cf-wrap textarea {{
+    width:100%; box-sizing:border-box;
+    background:#1e2130; border:1px solid #3a3d4a; border-radius:6px;
+    color:#fafafa; font-size:14px; padding:9px 12px;
+    outline:none; transition:border .2s;
+  }}
+  .cf-wrap input:focus, .cf-wrap select:focus, .cf-wrap textarea:focus {{
+    border-color:#2979ff;
+  }}
+  .cf-wrap select option {{ background:#1e2130; }}
+  .cf-wrap textarea {{ resize:vertical; min-height:130px; }}
+  .cf-btn {{
+    margin-top:18px; width:100%; padding:11px;
+    background:#2979ff; color:#fff; border:none; border-radius:6px;
+    font-size:15px; font-weight:600; cursor:pointer; transition:background .2s;
+  }}
+  .cf-btn:hover {{ background:#1565c0; }}
+  .cf-btn:disabled {{ background:#444; cursor:not-allowed; }}
+  #cf-msg {{ margin-top:14px; padding:12px 16px; border-radius:6px; font-size:14px; display:none; }}
+  .cf-ok  {{ background:#0a3320; border:1px solid #00C853; color:#00e676; }}
+  .cf-err {{ background:#3e0808; border:1px solid #D50000; color:#ff5252; }}
+</style>
 
-    if submitted:
-        errors = []
-        if not name.strip():
-            errors.append("Name is required.")
-        if not email.strip() or not _is_valid_email(email):
-            errors.append("A valid email address is required.")
-        if not message.strip() or len(message.strip()) < 10:
-            errors.append("Message must be at least 10 characters.")
+<div class="cf-wrap">
+  <form id="cf" onsubmit="sendForm(event)">
+    <input type="hidden" name="access_key" value="{_KEY}">
+    <input type="hidden" name="subject"    value="[NSE Dashboard] Contact Form Message">
+    <input type="hidden" name="from_name"  value="NSE Sector Analysis">
+    <input type="hidden" name="botcheck"   value="">
 
-        if errors:
-            for e in errors:
-                st.error(f"⚠️ {e}")
-        else:
-            with st.spinner("Sending your message…"):
-                ok, err = _send_via_web3forms(
-                    name.strip(), email.strip(), topic, message.strip()
-                )
+    <label>Your Name *</label>
+    <input type="text" name="name" placeholder="e.g. Rahul Sharma" required maxlength="80">
 
-            if ok:
-                st.success(
-                    f"✅ **Message sent!** Thank you **{name.split()[0]}**, "
-                    f"we'll reply to **{email}** soon."
-                )
-                st.balloons()
-            elif err == "not_configured":
-                st.warning(
-                    "⚙️ Contact form is not yet configured on this server. "
-                    "The site owner has been notified."
-                )
-            else:
-                st.error(f"❌ Could not send: {err}")
+    <label>Your Email *</label>
+    <input type="email" name="email" placeholder="you@example.com" required maxlength="120">
+
+    <label>Topic *</label>
+    <select name="topic">
+      <option>General Feedback</option>
+      <option>Data Issue / Incorrect Data</option>
+      <option>Feature Request</option>
+      <option>Bug Report</option>
+      <option>Question about FII / FPI Data</option>
+      <option>Other</option>
+    </select>
+
+    <label>Message *</label>
+    <textarea name="message" placeholder="Describe your question or feedback..." required minlength="10" maxlength="2000"></textarea>
+
+    <button class="cf-btn" type="submit" id="cf-btn">📨 Send Message</button>
+    <div id="cf-msg"></div>
+  </form>
+</div>
+
+<script>
+async function sendForm(e) {{
+  e.preventDefault();
+  const btn = document.getElementById('cf-btn');
+  const msg = document.getElementById('cf-msg');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  msg.style.display = 'none';
+
+  const data = Object.fromEntries(new FormData(e.target));
+
+  try {{
+    const res  = await fetch('https://api.web3forms.com/submit', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json', 'Accept': 'application/json'}},
+      body: JSON.stringify(data),
+    }});
+    const json = await res.json();
+    if (json.success) {{
+      msg.className = 'cf-ok';
+      msg.textContent = '✅ Message sent! We will reply to ' + data.email + ' soon.';
+      e.target.reset();
+    }} else {{
+      throw new Error(json.message || 'Submission failed');
+    }}
+  }} catch(err) {{
+    msg.className = 'cf-err';
+    msg.textContent = '❌ ' + err.message;
+    btn.disabled = false;
+    btn.textContent = '📨 Send Message';
+  }}
+  msg.style.display = 'block';
+  btn.disabled = false;
+  if (msg.className === 'cf-ok') btn.textContent = '✅ Sent';
+}}
+</script>
+"""
+    components.html(FORM_HTML, height=540, scrolling=False)
 
 with col_info:
     st.subheader("About This Dashboard")
@@ -166,25 +175,4 @@ Yes — use the **📤 Export** page to download CSV files.
 
 **Q: Is this free?**
 Yes. Source data is from NSDL and NSE India (both public). This dashboard is free.
-""")
-
-# ── Setup guide (shown only in local dev when not configured) ─────────────────
-with st.expander("⚙️ Admin: How to enable the contact form", expanded=False):
-    st.markdown("""
-**One-time setup using [Web3Forms](https://web3forms.com) — no credentials needed:**
-
-1. Go to **[web3forms.com](https://web3forms.com)**
-2. Enter your email address → click **Create Access Key**
-3. Check your inbox and copy the **Access Key**
-4. Add to `.streamlit/secrets.toml`:
-
-```toml
-[contact]
-web3forms_key = "YOUR_ACCESS_KEY_HERE"
-```
-
-5. For Streamlit Cloud: **App Settings → Secrets** → paste the same.
-
-That's it. Web3Forms routes form submissions to your email.
-No SMTP, no password, no account required.
 """)
