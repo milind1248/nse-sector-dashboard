@@ -25,10 +25,19 @@ def load_data():
     from backend.data_ingestion.nsdl_fetcher import fetch_nsdl_fii_sectors
     return fetch_nsdl_fii_sectors()
 
-all_periods = load_data()   # served from Streamlit cache; no spinner needed
+with st.status("📂 Loading FPI sector data…", expanded=False) as _s:
+    st.write("Reading all fortnightly NSDL reports from local database.")
+    all_periods = load_data()
+    if all_periods:
+        n_r = len(all_periods)
+        ld  = max(all_periods.keys())
+        _s.update(label=f"✅ {n_r} fortnightly reports ready · Latest: {ld.strftime('%d %b %Y')}",
+                  state="complete", expanded=False)
+    else:
+        _s.update(label="❌ No data found — click Refresh on Home page", state="error")
 
 if not all_periods:
-    st.error("No data. Go to Home and click Refresh.")
+    st.error("No data found. Go to **Home** and click 🔄 **Refresh Latest Data**.")
     st.stop()
 
 sorted_dates = sorted(all_periods.keys(), reverse=True)  # newest first
@@ -78,7 +87,9 @@ def _top_n_table(cum_dict, n=5):
     return buyers, sellers
 
 # ── Header ────────────────────────────────────────────────────────────────────
+from app.utils.loading import data_freshness_bar
 st.title("🌏 FPI Sector Investment Tracker")
+data_freshness_bar(latest_date, record_count=len(sorted_dates), source="NSDL · fpi.nsdl.co.in")
 st.caption(
     f"Foreign Portfolio Investment · Equity only · ₹ Crore · "
     f"Updated fortnightly · Latest: **{latest_date.strftime('%d %b %Y')}** · "

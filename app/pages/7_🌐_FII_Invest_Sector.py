@@ -30,10 +30,19 @@ def load_all_periods():
     from backend.data_ingestion.nsdl_fetcher import fetch_nsdl_fii_sectors
     return fetch_nsdl_fii_sectors()
 
-all_periods = load_all_periods()
+with st.status("📂 Loading FII sector history…", expanded=False) as _s7:
+    st.write("Reading all fortnightly NSDL reports (May 2020 → today) from local database.")
+    all_periods = load_all_periods()
+    if all_periods:
+        n_r7 = len(all_periods)
+        ld7  = max(all_periods.keys())
+        _s7.update(label=f"✅ {n_r7} fortnightly reports loaded · Latest: {ld7.strftime('%d %b %Y')}",
+                   state="complete", expanded=False)
+    else:
+        _s7.update(label="❌ No data — go to Home and click Refresh", state="error")
 
 if not all_periods:
-    st.error("No NSDL data. Use 'Refresh Latest Data' on the home page.")
+    st.error("No NSDL data. Go to **Home** and click 🔄 **Refresh Latest Data**.")
     st.stop()
 
 sorted_dates = sorted(all_periods.keys())          # oldest → newest (internal order)
@@ -206,13 +215,23 @@ with tab_analysis:
 
     # Lazy load — only fetch yfinance when user requests it (avoids 20+ API calls on every page open)
     if "price_analysis_loaded" not in st.session_state:
-        st.info("📈 Click below to load sector price data from Yahoo Finance (fetched once per day).")
-        if st.button("Load Price vs FII Analysis", type="primary"):
+        st.info(
+            "**📈 Price data not yet loaded.**\n\n"
+            "This tab fetches 1-year price history for 20+ Nifty sector indices from Yahoo Finance. "
+            "It takes **10–20 seconds** on first load, then is cached for 24 hours.\n\n"
+            "Click below when you're ready."
+        )
+        if st.button("🚀 Load Price vs FII Analysis", type="primary"):
             st.session_state["price_analysis_loaded"] = True
             st.rerun()
         st.stop()
 
-    sector_prices, SECTOR_STOCKS, SECTOR_INDICES = load_sector_prices_analysis()
+    with st.status("🌐 Fetching sector index prices from Yahoo Finance…", expanded=True) as _syf:
+        st.write("Downloading 1-year OHLCV data for Nifty Bank, IT, Auto, Pharma and 17 more indices.")
+        st.write("⏱️ First load: ~10–20 seconds. After that, served from cache for 24 hours.")
+        sector_prices, SECTOR_STOCKS, SECTOR_INDICES = load_sector_prices_analysis()
+        _syf.update(label="✅ Sector prices loaded · Source: Yahoo Finance",
+                    state="complete", expanded=False)
 
     # Pick fortnight and look-back window
     ac1, ac2 = st.columns(2)

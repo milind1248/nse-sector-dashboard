@@ -122,17 +122,26 @@ with st.sidebar:
     st.caption("NSDL updates every fortnight (1st & 15th of month).")
 
 # ── Load NSDL data (all available fortnights) ─────────────────────────────────
-# TTL=86400: NSDL only publishes fortnightly; no need to re-read DB more than once a day.
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_nsdl_history():
     from backend.data_ingestion.nsdl_fetcher import fetch_nsdl_fii_sectors
-    return fetch_nsdl_fii_sectors()   # all stored data from DB
+    return fetch_nsdl_fii_sectors()
 
-with st.spinner("Loading FII sector data..."):
+with st.status("📂 Loading FII sector data from database…", expanded=False) as _load_status:
+    st.write("Reading fortnightly NSDL reports from local database — usually takes under 1 second.")
     all_periods = load_nsdl_history()
+    if all_periods:
+        n = len(all_periods)
+        latest = max(all_periods.keys())
+        _load_status.update(
+            label=f"✅ {n} fortnightly reports loaded · Latest: {latest.strftime('%d %b %Y')}",
+            state="complete", expanded=False,
+        )
+    else:
+        _load_status.update(label="❌ No data found", state="error")
 
 if not all_periods:
-    st.error("Could not load NSDL FII data. Check your internet connection and try Refresh.")
+    st.error("No NSDL data found in database. Click **🔄 Refresh Latest Data** in the sidebar to fetch from NSDL.")
     st.stop()
 
 sorted_dates  = sorted(all_periods.keys(), reverse=True)
@@ -153,11 +162,13 @@ for d in sorted(all_periods.keys()):
 trend_df = pd.DataFrame(trend_rows).set_index("_date")
 
 # ── Page header ───────────────────────────────────────────────────────────────
+from app.utils.loading import data_freshness_bar
 st.title("📊 FII Fortnightly Sector Watch")
 st.markdown(
     "**Start here every morning.** "
     "See where FII money is flowing → click sector → confirm price → find stocks to buy."
 )
+data_freshness_bar(curr_date, record_count=len(all_periods), source="NSDL · fpi.nsdl.co.in")
 
 # Summary metrics
 total_curr    = curr_df["net_curr_eq"].sum()

@@ -33,12 +33,19 @@ with tabs[0]:
     period = st.radio("View period", list(period_map.keys()), horizontal=True, index=1)
     days   = period_map[period]
 
-    with st.spinner("Loading FII/DII data..."):
+    with st.status("🌐 Loading daily FII/DII flow data…", expanded=False) as _s4:
+        st.write("Fetching from NSE India API (nseindia.com). Cached for 1 hour after first load.")
+        st.write("⏱️ First load takes 3–5 seconds. Subsequent visits load instantly from cache.")
         df_all = load_daily_fii_all()
+        if df_all is not None and not df_all.empty:
+            _s4.update(label=f"✅ {len(df_all)} trading days loaded · Source: NSE India",
+                       state="complete", expanded=False)
+        else:
+            _s4.update(label="⚠️ NSE India data unavailable — try again after market hours", state="error")
 
     if df_all is None or df_all.empty:
-        st.error("FII/DII daily data unavailable. NSE India may be blocking the request. Try Refresh on Home page.")
-        st.info("💡 Daily FII/DII data is fetched live from NSE India. It may not be available outside market hours or on weekends.")
+        st.error("NSE India did not return data. This can happen outside trading hours or when NSE blocks requests.")
+        st.info("💡 **Tip:** NSE India API is most reliable during or just after market hours (9:15 AM – 4:30 PM IST). Try refreshing after 4:30 PM.")
     else:
         df_all = df_all.sort_values("date").reset_index(drop=True)
 
@@ -129,7 +136,15 @@ with tabs[0]:
 
 # ── Tab 2 — Fortnightly Sector Breakdown ──────────────────────────────────────
 with tabs[1]:
-    curr_df, prev_df, curr_date, prev_date = load_nsdl_latest()
+    with st.status("📂 Loading NSDL sector breakdown…", expanded=False) as _s4b:
+        st.write("Reading latest 2 fortnightly reports from local database.")
+        curr_df, prev_df, curr_date, prev_date = load_nsdl_latest()
+        if curr_df is not None:
+            cd_lbl = curr_date.strftime("%d %b %Y") if curr_date else "–"
+            _s4b.update(label=f"✅ Fortnightly data loaded · Current: {cd_lbl}",
+                        state="complete", expanded=False)
+        else:
+            _s4b.update(label="❌ No fortnightly data — go to Home and Refresh", state="error")
 
     if curr_df is None:
         st.error("NSDL data unavailable.")
