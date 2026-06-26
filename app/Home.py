@@ -245,54 +245,8 @@ for d in sorted(all_periods.keys()):
     trend_rows.append(row)
 trend_df = pd.DataFrame(trend_rows).set_index("_date")
 
-# ── FII Sector Ticker ─────────────────────────────────────────────────────────
-def _render_ticker(df, period_label: str):
-    """Scrolling ticker showing FII net flow per sector for the latest fortnight."""
-    ticker_df = df.sort_values("net_curr_eq", ascending=False).copy()
-    items = []
-    for _, row in ticker_df.iterrows():
-        val  = row["net_curr_eq"]
-        sec  = row["nsdl_sector"]
-        sign = "+" if val >= 0 else ""
-        color = "#00C853" if val >= 0 else "#FF5252"
-        arrow = "▲" if val >= 0 else "▼"
-        items.append(
-            f'<span style="margin:0 28px;white-space:nowrap">'
-            f'<span style="color:#aaa;font-size:12px">{sec}</span>&nbsp;'
-            f'<span style="color:{color};font-weight:600;font-size:13px">{arrow} ₹{sign}{val:,.0f} Cr</span>'
-            f'</span>'
-        )
-    content = "".join(items)
-    double  = content * 2   # duplicate so loop appears seamless
-    period_lbl = period_label
-    st.markdown(f"""
-<div style="background:#0e1117;border:1px solid #2a2a3a;border-radius:6px;
-            overflow:hidden;height:34px;display:flex;align-items:center;
-            margin-bottom:4px;position:relative">
-  <div style="flex-shrink:0;background:#1a1f2e;padding:0 14px;height:100%;
-              display:flex;align-items:center;border-right:1px solid #2a2a3a;
-              font-size:11px;font-weight:700;color:#4a9eff;white-space:nowrap;z-index:1">
-    FII&nbsp;{period_lbl}
-  </div>
-  <div style="overflow:hidden;flex:1;height:100%;position:relative">
-    <div class="fii-ticker-track" style="display:flex;align-items:center;height:100%;
-         white-space:nowrap;animation:fii-scroll 60s linear infinite">
-      {double}
-    </div>
-  </div>
-</div>
-<style>
-@keyframes fii-scroll {{
-  0%   {{ transform: translateX(0); }}
-  100% {{ transform: translateX(-50%); }}
-}}
-.fii-ticker-track:hover {{ animation-play-state: paused; }}
-</style>
-""", unsafe_allow_html=True)
-
 # ── Page header ───────────────────────────────────────────────────────────────
 from app.utils.loading import data_freshness_bar
-_render_ticker(curr_df, curr_date.strftime("%d %b %Y"))
 st.title("📊 FII Fortnightly Sector Watch")
 st.markdown(
     "**Start here every morning.** "
