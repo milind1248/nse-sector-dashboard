@@ -1,4 +1,4 @@
-"""
+﻿"""
 Step 2 in investor flow: "Is price confirming FII buying?"
 Shows sector index chart, technicals, and breadth.
 """
@@ -224,6 +224,6 @@ if close and any(v for v in [ema20, ema50, ema200]):
 st.markdown("---")
 c1, c2 = st.columns(2)
 if c1.button("🔍 Find Best Stocks in This Sector →", use_container_width=True, type="primary"):
-    st.switch_page("pages/2_Stock_Picker.py")
+    st.switch_page("pages/2_🎯_Stock_Picker.py")
 if c2.button("← Back to FII Sector Watch", use_container_width=True):
     st.switch_page("main.py")

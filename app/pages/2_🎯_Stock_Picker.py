@@ -1,4 +1,4 @@
-"""
+﻿"""
 Step 3: Find the best stocks to buy in the selected sector.
 Sorted by momentum score.
 """
@@ -240,8 +240,8 @@ if chosen:
 st.markdown("---")
 c1, c2, c3 = st.columns(3)
 if c1.button("← Sector Analysis",  use_container_width=True):
-    st.switch_page("pages/1_Sector_Analysis.py")
+    st.switch_page("pages/1_📈_Sector_Analysis.py")
 if c2.button("← FII Sector Watch", use_container_width=True):
     st.switch_page("main.py")
 if c3.button("\U0001f4ca Market Pulse →", use_container_width=True):
-    st.switch_page("pages/3_Market_Pulse.py")
+    st.switch_page("pages/3_📡_Market_Pulse.py")

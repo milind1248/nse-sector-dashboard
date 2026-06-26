@@ -1,4 +1,4 @@
-"""
+﻿"""
 NSE Sector Intelligence Dashboard
 Entry point: FII Fortnightly Sector Watch — investor decision flow starts here.
 All data is live: NSDL for fortnightly FPI data, yfinance for prices.
@@ -14,7 +14,7 @@ import plotly.graph_objects as go
 from datetime import date
 
 st.set_page_config(
-    page_title="NSE Sector Intel",
+    page_title="NSE Sector Analysis",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -45,7 +45,7 @@ _cold_start_sync()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 📊 NSE Sector Intel")
+    st.markdown("## 📊 NSE Sector Analysis")
     st.markdown("**Investor Decision Flow**")
     st.markdown("""
 1. **Home** — Where is FII money flowing?
@@ -441,9 +441,9 @@ if selected:
         st.session_state["selected_sector"]          = internal
         st.session_state["selected_sector_nsdl"]     = selected
         st.session_state["selected_sector_net_curr"] = net_curr
-        st.switch_page("pages/1_Sector_Analysis.py")
+        st.switch_page("pages/1_📈_Sector_Analysis.py")
     if c2.button("🔍 Find stocks to buy in this sector", use_container_width=True):
         st.session_state["selected_sector"]          = internal
         st.session_state["selected_sector_nsdl"]     = selected
         st.session_state["selected_sector_net_curr"] = net_curr
-        st.switch_page("pages/2_Stock_Picker.py")
+        st.switch_page("pages/2_🎯_Stock_Picker.py")

@@ -1,4 +1,4 @@
-"""Market breadth, sector heatmap, and RRG in one pulse view."""
+﻿"""Market breadth, sector heatmap, and RRG in one pulse view."""
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -135,7 +135,7 @@ if rrg_data:
                 btn_label = s[:18]
                 if col.button(btn_label, key=f"rrg_{quad}_{s}", use_container_width=True):
                     st.session_state["selected_sector"] = s
-                    st.switch_page("pages/1_Sector_Analysis.py")
+                    st.switch_page("pages/1_📈_Sector_Analysis.py")
         else:
             col.caption("None")
 else:

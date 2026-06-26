@@ -1,4 +1,4 @@
-"""Breakout and signal alerts across all sectors."""
+﻿"""Breakout and signal alerts across all sectors."""
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -129,7 +129,7 @@ alert_sectors = df_alerts["Sector"].unique().tolist()
 sel = st.selectbox("Jump to sector analysis:", alert_sectors)
 if st.button(f"Analyse {sel} →", type="primary"):
     st.session_state["selected_sector"] = sel
-    st.switch_page("pages/1_Sector_Analysis.py")
+    st.switch_page("pages/1_📈_Sector_Analysis.py")
 
 st.markdown("---")
 if st.button("← FII Sector Watch"):
