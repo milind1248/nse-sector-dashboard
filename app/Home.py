@@ -23,165 +23,10 @@ st.set_page_config(
 from app.utils.seo import inject_seo
 inject_seo("Home")
 
-# ── Trading splash screen (shows while data loads) ────────────────────────────
-_splash = st.empty()
-_splash.markdown("""
-<style>
-@keyframes candleRise {
-  0%   { transform: scaleY(0); opacity:0; }
-  60%  { transform: scaleY(1.08); opacity:1; }
-  100% { transform: scaleY(1); opacity:1; }
-}
-@keyframes lineDrawFull {
-  0%   { stroke-dashoffset: 400; opacity:0; }
-  20%  { opacity:1; }
-  100% { stroke-dashoffset: 0; opacity:1; }
-}
-@keyframes tickerScroll {
-  0%   { transform: translateX(100%); }
-  100% { transform: translateX(-100%); }
-}
-@keyframes pulseDot {
-  0%,100% { opacity:1; transform:scale(1); }
-  50%      { opacity:.4; transform:scale(.6); }
-}
-@keyframes fadeInUp {
-  from { opacity:0; transform:translateY(16px); }
-  to   { opacity:1; transform:translateY(0); }
-}
-.splash-wrap {
-  position:fixed; inset:0; z-index:99999;
-  background:#0e1117;
-  display:flex; flex-direction:column;
-  align-items:center; justify-content:center; gap:28px;
-}
-.splash-brand {
-  font-size:15px; letter-spacing:3px; color:#555; text-transform:uppercase;
-  animation:fadeInUp .6s ease both;
-}
-.splash-title {
-  font-size:36px; font-weight:800; color:#fff;
-  animation:fadeInUp .6s ease .15s both;
-}
-.splash-title span { color:#2979ff; }
-.splash-sub {
-  font-size:13px; color:#666; letter-spacing:1px;
-  animation:fadeInUp .6s ease .3s both;
-}
-.candle-chart { animation:fadeInUp .6s ease .1s both; }
-.candle-body {
-  transform-origin: bottom;
-  animation: candleRise .7s cubic-bezier(.22,1,.36,1) both;
-}
-.trend-path {
-  stroke-dasharray:400; stroke-dashoffset:400;
-  animation: lineDrawFull 1.4s ease .4s both;
-}
-.ticker-wrap {
-  width:100%; max-width:640px; overflow:hidden;
-  border-top:1px solid #1e2130; border-bottom:1px solid #1e2130;
-  padding:8px 0; animation:fadeInUp .6s ease .5s both;
-}
-.ticker-inner {
-  white-space:nowrap; font-size:12px; color:#444;
-  animation: tickerScroll 12s linear infinite;
-  letter-spacing:.5px;
-}
-.ticker-inner span.up   { color:#00c853; }
-.ticker-inner span.down { color:#d50000; }
-.loading-dots { display:flex; gap:6px; animation:fadeInUp .6s ease .6s both; }
-.loading-dots i {
-  width:7px; height:7px; border-radius:50%; background:#2979ff;
-  animation:pulseDot 1.2s ease infinite;
-}
-.loading-dots i:nth-child(2) { animation-delay:.2s; }
-.loading-dots i:nth-child(3) { animation-delay:.4s; }
-</style>
-
-<div class="splash-wrap" id="nse-splash">
-  <div class="splash-brand">NSE · FII Fortnightly Intelligence</div>
-
-  <!-- Animated candlestick chart -->
-  <svg class="candle-chart" width="320" height="120" viewBox="0 0 320 120">
-    <!-- Wicks -->
-    <line x1="30"  y1="10" x2="30"  y2="90" stroke="#555" stroke-width="1.5"/>
-    <line x1="75"  y1="20" x2="75"  y2="85" stroke="#555" stroke-width="1.5"/>
-    <line x1="120" y1="15" x2="120" y2="95" stroke="#555" stroke-width="1.5"/>
-    <line x1="165" y1="8"  x2="165" y2="80" stroke="#555" stroke-width="1.5"/>
-    <line x1="210" y1="25" x2="210" y2="90" stroke="#555" stroke-width="1.5"/>
-    <line x1="255" y1="10" x2="255" y2="75" stroke="#555" stroke-width="1.5"/>
-    <line x1="300" y1="5"  x2="300" y2="70" stroke="#555" stroke-width="1.5"/>
-    <!-- Candle bodies (green=bullish, red=bearish) -->
-    <g class="candle-body" style="animation-delay:.05s">
-      <rect x="18" y="40" width="24" height="50" rx="2" fill="#D50000"/>
-    </g>
-    <g class="candle-body" style="animation-delay:.15s">
-      <rect x="63" y="30" width="24" height="40" rx="2" fill="#00C853"/>
-    </g>
-    <g class="candle-body" style="animation-delay:.25s">
-      <rect x="108" y="50" width="24" height="45" rx="2" fill="#D50000"/>
-    </g>
-    <g class="candle-body" style="animation-delay:.35s">
-      <rect x="153" y="20" width="24" height="45" rx="2" fill="#00C853"/>
-    </g>
-    <g class="candle-body" style="animation-delay:.45s">
-      <rect x="198" y="35" width="24" height="40" rx="2" fill="#00C853"/>
-    </g>
-    <g class="candle-body" style="animation-delay:.55s">
-      <rect x="243" y="18" width="24" height="42" rx="2" fill="#00C853"/>
-    </g>
-    <g class="candle-body" style="animation-delay:.65s">
-      <rect x="288" y="12" width="24" height="38" rx="2" fill="#00C853"/>
-    </g>
-    <!-- Trend line -->
-    <polyline class="trend-path"
-      points="30,65 75,50 120,72 165,42 210,55 255,38 300,30"
-      fill="none" stroke="#FFD600" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-    <!-- Dots on trend -->
-    <circle cx="300" cy="30" r="5" fill="#FFD600" opacity=".9"/>
-  </svg>
-
-  <div class="splash-title">NSE <span>Sector</span> Analysis</div>
-  <div class="splash-sub">Loading FII fortnightly market intelligence…</div>
-
-  <!-- Fake ticker tape -->
-  <div class="ticker-wrap">
-    <div class="ticker-inner">
-      &nbsp;&nbsp;&nbsp;
-      NIFTY 50 &nbsp;<span class="up">▲ 24,502 &nbsp;+0.62%</span> &nbsp;|&nbsp;
-      NIFTY BANK &nbsp;<span class="up">▲ 52,340 &nbsp;+0.44%</span> &nbsp;|&nbsp;
-      NIFTY IT &nbsp;<span class="down">▼ 38,120 &nbsp;-0.31%</span> &nbsp;|&nbsp;
-      NIFTY AUTO &nbsp;<span class="up">▲ 22,870 &nbsp;+1.12%</span> &nbsp;|&nbsp;
-      FII NET (Jun 15) &nbsp;<span class="up">▲ ₹4,210 Cr</span> &nbsp;|&nbsp;
-      NIFTY PHARMA &nbsp;<span class="up">▲ 21,430 &nbsp;+0.88%</span> &nbsp;|&nbsp;
-      NIFTY FMCG &nbsp;<span class="down">▼ 56,210 &nbsp;-0.19%</span> &nbsp;|&nbsp;
-      NIFTY METAL &nbsp;<span class="up">▲ 9,320 &nbsp;+2.04%</span>
-      &nbsp;&nbsp;&nbsp;
-    </div>
-  </div>
-
-  <div class="loading-dots"><i></i><i></i><i></i></div>
-</div>
-
-<script>
-  // Auto-remove splash once Streamlit main content appears
-  (function() {
-    var attempts = 0;
-    var timer = setInterval(function() {
-      attempts++;
-      var main = document.querySelector('[data-testid="stMainBlockContainer"]');
-      var splash = document.getElementById('nse-splash');
-      if (!splash) { clearInterval(timer); return; }
-      if (attempts > 60 || (main && main.children.length > 2)) {
-        splash.style.transition = 'opacity .6s ease';
-        splash.style.opacity = '0';
-        setTimeout(function(){ if(splash) splash.remove(); }, 650);
-        clearInterval(timer);
-      }
-    }, 200);
-  })();
-</script>
-""", unsafe_allow_html=True)
+from app.utils.logo import show_logo
+from app.utils.visitor import get_visitor_count, render_visitor_counter
+show_logo()
+get_visitor_count()   # increment DB counter once per session
 
 # ── Cold-start DB sync (Streamlit Cloud resets filesystem on restart) ─────────
 @st.cache_resource(show_spinner=False)
@@ -207,10 +52,6 @@ def _cold_start_sync():
 _cold_start_sync()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
-from app.utils.logo import show_logo
-from app.utils.visitor import show_visitor_counter
-show_logo()
-show_visitor_counter()
 with st.sidebar:
     st.markdown("## 📊 NSE Sector Analysis")
     st.markdown("**Investor Decision Flow**")
@@ -284,6 +125,98 @@ with st.sidebar:
     st.markdown("---")
     st.caption(f"Data as of: {date.today().strftime('%d %b %Y')}")
     st.caption("NSDL updates every fortnight (1st & 15th of month).")
+    render_visitor_counter()
+
+# ── Inline splash placeholder — replaces blank area while data loads ──────────
+_SPLASH_HTML = """
+<style>
+@keyframes candleRise {
+  0%   { transform:scaleY(0); opacity:0; }
+  60%  { transform:scaleY(1.08); opacity:1; }
+  100% { transform:scaleY(1); opacity:1; }
+}
+@keyframes lineDrawFull {
+  0%   { stroke-dashoffset:500; opacity:0; }
+  20%  { opacity:1; }
+  100% { stroke-dashoffset:0; opacity:1; }
+}
+@keyframes tickerScroll {
+  0%   { transform:translateX(0); }
+  100% { transform:translateX(-50%); }
+}
+@keyframes pulseDot {
+  0%,100% { opacity:1; transform:scale(1); }
+  50%      { opacity:.3; transform:scale(.5); }
+}
+@keyframes fadeInUp {
+  from { opacity:0; transform:translateY(12px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+.pl-wrap {
+  background:#0e1117; border-radius:12px;
+  border:1px solid #1e2130;
+  display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:22px;
+  padding:40px 20px 36px; margin:8px 0;
+  min-height:420px;
+}
+.pl-brand  { font-size:12px; letter-spacing:3px; color:#444; text-transform:uppercase; animation:fadeInUp .5s ease both; }
+.pl-title  { font-size:32px; font-weight:800; color:#fff; animation:fadeInUp .5s ease .1s both; }
+.pl-title span { color:#2979ff; }
+.pl-sub    { font-size:12px; color:#555; letter-spacing:1px; animation:fadeInUp .5s ease .2s both; }
+.pl-candle { animation:fadeInUp .5s ease .05s both; }
+.pl-cbody  { transform-origin:bottom; animation:candleRise .65s cubic-bezier(.22,1,.36,1) both; }
+.pl-tpath  { stroke-dasharray:500; stroke-dashoffset:500; animation:lineDrawFull 1.4s ease .35s both; }
+.pl-ticker { width:100%; max-width:700px; overflow:hidden; border-top:1px solid #1a1d2e; border-bottom:1px solid #1a1d2e; padding:7px 0; animation:fadeInUp .5s ease .4s both; }
+.pl-tinner { display:inline-block; white-space:nowrap; font-size:12px; color:#3a3d4a; animation:tickerScroll 16s linear infinite; }
+.pl-tinner span.u { color:#00c853; } .pl-tinner span.d { color:#d50000; }
+.pl-dots   { display:flex; gap:7px; animation:fadeInUp .5s ease .5s both; }
+.pl-dots i { display:inline-block; width:8px; height:8px; border-radius:50%; background:#2979ff; animation:pulseDot 1.2s ease infinite; }
+.pl-dots i:nth-child(2){ animation-delay:.2s; }
+.pl-dots i:nth-child(3){ animation-delay:.4s; }
+</style>
+<div class="pl-wrap" id="nse-inline-splash">
+  <div class="pl-brand">NSE · FII Fortnightly Intelligence</div>
+  <svg class="pl-candle" width="380" height="130" viewBox="0 0 380 130">
+    <line x1="35"  y1="10" x2="35"  y2="100" stroke="#2a2d3a" stroke-width="2"/>
+    <line x1="90"  y1="18" x2="90"  y2="96"  stroke="#2a2d3a" stroke-width="2"/>
+    <line x1="145" y1="12" x2="145" y2="105" stroke="#2a2d3a" stroke-width="2"/>
+    <line x1="200" y1="6"  x2="200" y2="90"  stroke="#2a2d3a" stroke-width="2"/>
+    <line x1="255" y1="20" x2="255" y2="98"  stroke="#2a2d3a" stroke-width="2"/>
+    <line x1="310" y1="8"  x2="310" y2="82"  stroke="#2a2d3a" stroke-width="2"/>
+    <line x1="365" y1="4"  x2="365" y2="75"  stroke="#2a2d3a" stroke-width="2"/>
+    <g class="pl-cbody" style="animation-delay:.06s"><rect x="22"  y="45" width="26" height="55" rx="3" fill="#D50000"/></g>
+    <g class="pl-cbody" style="animation-delay:.16s"><rect x="77"  y="28" width="26" height="50" rx="3" fill="#00C853"/></g>
+    <g class="pl-cbody" style="animation-delay:.26s"><rect x="132" y="52" width="26" height="53" rx="3" fill="#D50000"/></g>
+    <g class="pl-cbody" style="animation-delay:.36s"><rect x="187" y="18" width="26" height="52" rx="3" fill="#00C853"/></g>
+    <g class="pl-cbody" style="animation-delay:.46s"><rect x="242" y="32" width="26" height="50" rx="3" fill="#00C853"/></g>
+    <g class="pl-cbody" style="animation-delay:.56s"><rect x="297" y="16" width="26" height="48" rx="3" fill="#00C853"/></g>
+    <g class="pl-cbody" style="animation-delay:.66s"><rect x="352" y="10" width="26" height="42" rx="3" fill="#00C853"/></g>
+    <polyline class="pl-tpath" points="35,72 90,52 145,78 200,44 255,58 310,36 365,28"
+      fill="none" stroke="#FFD600" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="365" cy="28" r="6" fill="#FFD600"/>
+  </svg>
+  <div class="pl-title">NSE <span>Sector</span> Analysis</div>
+  <div class="pl-sub">Preparing FII fortnightly sector intelligence…</div>
+  <div class="pl-ticker">
+    <div class="pl-tinner">
+      &nbsp;&nbsp;NIFTY 50 <span class="u">▲ 24,502 &nbsp;+0.62%</span> &nbsp;|&nbsp;
+      NIFTY BANK <span class="u">▲ 52,340 &nbsp;+0.44%</span> &nbsp;|&nbsp;
+      NIFTY IT <span class="d">▼ 38,120 &nbsp;-0.31%</span> &nbsp;|&nbsp;
+      NIFTY AUTO <span class="u">▲ 22,870 &nbsp;+1.12%</span> &nbsp;|&nbsp;
+      FII NET <span class="u">▲ ₹4,210 Cr</span> &nbsp;|&nbsp;
+      NIFTY PHARMA <span class="u">▲ 21,430 &nbsp;+0.88%</span> &nbsp;|&nbsp;
+      NIFTY FMCG <span class="d">▼ 56,210 &nbsp;-0.19%</span> &nbsp;|&nbsp;
+      NIFTY METAL <span class="u">▲ 9,320 &nbsp;+2.04%</span>&nbsp;&nbsp;
+      NIFTY 50 <span class="u">▲ 24,502 &nbsp;+0.62%</span> &nbsp;|&nbsp;
+      NIFTY BANK <span class="u">▲ 52,340 &nbsp;+0.44%</span> &nbsp;|&nbsp;
+      NIFTY IT <span class="d">▼ 38,120 &nbsp;-0.31%</span> &nbsp;|&nbsp;
+      NIFTY AUTO <span class="u">▲ 22,870 &nbsp;+1.12%</span>&nbsp;&nbsp;
+    </div>
+  </div>
+  <div class="pl-dots"><i></i><i></i><i></i></div>
+</div>
+"""
 
 # ── Load NSDL data (all available fortnights) ─────────────────────────────────
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -293,6 +226,9 @@ def load_nsdl_history():
 
 with st.status("📂 Loading FII sector data from database…", expanded=False) as _load_status:
     st.write("Reading fortnightly NSDL reports from local database — usually takes under 1 second.")
+    # Show animated splash in the blank area while data loads
+    _splash = st.empty()
+    _splash.markdown(_SPLASH_HTML, unsafe_allow_html=True)
     all_periods = load_nsdl_history()
     if all_periods:
         n = len(all_periods)
@@ -304,7 +240,7 @@ with st.status("📂 Loading FII sector data from database…", expanded=False) 
     else:
         _load_status.update(label="❌ No data found", state="error")
 
-_splash.empty()   # remove splash once data is ready
+_splash.empty()   # replace splash with real content
 
 if not all_periods:
     st.error("No NSDL data found in database. Click **🔄 Refresh Latest Data** in the sidebar to fetch from NSDL.")
