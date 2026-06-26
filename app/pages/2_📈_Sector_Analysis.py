@@ -50,7 +50,7 @@ if net_curr is not None:
     )
 
 st.title(f"📈 {sector} — Sector Analysis")
-st.caption("Does the price trend confirm FII buying? If yes → proceed to Stock Picker.")
+st.caption("Compare the sector price trend with FII flow data for research purposes.")
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -92,11 +92,11 @@ label, score_color = score_label(score)
 
 verdict_color = "#00C853" if ema_sig == "Bullish" else "#D50000" if ema_sig == "Bearish" else "#FF6D00"
 verdict_text  = (
-    "Price is CONFIRMING FII buying — trend is Bullish. Good time to look for stock entry."
+    "Price trend and FII flow are aligned — conduct further research before making any decision."
     if ema_sig == "Bullish" else
-    "Price DIVERGING from FII buying — sector is still in downtrend. Wait for price to recover."
+    "Price trend and FII flow diverge — verify data from additional sources before drawing conclusions."
     if ema_sig == "Bearish" else
-    "Price is MIXED — monitor for trend confirmation before entering."
+    "Price trend is mixed — monitor for additional data points before drawing conclusions."
 )
 st.markdown(
     f"<div style='background:{verdict_color}22;border-left:4px solid {verdict_color};"
@@ -229,7 +229,7 @@ if close and any(v for v in [ema20, ema50, ema200]):
 # ── CTA ───────────────────────────────────────────────────────────────────────
 st.markdown("---")
 c1, c2 = st.columns(2)
-if c1.button("🔍 Find Best Stocks in This Sector →", use_container_width=True, type="primary"):
+if c1.button("🔍 Screen Stocks in This Sector →", use_container_width=True, type="primary"):
     st.switch_page("pages/2_🎯_Stock_Picker.py")
 if c2.button("← Back to FII Sector Watch", use_container_width=True):
     st.switch_page("main.py")

@@ -14,11 +14,11 @@ _SITE_IMAGE = f"{_SITE_URL}/favicon.ico"
 PAGE_SEO = {
     "Home": {
         "title":       "Market Sector Analysis | FII Fortnightly Sector Flow Dashboard",
-        "description": "Track where Foreign Institutional Investors (FII/FPI) are buying in Indian stock markets. "
+        "description": "Track where Foreign Institutional Investors (FII/FPI) are investing in Indian stock markets. "
                        "Fortnightly NSDL sector-wise data, heatmaps, top buyer/seller sectors. "
-                       "Ideal for NSE/BSE equity investors using FII flow as a leading signal.",
+                       "For informational and research purposes only. Not investment advice.",
         "keywords":    "FII sector flow India, FPI investment sectors NSE, NSDL fortnightly data, "
-                       "Indian stock market FII tracker, sector wise FII buying, NSE sector analysis dashboard",
+                       "Indian stock market FII tracker, sector wise FII data, market sector analysis dashboard",
     },
     "FPI_Sectors": {
         "title":       "FPI Sector Investment Tracker | First Half Second Half Analysis | Market Sector Analysis",
@@ -37,20 +37,20 @@ PAGE_SEO = {
                        "sector wise FII history 2020 2021 2022 2023 2024 2025, NSDL FII data download",
     },
     "Sector_Analysis": {
-        "title":       "NSE Sector Price Analysis | FII Flow vs Price Confirmation | Market Sector Analysis",
-        "description": "Check if sector index prices are confirming FII buying signals. "
+        "title":       "Sector Price Analysis | FII Flow vs Price Data | Market Sector Analysis",
+        "description": "Compare sector index prices against FII flow data. "
                        "Analyse Nifty Bank, Nifty IT, Nifty Auto, Nifty Pharma and 20+ sector indices "
-                       "alongside FII flow data for better entry timing.",
-        "keywords":    "NSE sector index analysis, Nifty sector performance, FII flow price confirmation, "
-                       "sector index chart India, Nifty Bank Nifty IT Nifty Auto analysis",
+                       "alongside institutional flow data for research purposes. Not investment advice.",
+        "keywords":    "NSE sector index analysis, Nifty sector performance, FII flow price data, "
+                       "sector index chart India, Nifty Bank Nifty IT Nifty Auto research",
     },
     "Stock_Picker": {
-        "title":       "Stock Picker | Find Best Stocks in FII-Backed Sectors | Market Sector Analysis",
-        "description": "Screen for the best stocks within sectors where FII buying is strong. "
-                       "Filter by momentum, volume, RSI and FII flow signal to short-list high-potential "
-                       "NSE-listed equities for swing or positional trades.",
-        "keywords":    "stock picker NSE, best stocks to buy India, FII backed stocks, "
-                       "swing trade stocks NSE, momentum stocks India, stock screener NSE BSE",
+        "title":       "Stock Screener | FII Sector-Based Stock Analysis | Market Sector Analysis",
+        "description": "Analyse stocks within FII-active sectors. "
+                       "Filter by momentum, volume, RSI and FII flow data for research and screening purposes. "
+                       "For informational purposes only — not investment advice or recommendations.",
+        "keywords":    "stock screener NSE, FII sector stocks India, momentum analysis India, "
+                       "NSE equity screener, sector stock analysis, institutional flow stocks",
     },
     "FII_DII_Flow": {
         "title":       "FII DII Daily Flow | Institutional Buy Sell Activity | Market Sector Analysis",
@@ -62,19 +62,19 @@ PAGE_SEO = {
     },
     "Market_Pulse": {
         "title":       "Market Pulse | Nifty Breadth & Relative Rotation | Market Sector Analysis",
-        "description": "Get a pulse of the overall Indian stock market. "
+        "description": "View overall Indian stock market breadth data. "
                        "Advance-decline breadth, Relative Rotation Graph (RRG), VIX trends and "
-                       "market-wide FII flow to assess risk-on / risk-off environment before investing.",
+                       "market-wide FII flow data for research and analysis. For informational purposes only.",
         "keywords":    "Nifty market breadth, advance decline ratio NSE, RRG relative rotation graph India, "
                        "India VIX chart, market health indicator NSE, Nifty 50 analysis",
     },
     "Alerts": {
-        "title":       "Sector Alerts | FII Flow Breakouts & Reversals | Market Sector Analysis",
-        "description": "Get alerted when FII flow signals a sector breakout or reversal. "
-                       "Automated alerts for sectors crossing key thresholds so you never miss an "
-                       "institutional accumulation or distribution event.",
-        "keywords":    "sector breakout alert NSE, FII flow alert India, sector reversal signal, "
-                       "institutional accumulation alert, NSE sector notification",
+        "title":       "Technical Alerts | Sector Breakout & Reversal Patterns | Market Sector Analysis",
+        "description": "Monitor stocks crossing key technical levels across all sectors. "
+                       "View breakout and reversal patterns from historical data for research reference. "
+                       "For informational purposes only — not investment advice.",
+        "keywords":    "sector breakout monitor NSE, FII flow data India, technical pattern analysis, "
+                       "NSE stock technical levels, sector momentum analysis",
     },
     "Contact": {
         "title":       "Contact Us | Feedback & Support | Market Sector Analysis",

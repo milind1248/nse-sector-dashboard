@@ -96,7 +96,7 @@ def get_rrg():
     return compute_rrg_coordinates(sector_prices, nifty_raw)
 
 st.subheader("Relative Rotation Graph (RRG)")
-st.caption("Leading = strong + rising | Improving = weak but turning up | Weakening = strong but fading | Lagging = avoid")
+st.caption("Leading = strong + rising | Improving = weak but turning up | Weakening = strong but fading | Lagging = weak + falling")
 
 with st.spinner("Computing RRG..."):
     rrg_data = get_rrg()

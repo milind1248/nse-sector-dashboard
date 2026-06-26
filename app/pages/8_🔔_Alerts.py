@@ -17,8 +17,9 @@ inject_seo("Alerts")
 from app.utils.logo import show_logo
 show_logo()
 
-st.title("\U0001f6a8 Alerts — Breakouts & Signals")
-st.caption("Stocks crossing key technical levels across all sectors. Scan once daily after market close.")
+st.title("\U0001f6a8 Technical Alerts — Breakout & Reversal Patterns")
+st.warning("⚠️ For research and monitoring reference only. These are not buy/sell signals or investment recommendations. Consult a SEBI-registered investment adviser before making any financial decisions.")
+st.caption("Stocks crossing key technical levels across all sectors. For informational purposes only.")
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def scan_all_breakouts():
@@ -67,7 +68,7 @@ def scan_all_breakouts():
                                    "RSI": rsi_now, "Severity": "High"})
                 if rsi_prev and rsi_now and rsi_prev < 70 and rsi_now >= 70:
                     alerts.append({"Symbol": sym.replace(".NS",""), "Sector": sector,
-                                   "Alert": "RSI Overbought >70 — Book partial", "Price": price,
+                                   "Alert": "RSI Overbought >70 — Monitor for potential reversal", "Price": price,
                                    "RSI": rsi_now, "Severity": "Medium"})
                 high52 = float(close_s.rolling(252, min_periods=50).max().iloc[-1])
                 if price >= high52 * 0.99:

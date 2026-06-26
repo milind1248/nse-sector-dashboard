@@ -64,7 +64,7 @@ with st.sidebar:
 <span style="color:#3a5a8a;">⑤</span> 🏦 <b>FII DII Flow</b> <span style="color:#555;">→ Daily institutional activity</span><br>
 <span style="color:#3a5a8a;">⑥</span> 🌐 <b>FII Sectors</b> <span style="color:#555;">→ 5yr fortnightly history</span><br>
 <span style="color:#3a5a8a;">⑦</span> 🌏 <b>FPI Sectors</b> <span style="color:#555;">→ Foreign portfolio by sector</span><br>
-<span style="color:#3a5a8a;">⑧</span> 🎯 <b>Stock Picker</b> <span style="color:#555;">→ Best stock in right sector</span><br>
+<span style="color:#3a5a8a;">⑧</span> 🎯 <b>Stock Screener</b> <span style="color:#555;">→ Stocks in selected sector</span><br>
 <span style="color:#3a5a8a;">⑨</span> 🔔 <b>Alerts</b> <span style="color:#555;">→ Breakouts & reversals</span><br>
 <span style="color:#3a5a8a;">⑩</span> 📤 <b>Export</b> <span style="color:#555;">→ Download for offline use</span>
 </div>
@@ -162,7 +162,7 @@ _SPLASH_HTML = """
 .pl-dots i:nth-child(3){ animation-delay:.4s; }
 </style>
 <div class="pl-wrap" id="nse-inline-splash">
-  <div class="pl-brand">NSE · FII Fortnightly Intelligence</div>
+  <div class="pl-brand">FII Fortnightly Intelligence</div>
   <svg class="pl-candle" width="380" height="130" viewBox="0 0 380 130">
     <line x1="35"  y1="10" x2="35"  y2="100" stroke="#2a2d3a" stroke-width="2"/>
     <line x1="90"  y1="18" x2="90"  y2="96"  stroke="#2a2d3a" stroke-width="2"/>
@@ -182,7 +182,7 @@ _SPLASH_HTML = """
       fill="none" stroke="#FFD600" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
     <circle cx="365" cy="28" r="6" fill="#FFD600"/>
   </svg>
-  <div class="pl-title">NSE <span>Sector</span> Analysis</div>
+  <div class="pl-title">FII <span>Sector</span> Analysis</div>
   <div class="pl-sub">Preparing FII fortnightly sector intelligence…</div>
   <div class="pl-ticker">
     <div class="pl-tinner">
@@ -250,7 +250,7 @@ from app.utils.loading import data_freshness_bar
 st.title("📊 FII Fortnightly Sector Watch")
 st.markdown(
     "**Start here every morning.** "
-    "See where FII money is flowing → click sector → confirm price → find stocks to buy."
+    "See where FII money is flowing → explore sector price trends → screen stocks for further research."
 )
 data_freshness_bar(curr_date, record_count=len(all_periods), source="NSDL · fpi.nsdl.co.in")
 
@@ -562,7 +562,7 @@ if selected:
         st.session_state["selected_sector_nsdl"]     = selected
         st.session_state["selected_sector_net_curr"] = net_curr
         st.switch_page("pages/2_📈_Sector_Analysis.py")
-    if c2.button("🔍 Find stocks to buy in this sector", use_container_width=True):
+    if c2.button("🔍 Analyse stocks in this sector", use_container_width=True):
         st.session_state["selected_sector"]          = internal
         st.session_state["selected_sector_nsdl"]     = selected
         st.session_state["selected_sector_net_curr"] = net_curr

@@ -1,6 +1,6 @@
 ﻿"""
-Step 3: Find the best stocks to buy in the selected sector.
-Sorted by momentum score.
+Step 3: Screen stocks in the selected sector by momentum indicators.
+Sorted by momentum score. For research purposes only.
 """
 import sys
 from pathlib import Path
@@ -19,7 +19,7 @@ from backend.calculations.indicators import compute_all_indicators, ema_signal
 from backend.calculations.sector_score import compute_sector_score, score_label
 from backend.calculations.relative_strength import compute_rs_ratio
 
-st.set_page_config(page_title="Stock Picker | Best Stocks in FII-Backed Sectors | Market Sector Analysis", layout="wide")
+st.set_page_config(page_title="Stock Screener | FII Sector Stock Analysis | Market Sector Analysis", layout="wide")
 from app.utils.seo import inject_seo
 inject_seo("Stock_Picker")
 
@@ -47,8 +47,9 @@ if net_curr is not None:
         unsafe_allow_html=True,
     )
 
-st.title(f"\U0001f50d Stock Picker — {sector}")
-st.caption("Stocks ranked by momentum score. Focus on Bullish EMA trend + RSI 45–65 zone for best entries.")
+st.title(f"\U0001f50d Stock Screener — {sector}")
+st.warning("⚠️ For research and informational purposes only. This is not investment advice. Consult a SEBI-registered investment adviser before making any financial decisions.")
+st.caption("Stocks ranked by momentum score. EMA trend and RSI zone are indicators displayed for research reference only.")
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def load_stocks(sector: str):
@@ -120,7 +121,7 @@ if not stock_rows:
     st.stop()
 
 # Top-5 cards
-st.subheader("Top 5 Picks (highest momentum score)")
+st.subheader("Top 5 by Momentum Score")
 top5 = stock_rows[:5]
 cols = st.columns(5)
 for col, r in zip(cols, top5):
@@ -183,8 +184,9 @@ styled = (
 st.dataframe(styled, use_container_width=True, hide_index=True, height=420)
 
 st.caption(
-    "**How to use:** RSI 45–65 = ideal entry zone. EMA Bullish = price trending up. "
-    "Vol Ratio >1.5x = unusual buying. 52W H% = how far from 52-week high (lower = closer to breakout)."
+    "**How to read:** RSI 45–65 = mid-range momentum. EMA Bullish = price above moving averages. "
+    "Vol Ratio >1.5x = above-average volume. 52W H% = proximity to 52-week high. "
+    "All indicators are for research reference only — not trading signals or investment recommendations."
 )
 st.markdown("---")
 

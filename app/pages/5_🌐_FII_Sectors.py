@@ -14,7 +14,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import timedelta
 
-st.set_page_config(page_title="FII Sectors | Historical Sector Investment | NSE", layout="wide")
+st.set_page_config(page_title="FII Sectors | Historical Sector Investment | Market Sector Analysis", layout="wide")
 from app.utils.seo import inject_seo
 inject_seo("FII_Invest_Sector")
 
@@ -383,9 +383,9 @@ with tab_analysis:
         # Verdict legend
         st.markdown("""
 <small>
-🟢 **Confirmed** = FII buying + index rose → strong signal to find stocks &nbsp;|&nbsp;
-🔴 **Diverged** = FII bought but price fell → wait, could be accumulation or wrong call &nbsp;|&nbsp;
-🟡 **Aligned-Sell** = FII sold + index fell → sector to avoid &nbsp;|&nbsp;
+🟢 **Confirmed** = FII buying + index rose → both data points aligned in this period &nbsp;|&nbsp;
+🔴 **Diverged** = FII bought but price fell → data points diverged, verify from additional sources &nbsp;|&nbsp;
+🟡 **Aligned-Sell** = FII sold + index fell → both data points declined in this period &nbsp;|&nbsp;
 ⚪ **Mixed** = insufficient price data
 </small>
 """, unsafe_allow_html=True)
@@ -427,7 +427,7 @@ with tab_analysis:
         confirmed_df = an_df[an_df["Verdict"] == "Confirmed"].sort_values("FII Net (₹Cr)", ascending=False)
         if not confirmed_df.empty:
             st.subheader("✅ Confirmed Sectors — FII Buying + Price Confirmed")
-            st.caption("These are the highest-conviction sectors: FII bought AND index rose. Best candidates for stock picking.")
+            st.caption("These sectors show both FII buying and index gains in the selected period. Conduct further research before drawing conclusions.")
             for _, row in confirmed_df.iterrows():
                 col1, col2, col3 = st.columns([2,1,1])
                 sec_label = row["Sector"]
@@ -437,7 +437,7 @@ with tab_analysis:
                 # Navigate button
                 int_sec = fn_df[fn_df["nsdl_sector"]==sec_label]["sector"].values
                 if len(int_sec):
-                    if st.button(f"Find stocks in {sec_label[:20]} →", key=f"an_btn_{sec_label}"):
+                    if st.button(f"Screen stocks in {sec_label[:20]} →", key=f"an_btn_{sec_label}"):
                         st.session_state["selected_sector"]          = int_sec[0]
                         st.session_state["selected_sector_nsdl"]     = sec_label
                         st.session_state["selected_sector_net_curr"] = row["FII Net (₹Cr)"]
