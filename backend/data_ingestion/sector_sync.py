@@ -556,7 +556,26 @@ def sync_all(db_path: str | Path, progress_cb=None) -> dict:
             "sector", "index_name", "index_display",
             "market_cap_cr", "weightage_pct", "weight_source"]
     write_df = new_df[[c for c in keep if c in new_df.columns]]
-    write_df.to_sql("sector_intelligence", con, if_exists="replace", index=False)
+
+    # Delete only the indices we successfully synced, then insert fresh rows.
+    # This preserves existing data for indices that failed (e.g. PDF blocked on Cloud).
+    _ensure_tables(con)
+    synced_index_names = list(write_df["index_name"].unique()) if "index_name" in write_df.columns else []
+    if synced_index_names:
+        placeholders = ",".join("?" * len(synced_index_names))
+        con.execute(f"DELETE FROM sector_intelligence WHERE index_name IN ({placeholders})",
+                    synced_index_names)
+    for _, row in write_df.iterrows():
+        con.execute(
+            "INSERT INTO sector_intelligence "
+            "(company_name, symbol, industry, series, isin, sector, index_name, index_display, "
+            " market_cap_cr, weightage_pct, weight_source) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (row.get("company_name"), row.get("symbol"), row.get("industry"),
+             row.get("series"), row.get("isin"), row.get("sector"),
+             row.get("index_name"), row.get("index_display"),
+             row.get("market_cap_cr"), row.get("weightage_pct"), row.get("weight_source")),
+        )
     con.execute("CREATE INDEX IF NOT EXISTS idx_si_sector ON sector_intelligence(sector)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_si_index  ON sector_intelligence(index_name)")
 
