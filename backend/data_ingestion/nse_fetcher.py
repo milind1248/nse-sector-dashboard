@@ -210,18 +210,28 @@ def fetch_market_breadth() -> dict:
             "Accept": "application/json, */*",
         }
         session = requests.Session()
-        session.get("https://www.nseindia.com", headers=headers, timeout=10)
-        session.get("https://www.nseindia.com/market-data/advance", headers=headers, timeout=8)
+        try:
+            session.get("https://www.nseindia.com", headers=headers, timeout=10)
+        except Exception:
+            pass  # 403 or timeout on home is OK — proceed anyway
+        try:
+            session.get("https://www.nseindia.com/market-data/advance", headers=headers, timeout=8)
+        except Exception:
+            pass
         resp = session.get("https://www.nseindia.com/api/live-analysis-advance",
-                           headers=headers, timeout=10)
+                           headers=headers, timeout=15)
+        logger.info(f"Breadth API status: {resp.status_code}")
         if resp.status_code == 200:
             data = resp.json()
             counts = data.get("advance", {}).get("count", {})
-            return {
+            result = {
                 "advance":   int(counts.get("Advances", 0) or 0),
                 "decline":   int(counts.get("Declines", 0) or 0),
                 "unchanged": int(counts.get("Unchange", 0) or 0),
             }
+            logger.info(f"Breadth result: {result}")
+            return result
+        logger.warning(f"Breadth API returned {resp.status_code}: {resp.text[:200]}")
     except Exception as e:
         logger.warning(f"Breadth fetch failed: {e}")
     return {"advance": 0, "decline": 0, "unchanged": 0}

@@ -23,20 +23,26 @@ inject_seo("Market_Pulse")
 from app.utils.logo import show_logo
 show_logo()
 
+# Define cache functions first so Refresh button can clear them
+@st.cache_data(ttl=300, show_spinner=False)
+def get_market_summary():
+    return fetch_market_summary()
+
+@st.cache_data(ttl=120, show_spinner=False)
+def get_breadth():
+    return fetch_market_breadth()
+
 col_h, col_ref = st.columns([6, 1])
 col_h.title("📡 Market Pulse")
 if col_ref.button("🔄 Refresh", use_container_width=True):
-    st.cache_data.clear()
+    get_market_summary.clear()
+    get_breadth.clear()
     st.rerun()
 st.caption("Overall market breadth, sector heatmap, and RRG rotation at a glance.")
 
-# ── Market summary row ────────────────────────────────────────────────────────
-@st.cache_data(ttl=300, show_spinner=False)   # 5-min TTL for live market data
-def get_summary():
-    return fetch_market_summary(), fetch_market_breadth()
-
 with st.spinner("Loading market data..."):
-    summary, breadth = get_summary()
+    summary = get_market_summary()
+    breadth = get_breadth()
 
 st.subheader("Market Indices")
 idx_cols = st.columns(len(summary))
