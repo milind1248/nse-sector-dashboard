@@ -110,7 +110,7 @@ total_auc  = latest_df["auc_curr_eq"].sum() if "auc_curr_eq" in latest_df.column
 k1, k2, k3, k4, k5, k6 = st.columns(6)
 k1.metric("Total Net Flow", f"₹{total_net:+,.0f} Cr",
           "Inflow" if total_net > 0 else "Outflow",
-          delta_color="normal" if total_net > 0 else "inverse")
+          delta_color="normal")
 k2.metric("Buying Sectors",  f"{buyers}",  f"of {buyers+sellers}")
 k3.metric("Selling Sectors", f"{sellers}", "")
 k4.metric("Top Buyer",  top_buy["nsdl_sector"][:20],  f"₹{top_buy['net_curr_eq']:+,.0f} Cr")

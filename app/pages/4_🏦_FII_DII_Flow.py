@@ -67,9 +67,9 @@ with tabs[0]:
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric(f"FII Net ({period})", f"₹{fii_net_sum:+,.0f} Cr",
-                  delta_color="normal" if fii_net_sum >= 0 else "inverse")
+                  delta_color="normal")
         m2.metric(f"DII Net ({period})", f"₹{dii_net_sum:+,.0f} Cr",
-                  delta_color="normal" if dii_net_sum >= 0 else "inverse")
+                  delta_color="normal")
         m3.metric("FII Buy Days", f"{fii_buy_days} / {len(curr)}")
         m4.metric("DII Buy Days", f"{dii_buy_days} / {len(curr)}")
 

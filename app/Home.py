@@ -263,7 +263,7 @@ top_buyer     = curr_df.iloc[0]
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Total FII Equity Flow This Fortnight", f"₹{total_curr:+,.0f} Cr",
            "Net Inflow" if total_curr > 0 else "Net Outflow",
-           delta_color="normal" if total_curr > 0 else "inverse")
+           delta_color="normal")
 m2.metric("Sectors Buying", str(buying_count))
 m3.metric("Sectors Selling", str(selling_count))
 m4.metric("Top Sector", top_buyer["nsdl_sector"][:22], f"₹{top_buyer['net_curr_eq']:+,.0f} Cr")

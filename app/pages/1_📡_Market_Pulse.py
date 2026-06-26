@@ -77,7 +77,7 @@ for col, (name, data) in zip(idx_cols, summary.items()):
         col.metric(name, "N/A"); continue
     col.metric(name, f"₹{data['close']:,.0f}",
                f"{data['change']:+.0f} ({data['pct']:+.2f}%)",
-               delta_color="normal" if data['pct'] >= 0 else "inverse")
+               delta_color="normal")
 
 adv = int(breadth.get("advance", 0) or 0)
 dec = int(breadth.get("decline", 0) or 0)
