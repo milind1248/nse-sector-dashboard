@@ -25,13 +25,12 @@ st.caption(
 )
 
 # ── Load NSDL (all available fortnights) ─────────────────────────────────────
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=86400, show_spinner=False)  # NSDL never changes intraday
 def load_all_periods():
     from backend.data_ingestion.nsdl_fetcher import fetch_nsdl_fii_sectors
-    return fetch_nsdl_fii_sectors(periods=30)  # ~15 months
+    return fetch_nsdl_fii_sectors()
 
-with st.spinner("Loading all available NSDL fortnights..."):
-    all_periods = load_all_periods()
+all_periods = load_all_periods()
 
 if not all_periods:
     st.error("No NSDL data. Use 'Refresh Latest Data' on the home page.")
@@ -198,15 +197,14 @@ with tab_analysis:
         "This table cross-references FII flow with price data."
     )
 
-    @st.cache_data(ttl=3600, show_spinner=False)
+    @st.cache_data(ttl=86400, show_spinner=False)  # end-of-day prices; no need to refresh intraday
     def load_sector_prices_analysis():
         from backend.data_ingestion.yfinance_fetcher import fetch_all_sector_prices, _get_close
         from config import SECTOR_STOCKS, SECTOR_INDICES
         import yfinance as yf
         return fetch_all_sector_prices(), SECTOR_STOCKS, SECTOR_INDICES
 
-    with st.spinner("Loading sector index prices for analysis..."):
-        sector_prices, SECTOR_STOCKS, SECTOR_INDICES = load_sector_prices_analysis()
+    sector_prices, SECTOR_STOCKS, SECTOR_INDICES = load_sector_prices_analysis()
 
     # Pick fortnight and look-back window
     ac1, ac2 = st.columns(2)

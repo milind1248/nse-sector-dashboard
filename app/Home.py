@@ -128,7 +128,7 @@ def load_nsdl_history():
     from backend.data_ingestion.nsdl_fetcher import fetch_nsdl_fii_sectors
     return fetch_nsdl_fii_sectors()   # all stored data from DB
 
-with st.spinner("Loading FII sector data from NSDL..."):
+with st.spinner("Loading FII sector data..."):
     all_periods = load_nsdl_history()
 
 if not all_periods:

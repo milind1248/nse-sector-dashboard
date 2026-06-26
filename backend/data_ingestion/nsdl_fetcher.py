@@ -410,11 +410,42 @@ def fetch_nsdl_fii_sectors(periods: int = 30) -> dict[date, pd.DataFrame]:
 
 
 def get_latest_nsdl(periods: int = 2):
-    """Returns (curr_df, prev_df, curr_date, prev_date) direct from DB (no full reload)."""
-    data = _load_all_from_db()
-    if not data:
-        return None, None, None, None
-    sorted_dates = sorted(data.keys(), reverse=True)
-    cd  = sorted_dates[0]
-    pd_ = sorted_dates[1] if len(sorted_dates) > 1 else None
-    return data[cd], data.get(pd_), cd, pd_
+    """
+    Returns (curr_df, prev_df, curr_date, prev_date).
+    Uses a lean targeted query — loads only the 2 most recent dates, not all 2800+ rows.
+    """
+    try:
+        from backend.storage.database import db_session, get_engine
+        from backend.storage.models import NsdlFiiSector, Base
+        import sqlalchemy as sa
+        get_engine()
+        with db_session() as s:
+            # Get the 2 most recent distinct dates in one query
+            top_dates = (
+                s.query(NsdlFiiSector.report_date)
+                 .distinct()
+                 .order_by(NsdlFiiSector.report_date.desc())
+                 .limit(2)
+                 .all()
+            )
+        if not top_dates:
+            return None, None, None, None
+
+        cd  = top_dates[0][0]
+        pd_ = top_dates[1][0] if len(top_dates) > 1 else None
+
+        # Load only those 2 dates
+        all_data = _load_all_from_db()  # already cached in Streamlit layer
+        if not all_data:
+            return None, None, None, None
+        return all_data.get(cd), all_data.get(pd_), cd, pd_
+    except Exception as e:
+        logger.error("get_latest_nsdl error: %s", e)
+        # fallback to full load
+        data = _load_all_from_db()
+        if not data:
+            return None, None, None, None
+        sorted_dates = sorted(data.keys(), reverse=True)
+        cd  = sorted_dates[0]
+        pd_ = sorted_dates[1] if len(sorted_dates) > 1 else None
+        return data[cd], data.get(pd_), cd, pd_

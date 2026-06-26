@@ -18,11 +18,15 @@ st.caption("Daily institutional flow + fortnightly sector breakdown from NSDL.")
 
 tabs = st.tabs(["📅 Daily Flow", "📊 Fortnightly Sector Breakdown"])
 
-# ── Load all data once (always 120 days), filter in memory per period ─────────
-@st.cache_data(ttl=3600, show_spinner=False)
+# ── Load functions defined at module level so Streamlit cache works correctly ──
+@st.cache_data(ttl=3600, show_spinner=False)   # 1-hr TTL: NSE daily data changes during market hours
 def load_daily_fii_all():
     """Fetch once, filter per period in UI. Avoids repeated network calls on radio switch."""
     return fetch_fii_dii(days=120)
+
+@st.cache_data(ttl=86400, show_spinner=False)  # 24-hr TTL: NSDL never changes intraday
+def load_nsdl_latest():
+    return get_latest_nsdl(periods=2)
 
 with tabs[0]:
     period_map = {"Weekly": 7, "Fortnightly": 14, "Monthly": 30, "Quarterly": 90}
@@ -125,12 +129,7 @@ with tabs[0]:
 
 # ── Tab 2 — Fortnightly Sector Breakdown ──────────────────────────────────────
 with tabs[1]:
-    @st.cache_data(ttl=86400, show_spinner=False)
-    def load_nsdl():
-        return get_latest_nsdl(periods=4)
-
-    with st.spinner("Loading NSDL fortnightly data..."):
-        curr_df, prev_df, curr_date, prev_date = load_nsdl()
+    curr_df, prev_df, curr_date, prev_date = load_nsdl_latest()
 
     if curr_df is None:
         st.error("NSDL data unavailable.")

@@ -25,8 +25,7 @@ def load_data():
     from backend.data_ingestion.nsdl_fetcher import fetch_nsdl_fii_sectors
     return fetch_nsdl_fii_sectors()
 
-with st.spinner("Loading FPI sector data..."):
-    all_periods = load_data()
+all_periods = load_data()   # served from Streamlit cache; no spinner needed
 
 if not all_periods:
     st.error("No data. Go to Home and click Refresh.")
