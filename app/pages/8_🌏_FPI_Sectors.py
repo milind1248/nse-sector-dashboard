@@ -18,6 +18,9 @@ st.set_page_config(page_title="FPI Sector Investment Tracker | First Half Second
 from app.utils.seo import inject_seo
 inject_seo("FPI_Sectors")
 
+from app.utils.logo import show_logo
+show_logo()
+
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=86400, show_spinner=False)

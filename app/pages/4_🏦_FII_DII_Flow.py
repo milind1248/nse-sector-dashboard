@@ -13,6 +13,9 @@ st.set_page_config(page_title="FII DII Daily Flow | Institutional Activity | NSE
 from app.utils.seo import inject_seo
 inject_seo("FII_DII_Flow")
 
+from app.utils.logo import show_logo
+show_logo()
+
 st.title("🏦 FII / DII Flow Dashboard")
 st.caption("Daily institutional flow + fortnightly sector breakdown from NSDL.")
 

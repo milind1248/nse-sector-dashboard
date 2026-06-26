@@ -20,6 +20,9 @@ st.set_page_config(page_title="Market Pulse | Nifty Breadth & Relative Rotation 
 from app.utils.seo import inject_seo
 inject_seo("Market_Pulse")
 
+from app.utils.logo import show_logo
+show_logo()
+
 st.title("📡 Market Pulse")
 st.caption("Overall market breadth, sector heatmap, and RRG rotation at a glance.")
 

@@ -76,6 +76,11 @@ PAGE_SEO = {
         "keywords":    "sector breakout alert NSE, FII flow alert India, sector reversal signal, "
                        "institutional accumulation alert, NSE sector notification",
     },
+    "Contact": {
+        "title":       "Contact Us | Feedback & Support | NSE Sector Analysis",
+        "description": "Send feedback, report data issues or request new features for the NSE Sector Analysis FII dashboard.",
+        "keywords":    "contact NSE dashboard, FII data feedback, Indian stock market tool support",
+    },
     "Export": {
         "title":       "Export FII Sector Data | Download NSDL Data CSV | NSE Sector Analysis",
         "description": "Download historical FII/FPI sector-wise investment data as CSV or Excel. "

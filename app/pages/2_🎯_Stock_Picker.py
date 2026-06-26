@@ -23,6 +23,9 @@ st.set_page_config(page_title="Stock Picker | Best Stocks in FII-Backed Sectors 
 from app.utils.seo import inject_seo
 inject_seo("Stock_Picker")
 
+from app.utils.logo import show_logo
+show_logo()
+
 
 sector = st.session_state.get("selected_sector")
 all_sectors = list(SECTOR_STOCKS.keys())

@@ -19,6 +19,9 @@ st.set_page_config(page_title="Export FII Sector Data | Download NSDL CSV | NSE 
 from app.utils.seo import inject_seo
 inject_seo("Export")
 
+from app.utils.logo import show_logo
+show_logo()
+
 st.title("\U0001f4e5 Export Dashboard Data")
 st.caption("Download full sector intelligence report as Excel.")
 

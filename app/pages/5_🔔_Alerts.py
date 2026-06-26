@@ -14,6 +14,9 @@ st.set_page_config(page_title="Sector Alerts | FII Breakouts & Reversals | NSE S
 from app.utils.seo import inject_seo
 inject_seo("Alerts")
 
+from app.utils.logo import show_logo
+show_logo()
+
 st.title("\U0001f6a8 Alerts — Breakouts & Signals")
 st.caption("Stocks crossing key technical levels across all sectors. Scan once daily after market close.")
 

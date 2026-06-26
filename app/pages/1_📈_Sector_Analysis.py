@@ -22,6 +22,9 @@ st.set_page_config(page_title="NSE Sector Price Analysis | FII Flow vs Price | N
 from app.utils.seo import inject_seo
 inject_seo("Sector_Analysis")
 
+from app.utils.logo import show_logo
+show_logo()
+
 
 # ── Get sector from session ────────────────────────────────────────────────────
 sector = st.session_state.get("selected_sector")
