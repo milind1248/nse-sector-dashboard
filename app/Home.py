@@ -80,7 +80,7 @@ def _render_ticker(rows: list, period_label: str):
   </div>
   <div style="overflow:hidden;flex:1;height:100%">
     <div style="display:flex;align-items:center;height:100%;white-space:nowrap;
-                animation:fii-scroll 35s linear infinite">
+                animation:fii-scroll 22s linear infinite">
       {content}
     </div>
   </div>
