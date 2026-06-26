@@ -55,35 +55,20 @@ _cold_start_sync()
 with st.sidebar:
     render_visitor_counter()
     st.markdown("## 📊 NSE Sector Analysis")
-    st.markdown("**Investor Decision Flow**")
     st.markdown("""
-🏠 **Home**
-&nbsp;&nbsp;&nbsp;->Where is FII buying this fortnight?
-
-🌏 **FPI Sectors**
-&nbsp;&nbsp;&nbsp;->Deep-dive: first/second half, top buyers
-
-🌐 **FII Invest Sector**
-&nbsp;&nbsp;&nbsp;->5-year sector flow history & heatmap
-
-📈 **Sector Analysis**
-&nbsp;&nbsp;&nbsp;->Is index price confirming FII flow?
-
-🎯 **Stock Picker**
-&nbsp;&nbsp;&nbsp;->Find the best stock in the right sector
-
-🏦 **FII DII Flow**
-&nbsp;&nbsp;&nbsp;->Daily institutional buy/sell activity
-
-📡 **Market Pulse**
-&nbsp;&nbsp;&nbsp;->Breadth, RRG & overall market health
-
-🔔 **Alerts**
-&nbsp;&nbsp;&nbsp;->Sectors breaking out or reversing
-
-📤 **Export**
-&nbsp;&nbsp;&nbsp;->Download data for offline analysis
-""")
+<div style="font-size:11px; color:#888; line-height:1.7; margin-top:2px;">
+<b style="color:#aaa; font-size:10px; letter-spacing:1px;">INVESTOR DECISION FLOW</b><br>
+🏠 <b>Home</b> <span style="color:#555;">-> FII buying this fortnight?</span><br>
+🌏 <b>FPI Sectors</b> <span style="color:#555;">-> First/second half, top buyers</span><br>
+🌐 <b>FII Invest Sector</b> <span style="color:#555;">-> 5yr history & heatmap</span><br>
+📈 <b>Sector Analysis</b> <span style="color:#555;">-> Price confirming FII flow?</span><br>
+🎯 <b>Stock Picker</b> <span style="color:#555;">-> Best stock in right sector</span><br>
+🏦 <b>FII DII Flow</b> <span style="color:#555;">-> Daily buy/sell activity</span><br>
+📡 <b>Market Pulse</b> <span style="color:#555;">-> Breadth & market health</span><br>
+🔔 <b>Alerts</b> <span style="color:#555;">-> Breakouts & reversals</span><br>
+📤 <b>Export</b> <span style="color:#555;">-> Download for offline use</span>
+</div>
+""", unsafe_allow_html=True)
     st.markdown("---")
     if st.button("🔄 Refresh Latest Data", use_container_width=True,
                   help="Fetches today's latest NSDL + price data only. Old historical data stays."):
