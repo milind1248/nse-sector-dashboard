@@ -197,12 +197,20 @@ with tab_analysis:
         "This table cross-references FII flow with price data."
     )
 
-    @st.cache_data(ttl=86400, show_spinner=False)  # end-of-day prices; no need to refresh intraday
+    @st.cache_data(ttl=86400, show_spinner=False)
     def load_sector_prices_analysis():
         from backend.data_ingestion.yfinance_fetcher import fetch_all_sector_prices, _get_close
         from config import SECTOR_STOCKS, SECTOR_INDICES
         import yfinance as yf
         return fetch_all_sector_prices(), SECTOR_STOCKS, SECTOR_INDICES
+
+    # Lazy load — only fetch yfinance when user requests it (avoids 20+ API calls on every page open)
+    if "price_analysis_loaded" not in st.session_state:
+        st.info("📈 Click below to load sector price data from Yahoo Finance (fetched once per day).")
+        if st.button("Load Price vs FII Analysis", type="primary"):
+            st.session_state["price_analysis_loaded"] = True
+            st.rerun()
+        st.stop()
 
     sector_prices, SECTOR_STOCKS, SECTOR_INDICES = load_sector_prices_analysis()
 
