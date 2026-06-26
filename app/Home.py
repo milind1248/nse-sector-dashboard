@@ -53,7 +53,7 @@ _cold_start_sync()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 📊 Market Sector Analysis")
+    st.markdown("<p style='font-size:15px;font-weight:700;margin:0 0 6px 0;white-space:nowrap'>📊 Market Sector Analysis</p>", unsafe_allow_html=True)
     st.markdown("""
 <div style="font-size:11px; color:#888; line-height:1.8; margin-top:2px;">
 <b style="color:#aaa; font-size:10px; letter-spacing:1px;">INVESTOR DECISION FLOW</b><br>
