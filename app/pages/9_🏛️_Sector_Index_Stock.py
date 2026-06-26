@@ -104,7 +104,7 @@ with st.expander("🔄 Data Sync — NSE India + Yahoo Finance", expanded=False)
         st.markdown("**Actions**")
         do_sync = st.button("🔄 Sync Now", type="primary", use_container_width=True,
                             help="Fetch latest constituent list from NSE and market caps from Yahoo Finance")
-        st.caption("Takes ~2–3 min · All 12 indices")
+        st.caption("Takes ~5–8 min · All 34 indices")
 
     if do_sync:
         prog_bar  = st.progress(0.0)
