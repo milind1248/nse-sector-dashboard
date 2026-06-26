@@ -209,23 +209,19 @@ def load_nsdl_history():
     from backend.data_ingestion.nsdl_fetcher import fetch_nsdl_fii_sectors
     return fetch_nsdl_fii_sectors()
 
-with st.status("📂 Loading FII sector data from database…", expanded=False) as _load_status:
-    st.write("Reading fortnightly NSDL reports from local database — usually takes under 1 second.")
-    # Show animated splash in the blank area while data loads
-    _splash = st.empty()
-    _splash.markdown(_SPLASH_HTML, unsafe_allow_html=True)
+with st.status("📂 Loading NSE market intelligence…", expanded=True) as _load_status:
+    # Splash fills the expanded status area while data loads
+    st.markdown(_SPLASH_HTML, unsafe_allow_html=True)
     all_periods = load_nsdl_history()
     if all_periods:
         n = len(all_periods)
         latest = max(all_periods.keys())
         _load_status.update(
             label=f"✅ {n} fortnightly reports loaded · Latest: {latest.strftime('%d %b %Y')}",
-            state="complete", expanded=False,
+            state="complete", expanded=False,   # collapses → hides splash
         )
     else:
         _load_status.update(label="❌ No data found", state="error")
-
-_splash.empty()   # replace splash with real content
 
 if not all_periods:
     st.error("No NSDL data found in database. Click **🔄 Refresh Latest Data** in the sidebar to fetch from NSDL.")
