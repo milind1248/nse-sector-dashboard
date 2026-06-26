@@ -200,8 +200,92 @@ def fetch_fii_dii(days: int = 90) -> pd.DataFrame:
                                   "dii_buy", "dii_sell", "dii_net"])
 
 
+def _breadth_from_bhavcopy() -> Optional[dict]:
+    """Compute advance/decline from NSE daily Bhavcopy CSV (most reliable, no cookies needed).
+    Downloads today's or most recent available Bhavcopy and counts advancers/decliners.
+    """
+    try:
+        import requests, zipfile, io
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                   "Referer": "https://www.nseindia.com"}
+        session = requests.Session()
+        session.get("https://www.nseindia.com", headers=headers, timeout=8)
+
+        # Try last 5 trading days (handles weekends/holidays)
+        for offset in range(0, 6):
+            dt = date.today() - timedelta(days=offset)
+            url = (f"https://nsearchives.nseindia.com/content/cm/"
+                   f"BhavCopy_NSE_CM_0_0_0_{dt.strftime('%Y%m%d')}_F_0000.csv.zip")
+            try:
+                r = session.get(url, headers=headers, timeout=12)
+                if r.status_code != 200:
+                    continue
+                z = zipfile.ZipFile(io.BytesIO(r.content))
+                df = pd.read_csv(z.open(z.namelist()[0]))
+
+                # Exclude non-equity: govt bonds (GS/GB), T-bills (TB), InvIT/REIT (IV)
+                exclude_series = {'GS', 'GB', 'TB', 'IV'}
+                eq = df[~df['SctySrs'].isin(exclude_series)].copy()
+                eq['ClsPric']      = pd.to_numeric(eq['ClsPric'], errors='coerce')
+                eq['PrvsClsgPric'] = pd.to_numeric(eq['PrvsClsgPric'], errors='coerce')
+                eq = eq.dropna(subset=['ClsPric', 'PrvsClsgPric'])
+                eq = eq[eq['PrvsClsgPric'] > 0]
+
+                advance  = int((eq['ClsPric'] > eq['PrvsClsgPric']).sum())
+                decline  = int((eq['ClsPric'] < eq['PrvsClsgPric']).sum())
+                unchanged = int((eq['ClsPric'] == eq['PrvsClsgPric']).sum())
+
+                if advance + decline > 0:
+                    logger.info(f"Bhavcopy breadth {dt}: adv={advance} dec={decline} unch={unchanged}")
+                    return {"advance": advance, "decline": decline, "unchanged": unchanged}
+            except Exception as e:
+                logger.warning(f"Bhavcopy {dt} failed: {e}")
+                continue
+    except Exception as e:
+        logger.warning(f"Bhavcopy breadth failed: {e}")
+    return None
+
+
+def _breadth_from_moneycontrol() -> Optional[dict]:
+    """Fallback: parse advance/decline for NIFTY 500 from MoneyControl embedded JSON."""
+    try:
+        import requests, re, json as _json
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120"}
+        session = requests.Session()
+        session.get("https://www.moneycontrol.com", headers=headers, timeout=8)
+        r = session.get(
+            "https://www.moneycontrol.com/stocksmarketsindia/heat-map-advance-decline-ratio-nse-bse",
+            headers={**headers, "Referer": "https://www.moneycontrol.com"}, timeout=12,
+        )
+        match = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', r.text, re.S)
+        if not match:
+            return None
+        page_data = _json.loads(match.group(1))
+        index_list = page_data["props"]["pageProps"]["adRatioData"]["indexList"]
+        # Use NIFTY 500 as broadest available index
+        for idx in index_list:
+            if "500" in idx.get("indexName", ""):
+                return {
+                    "advance":   int(idx.get("advance", 0) or 0),
+                    "decline":   int(idx.get("decline", 0) or 0),
+                    "unchanged": 0,
+                    "source":    "MC-NIFTY500",
+                }
+    except Exception as e:
+        logger.warning(f"MC breadth fallback failed: {e}")
+    return None
+
+
 def fetch_market_breadth() -> dict:
-    """Returns today's advance/decline counts from NSE live-analysis-advance API."""
+    """Returns today's advance/decline counts.
+    Priority: NSE Bhavcopy (reliable, no cookies) → NSE live API → MoneyControl.
+    """
+    # 1. Bhavcopy — most reliable, works in any network context
+    bhav = _breadth_from_bhavcopy()
+    if bhav:
+        return bhav
+
+    # 2. NSE live-analysis-advance API
     try:
         import requests
         headers = {
@@ -211,27 +295,29 @@ def fetch_market_breadth() -> dict:
         }
         session = requests.Session()
         try:
-            session.get("https://www.nseindia.com", headers=headers, timeout=10)
+            session.get("https://www.nseindia.com", headers=headers, timeout=8)
         except Exception:
-            pass  # 403 or timeout on home is OK — proceed anyway
+            pass
         try:
-            session.get("https://www.nseindia.com/market-data/advance", headers=headers, timeout=8)
+            session.get("https://www.nseindia.com/market-data/advance", headers=headers, timeout=6)
         except Exception:
             pass
         resp = session.get("https://www.nseindia.com/api/live-analysis-advance",
-                           headers=headers, timeout=15)
-        logger.info(f"Breadth API status: {resp.status_code}")
+                           headers=headers, timeout=12)
         if resp.status_code == 200:
             data = resp.json()
             counts = data.get("advance", {}).get("count", {})
-            result = {
-                "advance":   int(counts.get("Advances", 0) or 0),
-                "decline":   int(counts.get("Declines", 0) or 0),
-                "unchanged": int(counts.get("Unchange", 0) or 0),
-            }
-            logger.info(f"Breadth result: {result}")
-            return result
-        logger.warning(f"Breadth API returned {resp.status_code}: {resp.text[:200]}")
+            adv = int(counts.get("Advances", 0) or 0)
+            dec = int(counts.get("Declines", 0) or 0)
+            if adv > 0 or dec > 0:
+                return {"advance": adv, "decline": dec,
+                        "unchanged": int(counts.get("Unchange", 0) or 0)}
     except Exception as e:
-        logger.warning(f"Breadth fetch failed: {e}")
+        logger.warning(f"NSE live breadth failed: {e}")
+
+    # 3. MoneyControl NIFTY 500 fallback
+    mc = _breadth_from_moneycontrol()
+    if mc:
+        return mc
+
     return {"advance": 0, "decline": 0, "unchanged": 0}
