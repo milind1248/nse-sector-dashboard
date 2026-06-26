@@ -58,6 +58,49 @@ def _load_fii_from_db(days: int) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _try_moneycontrol_fii() -> Optional[pd.DataFrame]:
+    """Fetch 30 days of FII/DII Cash Market data from MoneyControl page (embedded JSON)."""
+    try:
+        import requests, re, json as _json
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120",
+            "Referer": "https://www.moneycontrol.com",
+        }
+        session = requests.Session()
+        session.get("https://www.moneycontrol.com", headers=headers, timeout=10)
+        r = session.get(
+            "https://www.moneycontrol.com/stocks/marketstats/fii_dii_activity/index.php",
+            headers=headers, timeout=12,
+        )
+        match = re.search(r'"fiiDiiData":(\[.*?\])', r.text, re.S)
+        if not match:
+            return None
+
+        raw = _json.loads(match.group(1))
+        rows = []
+        for item in raw:
+            try:
+                def _f(v):
+                    return float(str(v).replace(",", "").strip()) if v not in ("", None) else 0.0
+                fii_net = _f(item.get("fiiCM", 0))
+                dii_net = _f(item.get("diiCM", 0))
+                rows.append({
+                    "date":     pd.to_datetime(item["date"]).date(),
+                    "fii_buy":  0.0,
+                    "fii_sell": 0.0,
+                    "fii_net":  fii_net,
+                    "dii_buy":  0.0,
+                    "dii_sell": 0.0,
+                    "dii_net":  dii_net,
+                })
+            except Exception:
+                continue
+        return pd.DataFrame(rows) if rows else None
+    except Exception as e:
+        logger.warning(f"MoneyControl FII fetch failed: {e}")
+    return None
+
+
 def _try_nsepython_fii() -> Optional[pd.DataFrame]:
     try:
         from nsepython import fii_dii_data
@@ -127,23 +170,30 @@ def fetch_fii_dii(days: int = 90) -> pd.DataFrame:
     """Returns DataFrame with FII/DII daily flow.
 
     Strategy:
-    1. Fetch today's data from NSE (returns only the current day).
-    2. Upsert into SQLite so history accumulates over time.
-    3. Return full history from SQLite for the requested period.
+    1. MoneyControl — 30 days of Cash Market net FII/DII (most reliable).
+    2. NSE live API  — today's data only (buy/sell/net breakdown).
+    3. Upsert both into SQLite so history accumulates beyond 30 days.
+    4. Return full DB history for the requested period.
     """
-    # Step 1: fetch today's live data and persist
-    live_df = _try_nse_web_fii()
-    if live_df is not None and not live_df.empty:
-        _upsert_fii_rows(live_df.to_dict("records"))
+    # Step 1: MoneyControl (30 days history)
+    mc_df = _try_moneycontrol_fii()
+    if mc_df is not None and not mc_df.empty:
+        _upsert_fii_rows(mc_df.to_dict("records"))
 
-    # Step 2: return history from DB (accumulates daily)
+    # Step 2: NSE live (today's buy/sell detail, overwrites MC's 0 buy/sell)
+    nse_df = _try_nse_web_fii()
+    if nse_df is not None and not nse_df.empty:
+        _upsert_fii_rows(nse_df.to_dict("records"))
+
+    # Step 3: return full history from DB
     db_df = _load_fii_from_db(days)
     if not db_df.empty:
         return db_df.sort_values("date").reset_index(drop=True)
 
-    # Fallback: return whatever live fetch returned (single day)
-    if live_df is not None and not live_df.empty:
-        return live_df.sort_values("date").reset_index(drop=True)
+    # Fallback: return whatever we got live
+    for df in [mc_df, nse_df]:
+        if df is not None and not df.empty:
+            return df.sort_values("date").reset_index(drop=True)
 
     logger.error("All FII/DII sources failed — returning empty")
     return pd.DataFrame(columns=["date", "fii_buy", "fii_sell", "fii_net",
