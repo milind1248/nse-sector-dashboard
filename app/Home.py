@@ -53,7 +53,6 @@ _cold_start_sync()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    render_visitor_counter()
     st.markdown("## 📊 NSE Sector Analysis")
     st.markdown("""
 <div style="font-size:11px; color:#888; line-height:1.7; margin-top:2px;">
@@ -111,6 +110,7 @@ with st.sidebar:
     st.markdown("---")
     st.caption(f"Data as of: {date.today().strftime('%d %b %Y')}")
     st.caption("NSDL updates every fortnight (1st & 15th of month).")
+    render_visitor_counter()
 
 # ── Inline splash placeholder — replaces blank area while data loads ──────────
 _SPLASH_HTML = """
