@@ -94,7 +94,8 @@ with st.expander("🔄 Data Sync — NSE India + Yahoo Finance", expanded=False)
             st.markdown(
                 f"🕐 **{last['synced_at']}**  \n"
                 f"📊 {last['indices_synced']} indices · {last['stocks_total']} stocks  \n"
-                f"🔁 {last['changes']}"
+                f"🔁 {last['changes']}  \n"
+                f"📄 Factsheet date: **{last.get('factsheet_date','N/A')}**"
             )
         else:
             st.markdown("⚠️ Never synced — data is from Excel seed file")
@@ -124,11 +125,12 @@ with st.expander("🔄 Data Sync — NSE India + Yahoo Finance", expanded=False)
                 fail = result["indices_failed"]
                 result_box.success(
                     f"✅ Sync complete!  \n"
-                    f"**{ok}** indices synced · "
-                    f"**{result['stocks_total']}** stocks  \n"
-                    f"🆕 +{result['stocks_added']} added  · "
-                    f"✏️ ~{result['stocks_updated']} updated  · "
-                    f"🗑️ -{result['stocks_removed']} removed"
+                    f"**{ok}** indices synced · **{result['stocks_total']}** stocks  \n"
+                    f"🆕 +{result['stocks_added']} added · "
+                    f"✏️ ~{result['stocks_updated']} updated · "
+                    f"🗑️ -{result['stocks_removed']} removed  \n"
+                    f"📄 Factsheet date: **{result.get('factsheet_date','N/A')}**  \n"
+                    f"📌 Weightages sourced from NiftyIndices official factsheets (PDF)"
                     + (f"  \n⚠️ Failed: {', '.join(fail)}" if fail else "")
                 )
             except Exception as e:
