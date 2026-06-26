@@ -122,7 +122,8 @@ with st.sidebar:
     st.caption("NSDL updates every fortnight (1st & 15th of month).")
 
 # ── Load NSDL data (all available fortnights) ─────────────────────────────────
-@st.cache_data(ttl=3600, show_spinner=False)
+# TTL=86400: NSDL only publishes fortnightly; no need to re-read DB more than once a day.
+@st.cache_data(ttl=86400, show_spinner=False)
 def load_nsdl_history():
     from backend.data_ingestion.nsdl_fetcher import fetch_nsdl_fii_sectors
     return fetch_nsdl_fii_sectors()   # all stored data from DB

@@ -394,16 +394,24 @@ def should_sync_today() -> bool:
 
 def fetch_nsdl_fii_sectors(periods: int = 30) -> dict[date, pd.DataFrame]:
     """
-    Public entry point used by all pages.
-    Loads from DB; fetches missing dates automatically.
-    `periods` is kept for API compatibility but all available data is returned.
+    Public entry point used by ALL pages.
+    ONLY reads from DB — never hits NSDL network.
+    Network calls happen ONLY via sync_nsdl_to_db() which is called from:
+      - Home._cold_start_sync()  (once per server process, only when DB empty or fortnight day)
+      - Refresh button click
+    `periods` kept for API compatibility; all stored data is returned.
     """
-    return sync_nsdl_to_db(force_refresh_latest=False)
+    data = _load_all_from_db()
+    if not data:
+        # DB is completely empty (e.g. first cold start before _cold_start_sync ran)
+        logger.info("DB empty in fetch_nsdl_fii_sectors — doing one-time full sync")
+        return sync_nsdl_to_db(force_refresh_latest=False)
+    return data
 
 
 def get_latest_nsdl(periods: int = 2):
-    """Returns (curr_df, prev_df, curr_date, prev_date) from DB."""
-    data = fetch_nsdl_fii_sectors()
+    """Returns (curr_df, prev_df, curr_date, prev_date) direct from DB (no full reload)."""
+    data = _load_all_from_db()
     if not data:
         return None, None, None, None
     sorted_dates = sorted(data.keys(), reverse=True)

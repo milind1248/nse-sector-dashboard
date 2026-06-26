@@ -107,8 +107,9 @@ k6.metric("Total AUC",  f"₹{total_auc/100000:.1f}L Cr" if total_auc else "–"
 st.markdown("---")
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_ov, tab_trend, tab_cum, tab_hm, tab_auc = st.tabs([
+tab_ov, tab_net, tab_trend, tab_cum, tab_hm, tab_auc = st.tabs([
     "📊 Overview",
+    "📉 Net Investment Trend",
     "📈 Sector Trend",
     "🔢 Cumulative Flow Tracker",
     "🟥 Heat Map",
@@ -260,7 +261,142 @@ with tab_ov:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — Sector Trend
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 2 — Fortnightly Net Investment Trend  (fpidata.in style)
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_net:
+    st.subheader("Fortnightly Net Investment Trend ( Equity Only )")
+    st.caption("Bars = net FII equity investment per fortnight · Line = cumulative total")
+
+    # ── Sector chip selector ──────────────────────────────────────────────────
+    sector_list = sorted(all_sectors)
+    if "net_sector" not in st.session_state:
+        st.session_state["net_sector"] = sector_list[0]
+
+    # Render chips as inline buttons
+    chip_cols = st.columns(min(len(sector_list), 6))
+    per_row   = 6
+    rows_needed = (len(sector_list) + per_row - 1) // per_row
+    for r in range(rows_needed):
+        cols = st.columns(per_row)
+        for c in range(per_row):
+            idx = r * per_row + c
+            if idx >= len(sector_list):
+                break
+            sec = sector_list[idx]
+            active = sec == st.session_state["net_sector"]
+            label  = sec[:28]
+            if cols[c].button(
+                label,
+                key=f"chip_{idx}",
+                type="primary" if active else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state["net_sector"] = sec
+                st.rerun()
+
+    selected_sec = st.session_state["net_sector"]
+
+    # ── Time range selector ───────────────────────────────────────────────────
+    range_map = {"6M": 12, "1Y": 24, "1.5Y": 36, "2Y": 48, "All": len(sorted_dates)}
+    tr1, tr2, tr3, tr4, tr5, _ = st.columns([1, 1, 1, 1, 1, 6])
+    if "net_range" not in st.session_state:
+        st.session_state["net_range"] = "1Y"
+
+    for lbl, col in zip(range_map, [tr1, tr2, tr3, tr4, tr5]):
+        active_r = lbl == st.session_state["net_range"]
+        if col.button(lbl, key=f"rng_{lbl}", type="primary" if active_r else "secondary"):
+            st.session_state["net_range"] = lbl
+            st.rerun()
+
+    n_periods_net = min(range_map[st.session_state["net_range"]], len(sorted_dates))
+    net_dates     = sorted(sorted_dates[:n_periods_net])   # ascending for chart
+
+    # ── Build series ──────────────────────────────────────────────────────────
+    bar_vals, cum_vals, x_labels = [], [], []
+    cum = 0.0
+    for d in net_dates:
+        df_d = all_periods.get(d)
+        if df_d is None:
+            continue
+        m = df_d[df_d["nsdl_sector"] == selected_sec]
+        net = float(m.iloc[0]["net_curr_eq"]) if not m.empty else 0.0
+        cum += net
+        bar_vals.append(net)
+        cum_vals.append(cum)
+        x_labels.append(d.strftime("%d %b %Y"))
+
+    if not bar_vals:
+        st.warning(f"No data for '{selected_sec}'.")
+    else:
+        bar_colors = ["#00C853" if v >= 0 else "#D50000" for v in bar_vals]
+
+        fig_net = go.Figure()
+
+        # Bars — fortnightly net
+        fig_net.add_trace(go.Bar(
+            x=x_labels, y=bar_vals,
+            name="Net Investment (₹ Cr)",
+            marker_color=bar_colors,
+            opacity=0.85,
+            hovertemplate="<b>%{x}</b><br>Net: ₹ %{y:+,.0f} Cr<extra></extra>",
+        ))
+
+        # Line — cumulative
+        fig_net.add_trace(go.Scatter(
+            x=x_labels, y=cum_vals,
+            name="Cumulative (₹ Cr)",
+            mode="lines+markers",
+            line=dict(color="#00E5FF", width=2.5),
+            marker=dict(size=6, color="#00E5FF",
+                        line=dict(color="#ffffff", width=1)),
+            yaxis="y2",
+            hovertemplate="<b>%{x}</b><br>Cumulative: ₹ %{y:+,.0f} Cr<extra></extra>",
+        ))
+
+        fig_net.add_hline(y=0, line_dash="dot",
+                          line_color="rgba(255,255,255,0.15)", line_width=1)
+
+        fig_net.update_layout(
+            template="plotly_dark",
+            height=480,
+            title=dict(
+                text=f"{selected_sec} &nbsp;·&nbsp; {len(x_labels)} fortnightly data points",
+                font=dict(size=13), x=0,
+            ),
+            margin=dict(t=50, b=60, l=10, r=10),
+            hovermode="x unified",
+            legend=dict(orientation="h", y=-0.18, x=0),
+            yaxis=dict(
+                title="Net ₹ Cr (bars)",
+                gridcolor="rgba(255,255,255,0.06)",
+                zeroline=True, zerolinecolor="rgba(255,255,255,0.2)",
+            ),
+            yaxis2=dict(
+                title="Cumulative ₹ Cr (line)",
+                overlaying="y", side="right",
+                gridcolor="rgba(0,0,0,0)",
+                zeroline=False,
+            ),
+            bargap=0.25,
+        )
+        st.plotly_chart(fig_net, use_container_width=True)
+
+        # ── Quick stats below chart ───────────────────────────────────────────
+        total_in  = sum(v for v in bar_vals if v > 0)
+        total_out = sum(v for v in bar_vals if v < 0)
+        buy_f     = sum(1 for v in bar_vals if v > 0)
+        sell_f    = sum(1 for v in bar_vals if v < 0)
+        s1, s2, s3, s4, s5 = st.columns(5)
+        s1.metric("Cumulative Net",   f"₹{cum_vals[-1]:+,.0f} Cr")
+        s2.metric("Total Inflow",     f"₹{total_in:,.0f} Cr")
+        s3.metric("Total Outflow",    f"₹{total_out:,.0f} Cr")
+        s4.metric("Buy Fortnights",   f"{buy_f} / {len(bar_vals)}")
+        s5.metric("Sell Fortnights",  f"{sell_f} / {len(bar_vals)}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 3 — Sector Trend
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_trend:
     st.subheader("Sector Trend — Fortnight by Fortnight")
