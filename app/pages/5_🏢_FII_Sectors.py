@@ -250,12 +250,12 @@ with tab_analysis:
     fn_df   = all_periods[fn_date]
 
     # Build analysis rows
-    @st.cache_data(ttl=1800, show_spinner=False)
     def build_analysis(fn_date_str: str, fwd_days: int):
-        from backend.data_ingestion.yfinance_fetcher import _get_close, fetch_sector_stocks
-        from config import SECTOR_INDICES
-        import yfinance as yf
+        """Use pre-loaded sector_prices — no fresh yf.download() calls (avoids rate limits)."""
+        from backend.data_ingestion.yfinance_fetcher import _get_close
+        from config import SECTOR_STOCKS
         from datetime import date as date_cls
+        import datetime
 
         fn_date_obj = date_cls.fromisoformat(fn_date_str)
         end_date    = fn_date_obj + timedelta(days=fwd_days)
@@ -263,99 +263,81 @@ with tab_analysis:
         if nsdl_df is None:
             return pd.DataFrame()
 
+        def _price_ret(price_df, start_dt, end_dt):
+            """Return % change between first close on/after start_dt and first close on/after end_dt."""
+            cs = _get_close(price_df)
+            if cs is None or len(cs) < 2:
+                return None
+            # Normalise index to date objects
+            idx = [d.date() if isinstance(d, datetime.datetime) else d for d in cs.index]
+            cs.index = idx
+            start_close = end_close = None
+            for d in idx:
+                if d >= start_dt and start_close is None:
+                    start_close = float(cs.loc[d])
+                if d >= end_dt:
+                    end_close = float(cs.loc[d])
+                    break
+            if end_close is None and len(cs) > 0:
+                end_close = float(cs.iloc[-1])
+            if start_close and start_close > 0 and end_close:
+                return ((end_close - start_close) / start_close) * 100
+            return None
+
         rows = []
         for _, r in nsdl_df.iterrows():
-            nsdl_sec  = r["nsdl_sector"]
-            int_sec   = r["sector"]
-            fii_net   = r["net_curr_eq"]
-            fii_signal= r["signal"]
+            nsdl_sec   = r["nsdl_sector"]
+            int_sec    = r["sector"]
+            fii_net    = r["net_curr_eq"]
+            fii_signal = r["signal"]
 
-            # Sector index return over [fn_date → fn_date+fwd_days]
-            sym = SECTOR_INDICES.get(int_sec)
+            # Sector index return — use pre-loaded sector_prices
             idx_ret = None
-            if sym:
-                try:
-                    raw = yf.download(sym,
-                                       start=str(fn_date_obj - timedelta(days=5)),
-                                       end=str(end_date + timedelta(days=5)),
-                                       progress=False, auto_adjust=True)
-                    if not raw.empty:
-                        cs = _get_close(raw)
-                        if cs is not None and len(cs) >= 2:
-                            # Find closest dates
-                            idx_list = list(cs.index)
-                            start_close = None
-                            end_close   = None
-                            for d in idx_list:
-                                if d >= fn_date_obj and start_close is None:
-                                    start_close = float(cs.loc[d])
-                                if d >= end_date:
-                                    end_close = float(cs.loc[d])
-                                    break
-                            if end_close is None:
-                                end_close = float(cs.iloc[-1])
-                            if start_close:
-                                idx_ret = ((end_close - start_close) / start_close) * 100
-                except Exception:
-                    pass
+            if int_sec in sector_prices and sector_prices[int_sec] is not None:
+                idx_ret = _price_ret(sector_prices[int_sec], fn_date_obj, end_date)
 
-            # Top 3 stocks return in same window
+            # Top 3 stocks in this sector from pre-loaded SECTOR_STOCKS config
             top_stocks = []
-            try:
-                stock_prices = fetch_sector_stocks(int_sec)
-                stock_rets = []
-                for stk_sym, stk_df in stock_prices.items():
-                    if stk_df is None or stk_df.empty:
-                        continue
-                    try:
-                        raw2 = yf.download(stk_sym,
-                                            start=str(fn_date_obj - timedelta(days=5)),
-                                            end=str(end_date + timedelta(days=5)),
-                                            progress=False, auto_adjust=True)
-                        if raw2.empty:
+            stk_syms = SECTOR_STOCKS.get(int_sec, [])
+            stock_rets = []
+            for stk_sym in stk_syms:
+                # Use cached sector_prices data for the parent sector (same price df)
+                # For individual stocks, we need their cached data
+                try:
+                    from backend.data_ingestion.yfinance_fetcher import fetch_sector_stocks
+                    stock_dfs = fetch_sector_stocks(int_sec)
+                    for sym_key, stk_df in stock_dfs.items():
+                        if stk_df is None or stk_df.empty:
                             continue
-                        cs2 = _get_close(raw2)
-                        if cs2 is None or len(cs2) < 2:
-                            continue
-                        idx2 = list(cs2.index)
-                        sc2, ec2 = None, None
-                        for d in idx2:
-                            if d >= fn_date_obj and sc2 is None:
-                                sc2 = float(cs2.loc[d])
-                            if d >= end_date:
-                                ec2 = float(cs2.loc[d])
-                                break
-                        if ec2 is None:
-                            ec2 = float(cs2.iloc[-1])
-                        if sc2 and sc2 > 0:
-                            stock_rets.append((stk_sym.replace(".NS",""), ((ec2-sc2)/sc2)*100))
-                    except Exception:
-                        continue
-                stock_rets.sort(key=lambda x: x[1], reverse=True)
-                top_stocks = stock_rets[:3]
-            except Exception:
-                pass
+                        ret = _price_ret(stk_df, fn_date_obj, end_date)
+                        if ret is not None:
+                            stock_rets.append((sym_key.replace(".NS", ""), ret))
+                    break  # fetch_sector_stocks returns all stocks at once
+                except Exception:
+                    break
+            stock_rets.sort(key=lambda x: x[1], reverse=True)
+            top_stocks = stock_rets[:3]
 
             # Verdict
-            if fii_net and fii_net > 0 and idx_ret and idx_ret > 0:
-                verdict = "Confirmed"   # FII bought + index up
-            elif fii_net and fii_net > 0 and idx_ret and idx_ret <= 0:
-                verdict = "Diverged"    # FII bought but price fell
-            elif fii_net and fii_net < 0 and idx_ret and idx_ret < 0:
+            if fii_net and fii_net > 0 and idx_ret is not None and idx_ret > 0:
+                verdict = "Confirmed"
+            elif fii_net and fii_net > 0 and idx_ret is not None and idx_ret <= 0:
+                verdict = "Diverged"
+            elif fii_net and fii_net < 0 and idx_ret is not None and idx_ret < 0:
                 verdict = "Aligned-Sell"
             else:
                 verdict = "Mixed"
 
-            avg_stock_ret = sum(v for _, v in top_stocks)/len(top_stocks) if top_stocks else None
+            avg_stock_ret = sum(v for _, v in top_stocks) / len(top_stocks) if top_stocks else None
 
             rows.append({
-                "Sector":             nsdl_sec,
-                "FII Net (₹Cr)":      fii_net,
-                "FII Signal":         fii_signal.replace("_"," ").title(),
-                f"Index {fwd_days}d%": idx_ret,
-                f"Avg Top3 Stk {fwd_days}d%": avg_stock_ret,
-                "Top Stocks":         ", ".join(f"{s}({v:+.1f}%)" for s,v in top_stocks),
-                "Verdict":            verdict,
+                "Sector":                    nsdl_sec,
+                "FII Net (₹Cr)":             fii_net,
+                "FII Signal":                fii_signal.replace("_", " ").title() if fii_signal else "–",
+                f"Index {fwd_days}d%":       round(idx_ret, 2) if idx_ret is not None else None,
+                f"Avg Top3 Stk {fwd_days}d%": round(avg_stock_ret, 2) if avg_stock_ret is not None else None,
+                "Top Stocks":               ", ".join(f"{s}({v:+.1f}%)" for s, v in top_stocks),
+                "Verdict":                   verdict,
             })
 
         return pd.DataFrame(rows).sort_values("FII Net (₹Cr)", ascending=False)
