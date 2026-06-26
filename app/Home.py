@@ -28,6 +28,66 @@ from app.utils.visitor import get_visitor_count, render_visitor_counter
 show_logo()
 get_visitor_count()   # increment DB counter once per session
 
+# ── FII Ticker — own lightweight cache, renders before main data load ─────────
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_ticker_data():
+    import sqlite3
+    db_path = Path(__file__).parent.parent / "data" / "nse_dashboard.db"
+    if not db_path.exists():
+        return [], ""
+    try:
+        con = sqlite3.connect(db_path)
+        rows = con.execute("""
+            SELECT nsdl_sector, net_curr_eq, report_date
+            FROM nsdl_fii_sector
+            WHERE report_date = (SELECT MAX(report_date) FROM nsdl_fii_sector)
+            ORDER BY net_curr_eq DESC
+        """).fetchall()
+        con.close()
+        date_lbl = rows[0][2] if rows else ""
+        return [(r[0], r[1]) for r in rows], date_lbl
+    except Exception:
+        return [], ""
+
+def _render_ticker(rows: list, period_label: str):
+    items = []
+    for sec, val in rows:
+        color = "#00C853" if val >= 0 else "#FF5252"
+        arrow = "▲" if val >= 0 else "▼"
+        sign  = "+" if val >= 0 else ""
+        items.append(
+            f'<span style="margin:0 28px;white-space:nowrap">'
+            f'<span style="color:#aaa;font-size:12px">{sec}</span>&nbsp;'
+            f'<span style="color:{color};font-weight:600;font-size:13px">'
+            f'{arrow} ₹{sign}{val:,.0f} Cr</span>'
+            f'</span>'
+        )
+    content = "".join(items) * 2
+    st.markdown(f"""
+<div style="background:#0e1117;border:1px solid #2a2a3a;border-radius:6px;
+            overflow:hidden;height:34px;display:flex;align-items:center;margin-bottom:4px">
+  <div style="flex-shrink:0;background:#1a1f2e;padding:0 14px;height:100%;
+              display:flex;align-items:center;border-right:1px solid #2a2a3a;
+              font-size:11px;font-weight:700;color:#4a9eff;white-space:nowrap">
+    FII&nbsp;{period_label}
+  </div>
+  <div style="overflow:hidden;flex:1;height:100%">
+    <div style="display:flex;align-items:center;height:100%;white-space:nowrap;
+                animation:fii-scroll 60s linear infinite">
+      {content}
+    </div>
+  </div>
+</div>
+<style>
+@keyframes fii-scroll{{0%{{transform:translateX(0)}}100%{{transform:translateX(-50%)}}}}
+div[style*="fii-scroll"]:hover{{animation-play-state:paused}}
+</style>
+""", unsafe_allow_html=True)
+
+_ticker_rows, _ticker_lbl = _get_ticker_data()
+if _ticker_rows:
+    _render_ticker(_ticker_rows, _ticker_lbl)
+
 # ── Cold-start DB sync (Streamlit Cloud resets filesystem on restart) ─────────
 @st.cache_resource(show_spinner=False)
 def _cold_start_sync():
