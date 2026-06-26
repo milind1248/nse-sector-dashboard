@@ -119,7 +119,7 @@ else:
 st.subheader("Medium Priority Alerts")
 if not med_df.empty:
     st.dataframe(
-        med_df.style.format(
+        med_df.style.map(color_alert, subset=["Alert"]).format(
             {"Price": "₹{:,.2f}", "RSI": lambda v: f"{v:.1f}" if isinstance(v,(int,float)) else "–"}),
         use_container_width=True, hide_index=True
     )

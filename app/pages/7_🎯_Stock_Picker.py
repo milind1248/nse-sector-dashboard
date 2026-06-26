@@ -202,12 +202,18 @@ if chosen:
         close_s = _get_close(df)
 
         ic = st.columns(6)
+        _1m_raw = chosen_row.get("1M %")
+        _rs_raw = chosen_row.get("RS vs Nifty")
+        _1m_num = _1m_raw if isinstance(_1m_raw, (int, float)) else None
+        _rs_num = _rs_raw if isinstance(_rs_raw, (int, float)) else None
         ic[0].metric("Price",      f"₹{chosen_row['Price']:,.2f}")
         ic[1].metric("Score",      f"{chosen_row['Score']:.0f}", chosen_row["Score Label"])
         ic[2].metric("EMA Signal", chosen_row["EMA Signal"])
         ic[3].metric("RSI",        f"{chosen_row['RSI'] or '–'}")
-        ic[4].metric("1M Return",  chosen_row["1M %"])
-        ic[5].metric("RS vs Nifty",f"{chosen_row['RS vs Nifty'] or '–'}")
+        ic[4].metric("1M Return",  f"{_1m_num:+.1f}%" if _1m_num is not None else "–",
+                     f"{_1m_num:+.2f}%" if _1m_num is not None else None, delta_color="normal")
+        ic[5].metric("RS vs Nifty",f"{_rs_num:+.2f}" if _rs_num is not None else "–",
+                     f"{_rs_num:+.2f}" if _rs_num is not None else None, delta_color="normal")
 
         tab1, tab2 = st.tabs(["Price + EMAs", "RSI"])
         with tab1:

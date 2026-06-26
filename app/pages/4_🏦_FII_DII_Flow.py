@@ -133,9 +133,13 @@ with tabs[0]:
         st.plotly_chart(fig3, use_container_width=True)
 
         with st.expander("📋 Raw daily data"):
+            def _c(v):
+                if not isinstance(v, (int, float)): return ""
+                return "color:#00C853" if v > 0 else "color:#D50000" if v < 0 else ""
             st.dataframe(
                 curr.sort_values("date", ascending=False)
-                    .style.format({
+                    .style.map(_c, subset=["fii_net", "dii_net"])
+                    .format({
                         "fii_buy":  "₹{:,.0f}", "fii_sell": "₹{:,.0f}", "fii_net":  "₹{:+,.0f}",
                         "dii_buy":  "₹{:,.0f}", "dii_sell": "₹{:,.0f}", "dii_net":  "₹{:+,.0f}",
                     }),

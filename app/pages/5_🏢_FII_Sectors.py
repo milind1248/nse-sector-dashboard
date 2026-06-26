@@ -112,11 +112,13 @@ with tab_matrix:
     latest_lbl = sel_labels[-1]
     latest = sub[latest_lbl].dropna()
     m1,m2,m3,m4 = st.columns(4)
-    m1.metric(f"Total Flow ({latest_lbl})", f"₹{latest.sum():+,.0f} Cr")
+    _flow = latest.sum()
+    m1.metric(f"Total Flow ({latest_lbl})", f"₹{_flow:+,.0f} Cr", f"₹{_flow:+,.0f} Cr", delta_color="normal")
     m2.metric("Buying sectors",  str(int((latest>0).sum())))
     m3.metric("Selling sectors", str(int((latest<0).sum())))
+    _top_max = latest.max() if not latest.empty else 0
     m4.metric("Top buyer",       latest.idxmax()[:18] if not latest.empty else "–",
-               f"₹{latest.max():+,.0f} Cr" if not latest.empty else "")
+               f"₹{_top_max:+,.0f} Cr" if not latest.empty else "", delta_color="normal")
 
     st.markdown(f"**{len(sel_labels)} fortnights shown** ({to_lbl} → {from_lbl}) · {len(sub)} sectors  *(Latest on left)*")
 
@@ -358,7 +360,7 @@ with tab_analysis:
         v1.metric("FII Bought + Price Up", str(confirmed),
                    "Confirmed signal", delta_color="normal")
         v2.metric("FII Bought + Price Down", str(diverged),
-                   "FII wrong / price lag", delta_color="inverse")
+                   "FII wrong / price lag", delta_color="normal")
         v3.metric("FII Sold + Price Down", str(aligned_sel))
         v4.metric("Mixed / No data", str(mixed))
 
@@ -414,8 +416,13 @@ with tab_analysis:
                 col1, col2, col3 = st.columns([2,1,1])
                 sec_label = row["Sector"]
                 col1.markdown(f"**{sec_label}**  \n{row['Top Stocks']}")
-                col2.metric("FII Net", f"₹{row['FII Net (₹Cr)']:+,.0f} Cr")
-                col3.metric(f"Index {fwd_days}d", f"{row[idx_col]:+.2f}%" if isinstance(row[idx_col],(int,float)) else "–")
+                _fii_net = row['FII Net (₹Cr)']
+                _idx_ret = row[idx_col] if isinstance(row[idx_col], (int, float)) else None
+                col2.metric("FII Net", f"₹{_fii_net:+,.0f} Cr", f"₹{_fii_net:+,.0f} Cr", delta_color="normal")
+                col3.metric(f"Index {fwd_days}d",
+                            f"{_idx_ret:+.2f}%" if _idx_ret is not None else "–",
+                            f"{_idx_ret:+.2f}%" if _idx_ret is not None else None,
+                            delta_color="normal")
                 # Navigate button
                 int_sec = fn_df[fn_df["nsdl_sector"]==sec_label]["sector"].values
                 if len(int_sec):

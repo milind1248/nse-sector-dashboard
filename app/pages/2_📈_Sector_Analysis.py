@@ -110,8 +110,10 @@ c1,c2,c3,c4,c5,c6 = st.columns(6)
 c1.metric("Score",    f"{score:.0f}",  label)
 c2.metric("RSI(14)", f"{rsi:.1f}" if rsi else "–",
            "Overbought" if rsi and rsi > 70 else "Oversold" if rsi and rsi < 30 else "Neutral")
-c3.metric("1W %",    f"{rets.get('pct_1w',0):+.1f}%")
-c4.metric("1M %",    f"{rets.get('pct_1m',0):+.1f}%")
+_1w = rets.get('pct_1w', 0)
+_1m = rets.get('pct_1m', 0)
+c3.metric("1W %",    f"{_1w:+.1f}%", f"{_1w:+.2f}%", delta_color="normal")
+c4.metric("1M %",    f"{_1m:+.1f}%", f"{_1m:+.2f}%", delta_color="normal")
 c5.metric("A/D Today", f"{ad['advance']}/{ad['decline']}",
            f"Ratio {ad['ad_ratio']:.1f}" if ad['ad_ratio'] != float('inf') else "")
 c6.metric("A/D Week",  f"{ad_week['advance']}/{ad_week['decline']}",
