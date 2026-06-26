@@ -8,52 +8,42 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-def _ensure_table(engine):
-    """Create site_stats table if it doesn't exist (safe to call every time)."""
-    with engine.connect() as conn:
-        conn.execute(__import__("sqlalchemy").text(
-            "CREATE TABLE IF NOT EXISTS site_stats "
-            "(key TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0, updated_at TEXT)"
-        ))
-        conn.commit()
-
-
 def increment_and_get() -> int:
     try:
         from backend.storage.database import get_engine
-        from sqlalchemy.orm import Session
         import sqlalchemy as sa
 
         engine = get_engine()
-        _ensure_table(engine)
 
-        with Session(engine) as s:
-            row = s.execute(
+        with engine.begin() as conn:   # engine.begin() = auto-commit transaction
+            conn.execute(sa.text(
+                "CREATE TABLE IF NOT EXISTS site_stats "
+                "(key TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0)"
+            ))
+            row = conn.execute(
                 sa.text("SELECT value FROM site_stats WHERE key='visitor_count'")
             ).fetchone()
             if row is None:
-                s.execute(sa.text(
+                conn.execute(sa.text(
                     "INSERT INTO site_stats (key, value) VALUES ('visitor_count', 1)"
                 ))
-                count = 1
+                return 1
             else:
                 count = row[0] + 1
-                s.execute(sa.text(
+                conn.execute(sa.text(
                     "UPDATE site_stats SET value=:v WHERE key='visitor_count'"
                 ), {"v": count})
-            s.commit()
-            return count
+                return count
     except Exception as e:
-        st.write(f"<!-- visitor error: {e} -->")   # silent debug in page source
-        return -1
+        print(f"[visitor] DB error: {e}")   # logs only, never shown on page
+        return 0
 
 
 def get_visitor_count() -> int:
     if "visited" not in st.session_state:
         st.session_state["visited"] = True
-        count = increment_and_get()
-        st.session_state["visitor_count"] = count
-    return st.session_state.get("visitor_count", -1)
+        st.session_state["visitor_count"] = increment_and_get()
+    return st.session_state.get("visitor_count", 0)
 
 
 def render_visitor_counter():
