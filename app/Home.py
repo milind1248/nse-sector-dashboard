@@ -242,18 +242,19 @@ with tab_hist:
 
     # Date range filter
     date_labels = [d.strftime("%d %b %Y") for d in sorted_dates]
-    col_from, col_to = st.columns(2)
-    from_sel = col_from.selectbox("From fortnight:", date_labels,
-                                   index=min(len(date_labels)-1, 5), key="hist_from")
-    to_sel   = col_to.selectbox("To fortnight:",   date_labels,
+    col_to, col_from = st.columns(2)
+    to_sel   = col_to.selectbox("To fortnight (latest):", date_labels,
                                  index=0, key="hist_to")
+    from_sel = col_from.selectbox("From fortnight (older):", date_labels,
+                                   index=min(len(date_labels)-1, 11), key="hist_from")
 
     from_date = sorted_dates[date_labels.index(from_sel)]
     to_date   = sorted_dates[date_labels.index(to_sel)]
     if from_date > to_date:
         from_date, to_date = to_date, from_date
 
-    filtered_dates = sorted([d for d in sorted_dates if from_date <= d <= to_date])
+    # newest first so latest date is leftmost column
+    filtered_dates = sorted([d for d in sorted_dates if from_date <= d <= to_date], reverse=True)
 
     if len(filtered_dates) < 1:
         st.warning("No data in selected range.")
@@ -277,12 +278,12 @@ with tab_hist:
                 net   = match.iloc[0]["net_curr_eq"] if not match.empty else None
                 net_vals.append(net)
 
-                # % vs previous available fortnight
-                prev_d = filtered_dates[i-1] if i > 0 else None
+                # previous chronological fortnight = next index in newest-first list
+                prev_d = filtered_dates[i+1] if i < len(filtered_dates)-1 else None
                 if prev_d is not None and net is not None:
-                    df_prev  = all_periods[prev_d]
+                    df_prev    = all_periods[prev_d]
                     prev_match = df_prev[df_prev["nsdl_sector"] == sec]
-                    prev_net = prev_match.iloc[0]["net_curr_eq"] if not prev_match.empty else None
+                    prev_net   = prev_match.iloc[0]["net_curr_eq"] if not prev_match.empty else None
                     if prev_net is not None and prev_net != 0:
                         pct = ((net - prev_net) / abs(prev_net)) * 100
                     else:
