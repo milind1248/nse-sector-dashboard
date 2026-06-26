@@ -44,7 +44,12 @@ def _get_ticker_data():
             ORDER BY net_curr_eq DESC
         """).fetchall()
         con.close()
-        date_lbl = rows[0][2] if rows else ""
+        from datetime import datetime
+        raw_date = rows[0][2] if rows else ""
+        try:
+            date_lbl = datetime.strptime(raw_date, "%Y-%m-%d").strftime("%d %b %Y")
+        except Exception:
+            date_lbl = raw_date
         return [(r[0], r[1]) for r in rows], date_lbl
     except Exception:
         return [], ""
@@ -73,7 +78,7 @@ def _render_ticker(rows: list, period_label: str):
   </div>
   <div style="overflow:hidden;flex:1;height:100%">
     <div style="display:flex;align-items:center;height:100%;white-space:nowrap;
-                animation:fii-scroll 60s linear infinite">
+                animation:fii-scroll 35s linear infinite">
       {content}
     </div>
   </div>
