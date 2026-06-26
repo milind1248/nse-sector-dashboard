@@ -1,4 +1,4 @@
-"""
+﻿"""
 FPI Sectors — Full analysis inspired by fpidata.in
 Tabs: Overview | Sector Trend | Cumulative Flow Tracker | Heat Map | AUC Holdings
 """
@@ -14,7 +14,10 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import date
 
-st.set_page_config(page_title="FPI Sectors", layout="wide")
+st.set_page_config(page_title="FPI Sector Investment Tracker | First Half Second Half | NSE Sector Analysis", layout="wide")
+from app.utils.seo import inject_seo
+inject_seo("FPI_Sectors")
+
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=86400, show_spinner=False)

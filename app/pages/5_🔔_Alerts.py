@@ -10,7 +10,10 @@ from config import SECTOR_STOCKS
 from backend.data_ingestion.yfinance_fetcher import _get_close
 from backend.calculations.indicators import ema_signal
 
-st.set_page_config(page_title="Alerts & Breakouts", layout="wide")
+st.set_page_config(page_title="Sector Alerts | FII Breakouts & Reversals | NSE Sector Analysis", layout="wide")
+from app.utils.seo import inject_seo
+inject_seo("Alerts")
+
 st.title("\U0001f6a8 Alerts — Breakouts & Signals")
 st.caption("Stocks crossing key technical levels across all sectors. Scan once daily after market close.")
 

@@ -16,7 +16,10 @@ from backend.data_ingestion.yfinance_fetcher import (
 from backend.data_ingestion.nse_fetcher import fetch_market_breadth
 from backend.calculations.relative_strength import compute_rrg_coordinates
 
-st.set_page_config(page_title="Market Pulse", layout="wide")
+st.set_page_config(page_title="Market Pulse | Nifty Breadth & Relative Rotation | NSE Sector Analysis", layout="wide")
+from app.utils.seo import inject_seo
+inject_seo("Market_Pulse")
+
 st.title("📡 Market Pulse")
 st.caption("Overall market breadth, sector heatmap, and RRG rotation at a glance.")
 

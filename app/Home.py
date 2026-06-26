@@ -14,11 +14,14 @@ import plotly.graph_objects as go
 from datetime import date
 
 st.set_page_config(
-    page_title="NSE Sector Analysis",
+    page_title="NSE Sector Analysis | FII Fortnightly Sector Flow Dashboard",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+from app.utils.seo import inject_seo
+inject_seo("Home")
 
 # ── Cold-start DB sync (Streamlit Cloud resets filesystem on restart) ─────────
 @st.cache_resource(show_spinner=False)

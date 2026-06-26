@@ -1,4 +1,4 @@
-"""Export sector intelligence data to Excel."""
+﻿"""Export sector intelligence data to Excel."""
 import sys
 from pathlib import Path
 
@@ -15,7 +15,10 @@ generate_excel_report = _ee_mod.generate_excel_report
 import io
 import streamlit as st
 
-st.set_page_config(page_title="Export", layout="wide")
+st.set_page_config(page_title="Export FII Sector Data | Download NSDL CSV | NSE Sector Analysis", layout="wide")
+from app.utils.seo import inject_seo
+inject_seo("Export")
+
 st.title("\U0001f4e5 Export Dashboard Data")
 st.caption("Download full sector intelligence report as Excel.")
 
