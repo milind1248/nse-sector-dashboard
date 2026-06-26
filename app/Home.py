@@ -49,31 +49,31 @@ with st.sidebar:
     st.markdown("**Investor Decision Flow**")
     st.markdown("""
 🏠 **Home**
-&nbsp;&nbsp;&nbsp;↳ Where is FII buying this fortnight?
+&nbsp;&nbsp;&nbsp;->Where is FII buying this fortnight?
 
 🌏 **FPI Sectors**
-&nbsp;&nbsp;&nbsp;↳ Deep-dive: first/second half, top buyers
+&nbsp;&nbsp;&nbsp;->Deep-dive: first/second half, top buyers
 
 🌐 **FII Invest Sector**
-&nbsp;&nbsp;&nbsp;↳ 5-year sector flow history & heatmap
+&nbsp;&nbsp;&nbsp;->5-year sector flow history & heatmap
 
 📈 **Sector Analysis**
-&nbsp;&nbsp;&nbsp;↳ Is index price confirming FII flow?
+&nbsp;&nbsp;&nbsp;->Is index price confirming FII flow?
 
 🎯 **Stock Picker**
-&nbsp;&nbsp;&nbsp;↳ Find the best stock in the right sector
+&nbsp;&nbsp;&nbsp;->Find the best stock in the right sector
 
 🏦 **FII DII Flow**
-&nbsp;&nbsp;&nbsp;↳ Daily institutional buy/sell activity
+&nbsp;&nbsp;&nbsp;->Daily institutional buy/sell activity
 
 📡 **Market Pulse**
-&nbsp;&nbsp;&nbsp;↳ Breadth, RRG & overall market health
+&nbsp;&nbsp;&nbsp;->Breadth, RRG & overall market health
 
 🔔 **Alerts**
-&nbsp;&nbsp;&nbsp;↳ Sectors breaking out or reversing
+&nbsp;&nbsp;&nbsp;->Sectors breaking out or reversing
 
 📤 **Export**
-&nbsp;&nbsp;&nbsp;↳ Download data for offline analysis
+&nbsp;&nbsp;&nbsp;->Download data for offline analysis
 """)
     st.markdown("---")
     if st.button("🔄 Refresh Latest Data", use_container_width=True,
