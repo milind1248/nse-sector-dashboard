@@ -140,3 +140,5 @@ if st.button(f"Analyse {sel} →", type="primary"):
 st.markdown("---")
 if st.button("← FII Sector Watch"):
     st.switch_page("main.py")
+from app.utils.disclaimer import show_footer
+show_footer()

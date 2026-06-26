@@ -614,3 +614,5 @@ else:
         )
 
 st.caption("📌 Data sourced from NSE index constituent files · Weightages are reference data")
+from app.utils.disclaimer import show_footer
+show_footer()

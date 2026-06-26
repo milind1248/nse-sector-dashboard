@@ -485,3 +485,5 @@ with tab_analysis:
                 "Top-right quadrant = FII bought + price rose (Confirmed) — best signals. "
                 "Bottom-right = FII bought but price fell (Diverged) — possible lag or wrong call."
             )
+from app.utils.disclaimer import show_footer
+show_footer()

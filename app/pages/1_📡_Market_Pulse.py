@@ -150,3 +150,5 @@ else:
 st.markdown("---")
 if st.button("← FII Sector Watch", use_container_width=False):
     st.switch_page("main.py")
+from app.utils.disclaimer import show_footer
+show_footer()

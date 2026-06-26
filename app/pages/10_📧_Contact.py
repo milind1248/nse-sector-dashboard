@@ -176,3 +176,5 @@ Yes — use the **📤 Export** page to download CSV files.
 **Q: Is this free?**
 Yes. Source data is from NSDL and NSE India (both public). This dashboard is free.
 """)
+from app.utils.disclaimer import show_footer
+show_footer()

@@ -233,3 +233,5 @@ if c1.button("🔍 Find Best Stocks in This Sector →", use_container_width=Tru
     st.switch_page("pages/2_🎯_Stock_Picker.py")
 if c2.button("← Back to FII Sector Watch", use_container_width=True):
     st.switch_page("main.py")
+from app.utils.disclaimer import show_footer
+show_footer()

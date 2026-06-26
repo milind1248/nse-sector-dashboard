@@ -211,3 +211,5 @@ with tabs[1]:
                         }),
             use_container_width=True, hide_index=True,
         )
+from app.utils.disclaimer import show_footer
+show_footer()

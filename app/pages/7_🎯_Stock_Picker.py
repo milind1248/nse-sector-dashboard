@@ -251,3 +251,5 @@ if c2.button("← FII Sector Watch", use_container_width=True):
     st.switch_page("main.py")
 if c3.button("\U0001f4ca Market Pulse →", use_container_width=True):
     st.switch_page("pages/3_📡_Market_Pulse.py")
+from app.utils.disclaimer import show_footer
+show_footer()

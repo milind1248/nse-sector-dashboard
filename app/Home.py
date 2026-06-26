@@ -55,17 +55,18 @@ _cold_start_sync()
 with st.sidebar:
     st.markdown("## 📊 NSE Sector Analysis")
     st.markdown("""
-<div style="font-size:11px; color:#888; line-height:1.7; margin-top:2px;">
+<div style="font-size:11px; color:#888; line-height:1.8; margin-top:2px;">
 <b style="color:#aaa; font-size:10px; letter-spacing:1px;">INVESTOR DECISION FLOW</b><br>
-🏠 <b>Home</b> <span style="color:#555;">-> FII buying this fortnight?</span><br>
-🌏 <b>FPI Sectors</b> <span style="color:#555;">-> First/second half, top buyers</span><br>
-🌐 <b>FII Invest Sector</b> <span style="color:#555;">-> 5yr history & heatmap</span><br>
-📈 <b>Sector Analysis</b> <span style="color:#555;">-> Price confirming FII flow?</span><br>
-🎯 <b>Stock Picker</b> <span style="color:#555;">-> Best stock in right sector</span><br>
-🏦 <b>FII DII Flow</b> <span style="color:#555;">-> Daily buy/sell activity</span><br>
-📡 <b>Market Pulse</b> <span style="color:#555;">-> Breadth & market health</span><br>
-🔔 <b>Alerts</b> <span style="color:#555;">-> Breakouts & reversals</span><br>
-📤 <b>Export</b> <span style="color:#555;">-> Download for offline use</span>
+<span style="color:#3a5a8a;">①</span> 🏠 <b>Home</b> <span style="color:#555;">→ FII buying this fortnight?</span><br>
+<span style="color:#3a5a8a;">②</span> 📡 <b>Market Pulse</b> <span style="color:#555;">→ Broad market health check</span><br>
+<span style="color:#3a5a8a;">③</span> 📈 <b>Sector Analysis</b> <span style="color:#555;">→ Which sectors are moving?</span><br>
+<span style="color:#3a5a8a;">④</span> 🏛️ <b>Index Stocks</b> <span style="color:#555;">→ Stocks inside those indices</span><br>
+<span style="color:#3a5a8a;">⑤</span> 🏦 <b>FII DII Flow</b> <span style="color:#555;">→ Daily institutional activity</span><br>
+<span style="color:#3a5a8a;">⑥</span> 🌐 <b>FII Sectors</b> <span style="color:#555;">→ 5yr fortnightly history</span><br>
+<span style="color:#3a5a8a;">⑦</span> 🌏 <b>FPI Sectors</b> <span style="color:#555;">→ Foreign portfolio by sector</span><br>
+<span style="color:#3a5a8a;">⑧</span> 🎯 <b>Stock Picker</b> <span style="color:#555;">→ Best stock in right sector</span><br>
+<span style="color:#3a5a8a;">⑨</span> 🔔 <b>Alerts</b> <span style="color:#555;">→ Breakouts & reversals</span><br>
+<span style="color:#3a5a8a;">⑩</span> 📤 <b>Export</b> <span style="color:#555;">→ Download for offline use</span>
 </div>
 """, unsafe_allow_html=True)
     st.markdown("---")
@@ -560,9 +561,12 @@ if selected:
         st.session_state["selected_sector"]          = internal
         st.session_state["selected_sector_nsdl"]     = selected
         st.session_state["selected_sector_net_curr"] = net_curr
-        st.switch_page("pages/1_📈_Sector_Analysis.py")
+        st.switch_page("pages/2_📈_Sector_Analysis.py")
     if c2.button("🔍 Find stocks to buy in this sector", use_container_width=True):
         st.session_state["selected_sector"]          = internal
         st.session_state["selected_sector_nsdl"]     = selected
         st.session_state["selected_sector_net_curr"] = net_curr
-        st.switch_page("pages/2_🎯_Stock_Picker.py")
+        st.switch_page("pages/7_🎯_Stock_Picker.py")
+
+from app.utils.disclaimer import show_footer
+show_footer()
