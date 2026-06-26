@@ -1,11 +1,61 @@
 """Fetches FII/DII and market breadth data from NSE India / nsepython."""
 import logging
+import sqlite3
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+_DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "nse_dashboard.db"
+
+
+def _upsert_fii_rows(rows: list[dict]) -> None:
+    """Persist FII/DII rows to SQLite, overwriting zeros with real values."""
+    if not rows:
+        return
+    try:
+        conn = sqlite3.connect(_DB_PATH)
+        for r in rows:
+            conn.execute(
+                """INSERT INTO fii_dii_daily (date, fii_buy, fii_sell, fii_net, dii_buy, dii_sell, dii_net, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                   ON CONFLICT(date) DO UPDATE SET
+                       fii_buy  = CASE WHEN excluded.fii_buy  != 0 THEN excluded.fii_buy  ELSE fii_buy  END,
+                       fii_sell = CASE WHEN excluded.fii_sell != 0 THEN excluded.fii_sell ELSE fii_sell END,
+                       fii_net  = CASE WHEN excluded.fii_net  != 0 THEN excluded.fii_net  ELSE fii_net  END,
+                       dii_buy  = CASE WHEN excluded.dii_buy  != 0 THEN excluded.dii_buy  ELSE dii_buy  END,
+                       dii_sell = CASE WHEN excluded.dii_sell != 0 THEN excluded.dii_sell ELSE dii_sell END,
+                       dii_net  = CASE WHEN excluded.dii_net  != 0 THEN excluded.dii_net  ELSE dii_net  END,
+                       created_at = datetime('now')""",
+                (str(r["date"]), r["fii_buy"], r["fii_sell"], r["fii_net"],
+                 r["dii_buy"], r["dii_sell"], r["dii_net"]),
+            )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"DB upsert failed: {e}")
+
+
+def _load_fii_from_db(days: int) -> pd.DataFrame:
+    """Return last `days` rows from SQLite fii_dii_daily table."""
+    try:
+        cutoff = str(date.today() - timedelta(days=days))
+        conn = sqlite3.connect(_DB_PATH)
+        df = pd.read_sql_query(
+            "SELECT date, fii_buy, fii_sell, fii_net, dii_buy, dii_sell, dii_net "
+            "FROM fii_dii_daily WHERE date >= ? ORDER BY date",
+            conn, params=(cutoff,)
+        )
+        conn.close()
+        if not df.empty:
+            df["date"] = pd.to_datetime(df["date"]).dt.date
+        return df
+    except Exception as e:
+        logger.warning(f"DB load failed: {e}")
+        return pd.DataFrame()
 
 
 def _try_nsepython_fii() -> Optional[pd.DataFrame]:
@@ -19,7 +69,12 @@ def _try_nsepython_fii() -> Optional[pd.DataFrame]:
 
 
 def _try_nse_web_fii() -> Optional[pd.DataFrame]:
-    """Fallback: scrape NSE FII/DII page."""
+    """Fetch FII/DII daily flow from NSE India API.
+
+    API returns category-wise rows: each date has one row for 'FII/FPI' and
+    one for 'DII', each with buyValue / sellValue / netValue fields.
+    We pivot these into one row per date.
+    """
     try:
         import requests
         headers = {
@@ -30,74 +85,69 @@ def _try_nse_web_fii() -> Optional[pd.DataFrame]:
         session = requests.Session()
         session.get("https://www.nseindia.com", headers=headers, timeout=10)
         resp = session.get(url, headers=headers, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            rows = []
-            for item in data:
-                try:
-                    rows.append({
-                        "date":     pd.to_datetime(item.get("date", "")).date(),
-                        "fii_buy":  float(str(item.get("fiiBuyValue", "0")).replace(",", "") or 0),
-                        "fii_sell": float(str(item.get("fiiSellValue", "0")).replace(",", "") or 0),
-                        "fii_net":  float(str(item.get("fiiNetValue", "0")).replace(",", "") or 0),
-                        "dii_buy":  float(str(item.get("diiBuyValue", "0")).replace(",", "") or 0),
-                        "dii_sell": float(str(item.get("diiSellValue", "0")).replace(",", "") or 0),
-                        "dii_net":  float(str(item.get("diiNetValue", "0")).replace(",", "") or 0),
-                    })
-                except Exception:
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+
+        def _f(val):
+            return float(str(val).replace(",", "").strip() or 0)
+
+        by_date: dict = {}
+        for item in data:
+            try:
+                raw_date = item.get("date", "")
+                dt = pd.to_datetime(raw_date, dayfirst=True, errors="coerce")
+                if pd.isna(dt):
                     continue
-            if rows:
-                return pd.DataFrame(rows)
+                key = dt.date()
+                cat = str(item.get("category", "")).upper()
+                buy  = _f(item.get("buyValue",  0))
+                sell = _f(item.get("sellValue", 0))
+                net  = _f(item.get("netValue",  0))
+
+                if key not in by_date:
+                    by_date[key] = {"date": key,
+                                    "fii_buy": 0, "fii_sell": 0, "fii_net": 0,
+                                    "dii_buy": 0, "dii_sell": 0, "dii_net": 0}
+                if "FII" in cat:
+                    by_date[key].update({"fii_buy": buy, "fii_sell": sell, "fii_net": net})
+                elif "DII" in cat:
+                    by_date[key].update({"dii_buy": buy, "dii_sell": sell, "dii_net": net})
+            except Exception:
+                continue
+
+        if by_date:
+            return pd.DataFrame(list(by_date.values()))
     except Exception as e:
         logger.warning(f"NSE web FII fetch failed: {e}")
     return None
 
 
 def fetch_fii_dii(days: int = 90) -> pd.DataFrame:
-    """Returns DataFrame with columns: date, fii_buy, fii_sell, fii_net, dii_buy, dii_sell, dii_net."""
-    df = _try_nsepython_fii()
-    if df is None or df.empty:
-        df = _try_nse_web_fii()
-    if df is None or df.empty:
-        logger.error("All FII/DII sources failed — returning empty")
-        return pd.DataFrame(columns=["date", "fii_buy", "fii_sell", "fii_net",
-                                     "dii_buy", "dii_sell", "dii_net"])
+    """Returns DataFrame with FII/DII daily flow.
 
-    # Normalise column names (nsepython returns varying names)
-    df.columns = [c.lower().strip().replace(" ", "_") for c in df.columns]
-    col_map = {}
-    for col in df.columns:
-        if "fii" in col and "buy" in col:   col_map[col] = "fii_buy"
-        if "fii" in col and "sell" in col:  col_map[col] = "fii_sell"
-        if "fii" in col and "net" in col:   col_map[col] = "fii_net"
-        if "dii" in col and "buy" in col:   col_map[col] = "dii_buy"
-        if "dii" in col and "sell" in col:  col_map[col] = "dii_sell"
-        if "dii" in col and "net" in col:   col_map[col] = "dii_net"
-        if "date" in col:                   col_map[col] = "date"
-    df = df.rename(columns=col_map)
+    Strategy:
+    1. Fetch today's data from NSE (returns only the current day).
+    2. Upsert into SQLite so history accumulates over time.
+    3. Return full history from SQLite for the requested period.
+    """
+    # Step 1: fetch today's live data and persist
+    live_df = _try_nse_web_fii()
+    if live_df is not None and not live_df.empty:
+        _upsert_fii_rows(live_df.to_dict("records"))
 
-    # Keep only needed columns
-    needed = ["date", "fii_buy", "fii_sell", "fii_net", "dii_buy", "dii_sell", "dii_net"]
-    df = df[[c for c in needed if c in df.columns]]
+    # Step 2: return history from DB (accumulates daily)
+    db_df = _load_fii_from_db(days)
+    if not db_df.empty:
+        return db_df.sort_values("date").reset_index(drop=True)
 
-    # Parse date
-    if "date" in df.columns:
-        df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
-        df = df.dropna(subset=["date"])
+    # Fallback: return whatever live fetch returned (single day)
+    if live_df is not None and not live_df.empty:
+        return live_df.sort_values("date").reset_index(drop=True)
 
-    # Numeric cast
-    for col in ["fii_buy", "fii_sell", "fii_net", "dii_buy", "dii_sell", "dii_net"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(
-                df[col].astype(str).str.replace(",", "").str.replace("(", "-").str.replace(")", ""),
-                errors="coerce"
-            )
-
-    cutoff = date.today() - timedelta(days=days)
-    if "date" in df.columns:
-        df = df[df["date"] >= cutoff]
-
-    return df.sort_values("date").reset_index(drop=True)
+    logger.error("All FII/DII sources failed — returning empty")
+    return pd.DataFrame(columns=["date", "fii_buy", "fii_sell", "fii_net",
+                                  "dii_buy", "dii_sell", "dii_net"])
 
 
 def fetch_market_breadth() -> dict:
