@@ -48,11 +48,32 @@ with st.sidebar:
     st.markdown("## 📊 NSE Sector Analysis")
     st.markdown("**Investor Decision Flow**")
     st.markdown("""
-1. **Home** — Where is FII money flowing?
-2. **Sector Analysis** — Is price confirming?
-3. **Stock Picker** — Which stock to buy?
-4. **Market Pulse** — Breadth & RRG
-5. **Alerts** — What's breaking out?
+🏠 **Home**
+&nbsp;&nbsp;&nbsp;↳ Where is FII buying this fortnight?
+
+🌏 **FPI Sectors**
+&nbsp;&nbsp;&nbsp;↳ Deep-dive: first/second half, top buyers
+
+🌐 **FII Invest Sector**
+&nbsp;&nbsp;&nbsp;↳ 5-year sector flow history & heatmap
+
+📈 **Sector Analysis**
+&nbsp;&nbsp;&nbsp;↳ Is index price confirming FII flow?
+
+🎯 **Stock Picker**
+&nbsp;&nbsp;&nbsp;↳ Find the best stock in the right sector
+
+🏦 **FII DII Flow**
+&nbsp;&nbsp;&nbsp;↳ Daily institutional buy/sell activity
+
+📡 **Market Pulse**
+&nbsp;&nbsp;&nbsp;↳ Breadth, RRG & overall market health
+
+🔔 **Alerts**
+&nbsp;&nbsp;&nbsp;↳ Sectors breaking out or reversing
+
+📤 **Export**
+&nbsp;&nbsp;&nbsp;↳ Download data for offline analysis
 """)
     st.markdown("---")
     if st.button("🔄 Refresh Latest Data", use_container_width=True,
