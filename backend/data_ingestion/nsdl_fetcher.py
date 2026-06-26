@@ -370,6 +370,28 @@ def sync_nsdl_to_db(force_refresh_latest: bool = False) -> dict[date, pd.DataFra
     return _load_all_from_db()
 
 
+def is_nsdl_publish_date(d: date | None = None) -> bool:
+    """Return True if `d` (default today) is an NSDL fortnightly publish date.
+
+    NSDL publishes on:
+      - 15th of each month  → first-half report (1st–15th)
+      - Last calendar day   → second-half report (16th–EOM)
+    """
+    import calendar as _cal
+    if d is None:
+        d = date.today()
+    last = _cal.monthrange(d.year, d.month)[1]
+    return d.day == 15 or d.day == last
+
+
+def should_sync_today() -> bool:
+    """Return True only when today is a publish date AND we don't have today's data yet."""
+    today = date.today()
+    if not is_nsdl_publish_date(today):
+        return False
+    return today not in _dates_in_db()
+
+
 def fetch_nsdl_fii_sectors(periods: int = 30) -> dict[date, pd.DataFrame]:
     """
     Public entry point used by all pages.

@@ -23,11 +23,21 @@ st.set_page_config(
 # ── Cold-start DB sync (Streamlit Cloud resets filesystem on restart) ─────────
 @st.cache_resource(show_spinner=False)
 def _cold_start_sync():
-    """Runs once per server process. Populates DB from NSDL if empty."""
+    """
+    Runs once per server process.
+    • If DB is empty → full historical sync (first-ever deployment).
+    • If today is a fortnightly publish date AND we don't have it yet → sync latest only.
+    • Otherwise → no network call; just load from DB.
+    """
     try:
-        from backend.data_ingestion.nsdl_fetcher import _dates_in_db, sync_nsdl_to_db
-        if len(_dates_in_db()) < 5:
-            sync_nsdl_to_db(force_refresh_latest=False)
+        from backend.data_ingestion.nsdl_fetcher import (
+            _dates_in_db, sync_nsdl_to_db, should_sync_today
+        )
+        n = len(_dates_in_db())
+        if n < 5:
+            sync_nsdl_to_db(force_refresh_latest=False)   # first-run full load
+        elif should_sync_today():
+            sync_nsdl_to_db(force_refresh_latest=True)    # auto-fetch new fortnight
     except Exception:
         pass
 

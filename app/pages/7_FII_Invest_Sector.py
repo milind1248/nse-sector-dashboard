@@ -34,8 +34,11 @@ if not all_periods:
     st.error("No NSDL data. Use 'Refresh Latest Data' on the home page.")
     st.stop()
 
-sorted_dates = sorted(all_periods.keys())          # oldest → newest
+sorted_dates = sorted(all_periods.keys())          # oldest → newest (internal order)
 date_labels  = [d.strftime("%d %b %Y") for d in sorted_dates]
+# For UI display — newest first
+sorted_dates_desc = sorted_dates[::-1]
+date_labels_desc  = date_labels[::-1]
 all_sectors  = sorted({s for df in all_periods.values() for s in df["nsdl_sector"]})
 
 # ── Build master pivot (sectors × fortnights) ─────────────────────────────────
@@ -66,10 +69,11 @@ with tab_matrix:
     # Sidebar-style filters inside expander
     with st.expander("⚙️ Filters", expanded=True):
         fc1, fc2, fc3 = st.columns(3)
-        from_lbl = fc1.selectbox("From fortnight", date_labels,
-                                   index=max(0, len(date_labels)-8), key="m_from")
-        to_lbl   = fc2.selectbox("To fortnight",   date_labels,
-                                   index=len(date_labels)-1, key="m_to")
+        # Latest on left: "To" (newest) in left column, "From" (older) in right
+        to_lbl   = fc1.selectbox("To fortnight (latest)",  date_labels_desc,
+                                   index=0, key="m_to")
+        from_lbl = fc2.selectbox("From fortnight (older)", date_labels_desc,
+                                   index=min(7, len(date_labels_desc)-1), key="m_from")
         show_mode = fc3.radio("Values as", ["₹ Crore", "% change vs prior"], key="m_mode",
                                horizontal=True)
         fsec = st.multiselect("Filter sectors (blank = all)", all_sectors, key="m_fsec")
@@ -79,47 +83,55 @@ with tab_matrix:
     if from_idx > to_idx:
         from_idx, to_idx = to_idx, from_idx
 
-    sel_labels = date_labels[from_idx : to_idx + 1]
+    sel_labels = date_labels[from_idx : to_idx + 1]      # ascending (oldest→newest)
     sel_dates  = sorted_dates[from_idx : to_idx + 1]
-    sub        = pivot[sel_labels].copy()
-    if fsec:
-        sub = sub.loc[sub.index.isin(fsec)]
+    # Display order: newest first (latest on left)
+    sel_labels_display = sel_labels[::-1]
 
-    # Summary row
-    latest = sub[sel_labels[-1]].dropna()
+    sub        = pivot[sel_labels].copy()
+    sub_display = sub[sel_labels_display]                 # reversed for display
+    if fsec:
+        sub         = sub.loc[sub.index.isin(fsec)]
+        sub_display = sub_display.loc[sub_display.index.isin(fsec)]
+
+    # Summary row — based on latest (last in ascending = sel_labels[-1])
+    latest_lbl = sel_labels[-1]
+    latest = sub[latest_lbl].dropna()
     m1,m2,m3,m4 = st.columns(4)
-    m1.metric(f"Total Flow ({sel_labels[-1]})", f"₹{latest.sum():+,.0f} Cr")
+    m1.metric(f"Total Flow ({latest_lbl})", f"₹{latest.sum():+,.0f} Cr")
     m2.metric("Buying sectors",  str(int((latest>0).sum())))
     m3.metric("Selling sectors", str(int((latest<0).sum())))
     m4.metric("Top buyer",       latest.idxmax()[:18] if not latest.empty else "–",
                f"₹{latest.max():+,.0f} Cr" if not latest.empty else "")
 
-    st.markdown(f"**{len(sel_labels)} fortnights shown** ({from_lbl} → {to_lbl}) · {len(sub)} sectors")
+    st.markdown(f"**{len(sel_labels)} fortnights shown** ({to_lbl} → {from_lbl}) · {len(sub)} sectors  *(Latest on left)*")
 
-    # Build display table (₹ Cr or % change)
-    if show_mode.startswith("%") and len(sel_labels) > 1:
+    # Build display table (₹ Cr or % change) — using display order (newest-first cols)
+    if show_mode.startswith("%") and len(sel_labels_display) > 1:
         def to_pct_row(row):
             out = {}
-            for i, col in enumerate(sel_labels):
-                if i == 0:
+            for i, col in enumerate(sel_labels_display):
+                # next item in display list is the OLDER fortnight (ascending order reversed)
+                older_col = sel_labels_display[i+1] if i < len(sel_labels_display)-1 else None
+                if older_col is None:
                     out[col] = None
                 else:
-                    prev, curr = row[sel_labels[i-1]], row[col]
-                    if curr is not None and prev is not None and prev != 0:
-                        out[col] = ((curr - prev) / abs(prev)) * 100
+                    curr_v, prev_v = row[col], row[older_col]
+                    if curr_v is not None and prev_v is not None and prev_v != 0:
+                        out[col] = ((curr_v - prev_v) / abs(prev_v)) * 100
                     else:
                         out[col] = None
             return pd.Series(out)
-        disp = sub.apply(to_pct_row, axis=1)
+        disp = sub_display.apply(to_pct_row, axis=1)
         fmt_cell = lambda v: f"{v:+.1f}%" if isinstance(v,(int,float)) and not pd.isna(v) else "–"
         vmax = 200
     else:
-        disp = sub.copy()
+        disp = sub_display.copy()
         fmt_cell = lambda v: f"₹{v:+,.0f}" if isinstance(v,(int,float)) and not pd.isna(v) else "–"
         flat = [v for r in disp.values.tolist() for v in r if v and not pd.isna(v)]
         vmax = max((abs(min(flat)), abs(max(flat))), default=1000) if flat else 1000
 
-    # Heatmap
+    # Heatmap — latest date on left (x-axis starts with newest)
     fig_hm = go.Figure(go.Heatmap(
         z=disp.values.tolist(),
         x=disp.columns.tolist(),
@@ -146,8 +158,8 @@ with tab_matrix:
     )
     st.plotly_chart(fig_hm, use_container_width=True)
 
-    # Data table below heatmap
-    with st.expander("View raw data table"):
+    # Data table below heatmap — latest on left
+    with st.expander("📋 View raw data table (latest on left)"):
         fmt_d = {c: fmt_cell for c in disp.columns}
         def cn(v):
             if not isinstance(v,(int,float)) or pd.isna(v): return ""
@@ -156,9 +168,9 @@ with tab_matrix:
                      use_container_width=True,
                      height=min(600, len(disp)*32+60))
 
-    # Cumulative summary
+    # Cumulative summary — title shows latest → older
     st.markdown("---")
-    st.subheader(f"Cumulative FII Flow in Range: {from_lbl} → {to_lbl}")
+    st.subheader(f"Cumulative FII Flow in Range: {to_lbl} → {from_lbl}")
     cumul = sub.sum(axis=1).sort_values(ascending=False)
     colors_c = ["#00C853" if v >= 0 else "#D50000" for v in cumul.values]
     fig_c = go.Figure(go.Bar(
