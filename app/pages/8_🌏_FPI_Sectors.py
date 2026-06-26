@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import date
+from datetime import date, timedelta
 
 st.set_page_config(page_title="FPI Sector Investment Tracker | First Half Second Half | NSE Sector Analysis", layout="wide")
 from app.utils.seo import inject_seo
@@ -119,6 +119,116 @@ k6.metric("Total AUC",  f"₹{total_auc/100000:.1f}L Cr" if total_auc else "–"
 
 st.markdown("---")
 
+# ── Sector index ticker map ───────────────────────────────────────────────────
+_SECTOR_TICKER = {
+    "Financial Services": "^NSEBANK",
+    "Banks": "^NSEBANK",
+    "Information Technology": "^CNXIT",
+    "IT": "^CNXIT",
+    "Oil Gas & Consumable Fuels": "^CNXENERGY",
+    "Energy": "^CNXENERGY",
+    "Capital Goods": "^CNXINFRA",
+    "Infrastructure": "^CNXINFRA",
+    "Automobiles & Auto Components": "^CNXAUTO",
+    "Auto": "^CNXAUTO",
+    "Fast Moving Consumer Goods": "^CNXFMCG",
+    "FMCG": "^CNXFMCG",
+    "Healthcare": "^CNXPHARMA",
+    "Pharma": "^CNXPHARMA",
+    "Metals & Mining": "^CNXMETAL",
+    "Metals": "^CNXMETAL",
+    "Realty": "^CNXREALTY",
+    "Consumer Durables": "^CNXCONSUM",
+    "Media Entertainment & Publication": "^CNXMEDIA",
+    "Chemicals": "^CNXCHEM",
+    "Textiles": "NIFTEXTILE.NS",
+    "Construction": "^CNXINFRA",
+    "Power": "^CNXENERGY",
+    "Diversified": "^NSEI",
+    "Others": "^NSEI",
+    "Financial Institutions": "^NSEBANK",
+}
+
+def _ticker_for(nsdl_sector: str) -> str:
+    for k, v in _SECTOR_TICKER.items():
+        if k.lower() in nsdl_sector.lower() or nsdl_sector.lower() in k.lower():
+            return v
+    return "^NSEI"   # fallback: Nifty 50
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _fetch_chart_data(ticker: str, days: int = 180):
+    try:
+        import yfinance as yf
+        df = yf.download(ticker, period=f"{days}d", interval="1d", auto_adjust=True, progress=False)
+        if df.empty:
+            return None
+        df = df.reset_index()
+        # Flatten MultiIndex columns if present
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [c[0] for c in df.columns]
+        df.columns = [c.lower() for c in df.columns]
+        df = df.rename(columns={"date": "Date"})
+        df["ema20"]  = df["close"].ewm(span=20,  adjust=False).mean()
+        df["ema200"] = df["close"].ewm(span=200, adjust=False).mean()
+        return df
+    except Exception as e:
+        print(f"[chart] {ticker}: {e}")
+        return None
+
+def _show_sector_chart(nsdl_sector: str, fii_flow: float):
+    ticker = _ticker_for(nsdl_sector)
+    df = _fetch_chart_data(ticker)
+    if df is None or df.empty:
+        st.warning(f"No price data for {nsdl_sector}")
+        return
+
+    flow_color = "#00C853" if fii_flow >= 0 else "#D50000"
+    flow_label = f"₹{fii_flow:+,.0f} Cr FII {'Buying' if fii_flow >= 0 else 'Selling'}"
+
+    fig = go.Figure()
+    # Candlesticks
+    fig.add_trace(go.Candlestick(
+        x=df["Date"], open=df["open"], high=df["high"],
+        low=df["low"],  close=df["close"],
+        name="Price",
+        increasing_line_color="#00C853", increasing_fillcolor="#00C853",
+        decreasing_line_color="#D50000", decreasing_fillcolor="#D50000",
+    ))
+    # EMAs
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["ema20"],
+        name="EMA 20", line=dict(color="#2979FF", width=1.5), hoverinfo="skip"))
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["ema200"],
+        name="EMA 200", line=dict(color="#FF6D00", width=1.5, dash="dot"), hoverinfo="skip"))
+    # Volume bars
+    vol_colors = ["#00C85366" if c >= o else "#D5000066"
+                  for c, o in zip(df["close"], df["open"])]
+    fig.add_trace(go.Bar(
+        x=df["Date"], y=df["volume"], name="Volume",
+        marker_color=vol_colors, yaxis="y2", showlegend=False,
+    ))
+    # FII flow annotation
+    fig.add_annotation(
+        text=f"FII Flow: {flow_label}",
+        xref="paper", yref="paper", x=0.01, y=0.99,
+        showarrow=False, font=dict(color=flow_color, size=13),
+        bgcolor="#0e1117", bordercolor=flow_color, borderwidth=1,
+        borderpad=6, align="left",
+    )
+    fig.update_layout(
+        template="plotly_dark",
+        title=dict(text=f"{nsdl_sector} · {ticker} · 6 months", font=dict(size=14)),
+        height=420,
+        margin=dict(t=50, b=20, l=10, r=10),
+        xaxis=dict(rangeslider=dict(visible=False), type="date"),
+        yaxis=dict(title="Price", side="right", showgrid=True, gridcolor="#1e2130"),
+        yaxis2=dict(overlaying="y", side="left", showgrid=False,
+                    range=[0, df["volume"].max() * 5]),
+        legend=dict(orientation="h", y=1.06, x=0),
+        hovermode="x unified",
+        xaxis_rangebreaks=[dict(bounds=["sat", "mon"])],
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab_ov, tab_net, tab_trend, tab_cum, tab_hm, tab_auc = st.tabs([
     "📊 Overview",
@@ -204,34 +314,74 @@ with tab_ov:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-        # ── Top Buyers / Sellers cards ─────────────────────────────────────────
+        # ── Top Buyers / Sellers — clickable cards showing price chart ───────────
         st.markdown("---")
         cum_all = _cum_for_dates(sel_dates)
         buyers_df, sellers_df = _top_n_table(cum_all, n=5)
+
+        if "ov_chart_sector" not in st.session_state:
+            st.session_state["ov_chart_sector"] = None
+            st.session_state["ov_chart_flow"]   = 0.0
 
         bc1, bc2 = st.columns(2)
         with bc1:
             st.markdown("### 🟢 Top Buyers")
             for _, row in buyers_df.iterrows():
+                sec, flow = row["Sector"], row["₹ Crore"]
+                active = st.session_state["ov_chart_sector"] == sec
+                bg  = "#00C85325" if not active else "#00C85355"
+                bdr = "#00C853"
                 st.markdown(
-                    f"<div style='background:#00C85315;border-left:4px solid #00C853;"
-                    f"padding:8px 14px;border-radius:5px;margin-bottom:6px'>"
-                    f"<b>{row['Sector']}</b> &nbsp;"
-                    f"<span style='color:#00C853;font-size:1.1em'>₹{row['₹ Crore']:+,.0f} Cr</span>"
+                    f"<div style='background:{bg};border-left:4px solid {bdr};"
+                    f"padding:8px 14px;border-radius:5px;margin-bottom:4px'>"
+                    f"<b>{sec}</b> &nbsp;"
+                    f"<span style='color:{bdr};font-size:1.05em'>₹{flow:+,.0f} Cr</span>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
+                if st.button(f"📈 View Chart", key=f"buy_chart_{sec}",
+                             use_container_width=True):
+                    st.session_state["ov_chart_sector"] = sec
+                    st.session_state["ov_chart_flow"]   = flow
+                    st.rerun()
+
         with bc2:
             st.markdown("### 🔴 Top Sellers")
             for _, row in sellers_df.iterrows():
+                sec, flow = row["Sector"], row["₹ Crore"]
+                active = st.session_state["ov_chart_sector"] == sec
+                bg  = "#D5000025" if not active else "#D5000055"
+                bdr = "#D50000"
                 st.markdown(
-                    f"<div style='background:#D5000015;border-left:4px solid #D50000;"
-                    f"padding:8px 14px;border-radius:5px;margin-bottom:6px'>"
-                    f"<b>{row['Sector']}</b> &nbsp;"
-                    f"<span style='color:#D50000;font-size:1.1em'>₹{row['₹ Crore']:+,.0f} Cr</span>"
+                    f"<div style='background:{bg};border-left:4px solid {bdr};"
+                    f"padding:8px 14px;border-radius:5px;margin-bottom:4px'>"
+                    f"<b>{sec}</b> &nbsp;"
+                    f"<span style='color:{bdr};font-size:1.05em'>₹{flow:+,.0f} Cr</span>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
+                if st.button(f"📈 View Chart", key=f"sell_chart_{sec}",
+                             use_container_width=True):
+                    st.session_state["ov_chart_sector"] = sec
+                    st.session_state["ov_chart_flow"]   = flow
+                    st.rerun()
+
+        # ── Chart panel — shows below both columns when a sector is selected ────
+        if st.session_state["ov_chart_sector"]:
+            sel_sec  = st.session_state["ov_chart_sector"]
+            sel_flow = st.session_state["ov_chart_flow"]
+            st.markdown(f"#### 📊 {sel_sec} — Sector Index Price Chart")
+            cc1, cc2 = st.columns([6, 1])
+            with cc2:
+                if st.button("✕ Close", key="ov_close_chart"):
+                    st.session_state["ov_chart_sector"] = None
+                    st.rerun()
+            with cc1:
+                period_opt = st.radio("Period:", ["3M", "6M", "1Y"], index=1,
+                                      horizontal=True, key="ov_chart_period")
+            days_map = {"3M": 90, "6M": 180, "1Y": 365}
+            with st.spinner(f"Loading price chart for {sel_sec}…"):
+                _show_sector_chart(sel_sec, sel_flow)
 
         # ── Sector detail table ────────────────────────────────────────────────
         st.markdown("---")
