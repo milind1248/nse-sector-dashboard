@@ -48,7 +48,9 @@ _cold_start_sync()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 from app.utils.logo import show_logo
+from app.utils.visitor import show_visitor_counter
 show_logo()
+show_visitor_counter()
 with st.sidebar:
     st.markdown("## 📊 NSE Sector Analysis")
     st.markdown("**Investor Decision Flow**")

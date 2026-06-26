@@ -151,6 +151,15 @@ class NsdlFiiSector(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class SiteStats(Base):
+    """Key-value store for site-wide counters (e.g. visitor_count)."""
+    __tablename__ = "site_stats"
+
+    key        = Column(String(64), primary_key=True)
+    value      = Column(Integer, default=0, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class AlertsLog(Base):
     __tablename__ = "alerts_log"
 
