@@ -136,10 +136,10 @@ alert_sectors = df_alerts["Sector"].unique().tolist()
 sel = st.selectbox("Jump to sector analysis:", alert_sectors)
 if st.button(f"Analyse {sel} →", type="primary"):
     st.session_state["selected_sector"] = sel
-    st.switch_page("pages/1_📈_Sector_Analysis.py")
+    st.switch_page("pages/2_📈_Sector_Analysis.py")
 
 st.markdown("---")
 if st.button("← FII Sector Watch"):
-    st.switch_page("main.py")
+    st.switch_page("Home.py")
 from app.utils.disclaimer import show_footer
 show_footer()

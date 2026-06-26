@@ -441,7 +441,7 @@ with tab_analysis:
                         st.session_state["selected_sector"]          = int_sec[0]
                         st.session_state["selected_sector_nsdl"]     = sec_label
                         st.session_state["selected_sector_net_curr"] = row["FII Net (₹Cr)"]
-                        st.switch_page("pages/2_🎯_Stock_Picker.py")
+                        st.switch_page("pages/7_🎯_Stock_Picker.py")
                 st.markdown("---")
         else:
             st.info("No confirmed sectors in this fortnight / time window. Try a longer price window or a different fortnight.")
