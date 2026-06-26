@@ -201,21 +201,21 @@ def fetch_fii_dii(days: int = 90) -> pd.DataFrame:
 
 
 def fetch_market_breadth() -> dict:
-    """Returns today's advance/decline counts from NSE."""
+    """Returns today's advance/decline counts from NSE allIndices API."""
     try:
         import requests
-        headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.nseindia.com"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                   "Referer": "https://www.nseindia.com"}
         session = requests.Session()
         session.get("https://www.nseindia.com", headers=headers, timeout=10)
-        url = "https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%2050"
-        resp = session.get(url, headers=headers, timeout=10)
+        resp = session.get("https://www.nseindia.com/api/allIndices",
+                           headers=headers, timeout=10)
         if resp.status_code == 200:
             data = resp.json()
-            adv = data.get("advance", {})
             return {
-                "advance":   int(adv.get("advances", 0) or 0),
-                "decline":   int(adv.get("declines", 0) or 0),
-                "unchanged": int(adv.get("unchanged", 0) or 0),
+                "advance":   int(data.get("advances", 0) or 0),
+                "decline":   int(data.get("declines", 0) or 0),
+                "unchanged": int(data.get("unchanged", 0) or 0),
             }
     except Exception as e:
         logger.warning(f"Breadth fetch failed: {e}")
