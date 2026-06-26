@@ -177,7 +177,7 @@ if rrg_data:
                 btn_label = s[:18]
                 if col.button(btn_label, key=f"rrg_{quad}_{s}", use_container_width=True):
                     st.session_state["selected_sector"] = s
-                    st.switch_page("pages/1_📈_Sector_Analysis.py")
+                    st.switch_page("pages/2_📈_Sector_Analysis.py")
         else:
             col.caption("None")
 else:
@@ -185,6 +185,6 @@ else:
 
 st.markdown("---")
 if st.button("← FII Sector Watch", use_container_width=False):
-    st.switch_page("main.py")
+    st.switch_page("Home.py")
 from app.utils.disclaimer import show_footer
 show_footer()

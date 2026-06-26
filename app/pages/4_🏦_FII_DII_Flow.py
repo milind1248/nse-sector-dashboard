@@ -19,6 +19,15 @@ show_logo()
 st.title("🏦 FII / DII Flow Dashboard")
 st.caption("Daily institutional flow + fortnightly sector breakdown from NSDL.")
 
+# ── Cache functions MUST be defined before any .clear() call ──
+@st.cache_data(ttl=900, show_spinner=False)
+def load_daily_fii_all():
+    return fetch_fii_dii(days=120)
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def load_nsdl_latest():
+    return get_latest_nsdl(periods=2)
+
 col_title, col_refresh = st.columns([6, 1])
 with col_refresh:
     if st.button("🔄 Refresh", use_container_width=True):
@@ -26,16 +35,6 @@ with col_refresh:
         st.rerun()
 
 tabs = st.tabs(["📅 Daily Flow", "📊 Fortnightly Sector Breakdown"])
-
-# ── Load functions defined at module level so Streamlit cache works correctly ──
-@st.cache_data(ttl=900, show_spinner=False)    # 15-min TTL; use Refresh button to force reload
-def load_daily_fii_all():
-    """Fetch once, filter per period in UI. Avoids repeated network calls on radio switch."""
-    return fetch_fii_dii(days=120)
-
-@st.cache_data(ttl=86400, show_spinner=False)  # 24-hr TTL: NSDL never changes intraday
-def load_nsdl_latest():
-    return get_latest_nsdl(periods=2)
 
 with tabs[0]:
     period_map = {"Weekly": 7, "Fortnightly": 14, "Monthly": 30, "Quarterly": 90}

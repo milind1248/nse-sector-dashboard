@@ -1,13 +1,18 @@
-"""One-click Excel export with 8 sheets."""
+"""One-click Excel export — all dashboard data in one workbook."""
 import io
+import sqlite3
 from datetime import date
+from pathlib import Path
+
 import pandas as pd
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils.dataframe import dataframe_to_rows
 
-GREEN_FILL = PatternFill("solid", fgColor="1B5E20")
-RED_FILL   = PatternFill("solid", fgColor="B71C1C")
+_DB = Path(__file__).resolve().parent.parent / "data" / "nse_dashboard.db"
+
+GREEN_FILL  = PatternFill("solid", fgColor="1B5E20")
+RED_FILL    = PatternFill("solid", fgColor="B71C1C")
 HEADER_FILL = PatternFill("solid", fgColor="1A237E")
 
 
@@ -16,7 +21,7 @@ def _apply_pct_colors(ws, col_letters: list[str], start_row: int = 2):
         for cell in row:
             if cell.column_letter in col_letters:
                 try:
-                    val = float(str(cell.value).replace("%", "").replace("+", "") or 0)
+                    val = float(str(cell.value or 0).replace("%", "").replace("+", ""))
                     if val > 0:
                         cell.fill = GREEN_FILL
                         cell.font = Font(color="FFFFFF", bold=True)
@@ -35,92 +40,79 @@ def _write_sheet(wb: openpyxl.Workbook, name: str, df: pd.DataFrame,
         cell.fill = HEADER_FILL
         cell.font = Font(color="FFFFFF", bold=True)
         cell.alignment = Alignment(horizontal="center")
-
     for row_data in dataframe_to_rows(df, index=False, header=False):
         ws.append(row_data)
-
     if pct_cols:
-        col_map = {col: openpyxl.utils.get_column_letter(i+1)
+        col_map = {col: openpyxl.utils.get_column_letter(i + 1)
                    for i, col in enumerate(df.columns)}
         letters = [col_map[c] for c in pct_cols if c in col_map]
         _apply_pct_colors(ws, letters)
-
-    # Auto-width
     for col in ws.columns:
-        max_len = max(len(str(cell.value or "")) for cell in col)
-        ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 30)
+        max_len = max((len(str(cell.value or "")) for cell in col), default=8)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 35)
     return ws
 
 
-def generate_excel(
-    sector_df: pd.DataFrame,
-    fii_df: pd.DataFrame,
-    breadth_df: pd.DataFrame,
-    alerts_df: pd.DataFrame,
-    heatmap_df: pd.DataFrame,
-) -> bytes:
-    wb = openpyxl.Workbook()
-    wb.remove(wb.active)  # remove default sheet
-
-    # 1. Summary
-    summary_data = {
-        "Generated On": [date.today().isoformat()],
-        "Total Sectors": [len(sector_df)],
-        "Strong Sectors (score≥70)": [len(sector_df[sector_df["momentum_score"] >= 70]) if "momentum_score" in sector_df.columns else "N/A"],
-        "Weak Sectors (score≤30)":   [len(sector_df[sector_df["momentum_score"] <= 30]) if "momentum_score" in sector_df.columns else "N/A"],
-        "FII Net (Last Week, Cr)":   [fii_df["fii_net"].tail(5).sum() if not fii_df.empty and "fii_net" in fii_df.columns else "N/A"],
-        "DII Net (Last Week, Cr)":   [fii_df["dii_net"].tail(5).sum() if not fii_df.empty and "dii_net" in fii_df.columns else "N/A"],
-    }
-    _write_sheet(wb, "Summary", pd.DataFrame(summary_data).T.reset_index())
-
-    # 2. Sector Analysis
-    if not sector_df.empty:
-        pct_cols = [c for c in sector_df.columns if "pct_" in c]
-        _write_sheet(wb, "Sector_Analysis", sector_df, pct_cols=pct_cols)
-
-    # 3. Heatmap
-    if not heatmap_df.empty:
-        hm = heatmap_df.reset_index()
-        _write_sheet(wb, "Heatmap", hm,
-                     pct_cols=[c for c in hm.columns if c not in ["Sector","index"]])
-
-    # 4. FII DII
-    if not fii_df.empty:
-        _write_sheet(wb, "FII_DII", fii_df)
-
-    # 5. Breadth
-    if not breadth_df.empty:
-        _write_sheet(wb, "Breadth", breadth_df)
-
-    # 6. Alerts
-    if not alerts_df.empty:
-        _write_sheet(wb, "Alerts", alerts_df)
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf.read()
+def _db(query: str, params=()) -> pd.DataFrame:
+    try:
+        con = sqlite3.connect(str(_DB))
+        df = pd.read_sql_query(query, con, params=params)
+        con.close()
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 
 def generate_excel_report() -> bytes:
-    """Auto-fetch all data and return Excel bytes — called by Export page."""
+    """Fetch all data from DB + live sources and return Excel bytes."""
     import sys
-    from pathlib import Path
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
-    from backend.data_ingestion.yfinance_fetcher import fetch_all_sector_prices, compute_pct_returns
+    from backend.data_ingestion.yfinance_fetcher import (
+        fetch_all_sector_prices, compute_pct_returns, _get_close,
+    )
     from backend.data_ingestion.nse_fetcher import fetch_fii_dii
-    from backend.data_ingestion.nsdl_fetcher import get_latest_nsdl
     from backend.calculations.indicators import compute_all_indicators
     from backend.calculations.sector_score import compute_sector_score, score_label
-    from backend.data_ingestion.yfinance_fetcher import _get_close
-    import yfinance as yf
 
-    # Sector data
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    # ── 1. Summary ────────────────────────────────────────────────────────────
+    fii_df = fetch_fii_dii(days=120)
+    fii_5d = round(fii_df["fii_net"].tail(5).sum(), 2) if not fii_df.empty and "fii_net" in fii_df.columns else "N/A"
+    dii_5d = round(fii_df["dii_net"].tail(5).sum(), 2) if not fii_df.empty and "dii_net" in fii_df.columns else "N/A"
+
+    sector_snap = _db("SELECT * FROM daily_sector_snapshot ORDER BY momentum_score DESC")
+    strong = int((sector_snap["momentum_score"] >= 70).sum()) if not sector_snap.empty and "momentum_score" in sector_snap.columns else "N/A"
+    weak   = int((sector_snap["momentum_score"] <= 30).sum()) if not sector_snap.empty and "momentum_score" in sector_snap.columns else "N/A"
+
+    summary_rows = [
+        ["Generated On",                date.today().isoformat()],
+        ["Total Sectors tracked",        len(sector_snap) if not sector_snap.empty else "N/A"],
+        ["Strong Sectors (Score ≥ 70)",  strong],
+        ["Weak Sectors (Score ≤ 30)",    weak],
+        ["FII Net Last 5 Days (₹ Cr)",   fii_5d],
+        ["DII Net Last 5 Days (₹ Cr)",   dii_5d],
+        ["FII/DII History Days",         len(fii_df)],
+        ["Index Stocks tracked",         len(_db("SELECT * FROM sector_intelligence"))],
+    ]
+    _write_sheet(wb, "1_Summary",
+                 pd.DataFrame(summary_rows, columns=["Metric", "Value"]))
+
+    # ── 2. Sector Analysis (daily snapshot) ───────────────────────────────────
+    if not sector_snap.empty:
+        pct_cols = [c for c in sector_snap.columns
+                    if any(x in c for x in ("pct_", "rs_", "ad_ratio"))]
+        _write_sheet(wb, "2_Sector_Analysis", sector_snap, pct_cols=pct_cols)
+
+    # ── 3. Sector Heatmap (live % returns) ───────────────────────────────────
     sector_prices = fetch_all_sector_prices()
-    sector_rows = []
+    hm_rows = []
+    sector_live_rows = []
     for s, df in sector_prices.items():
-        if df is None or df.empty: continue
+        if df is None or df.empty:
+            continue
         rets  = compute_pct_returns(df)
         indic = compute_all_indicators(df)
         close_s = _get_close(df)
@@ -130,34 +122,76 @@ def generate_excel_report() -> bytes:
             rsi_14=indic.get("rsi_14"), close=close, ema_200=indic.get("ema_200"),
         )
         lbl, _ = score_label(score)
-        sector_rows.append({"Sector": s, "Score": score, "Label": lbl,
-                             "RSI_14": indic.get("rsi_14"),
-                             "EMA_20": indic.get("ema_20"), "EMA_50": indic.get("ema_50"),
-                             "EMA_200": indic.get("ema_200"),
-                             "pct_1w": rets.get("pct_1w"), "pct_1m": rets.get("pct_1m"),
-                             "pct_3m": rets.get("pct_3m"), "pct_1y": rets.get("pct_1y")})
-    sector_df = pd.DataFrame(sector_rows).sort_values("Score", ascending=False)
+        hm_rows.append({"Sector": s,
+                         "1W%": rets.get("pct_1w"), "2W%": rets.get("pct_2w"),
+                         "1M%": rets.get("pct_1m"), "3M%": rets.get("pct_3m"),
+                         "6M%": rets.get("pct_6m"), "1Y%": rets.get("pct_1y")})
+        sector_live_rows.append({
+            "Sector": s, "Score": score, "Signal": lbl,
+            "RSI_14":  round(indic.get("rsi_14")  or 0, 2),
+            "EMA_20":  round(indic.get("ema_20")  or 0, 2),
+            "EMA_50":  round(indic.get("ema_50")  or 0, 2),
+            "EMA_200": round(indic.get("ema_200") or 0, 2),
+            "1W%": rets.get("pct_1w"),  "2W%": rets.get("pct_2w"),
+            "1M%": rets.get("pct_1m"),  "3M%": rets.get("pct_3m"),
+            "6M%": rets.get("pct_6m"),  "1Y%": rets.get("pct_1y"),
+        })
 
-    # NSDL FII
-    curr_df, prev_df, curr_date, _ = get_latest_nsdl(periods=2)
-    nsdl_df = curr_df.drop(columns=["sector"], errors="ignore") if curr_df is not None else pd.DataFrame()
+    if hm_rows:
+        hm_df = pd.DataFrame(hm_rows).set_index("Sector").reset_index()
+        _write_sheet(wb, "3_Heatmap", hm_df,
+                     pct_cols=[c for c in hm_df.columns if "%" in c])
 
-    # Daily FII/DII
-    fii_df = fetch_fii_dii(days=60)
+    if sector_live_rows:
+        live_df = pd.DataFrame(sector_live_rows).sort_values("Score", ascending=False)
+        _write_sheet(wb, "4_Sector_Live_Scores", live_df,
+                     pct_cols=[c for c in live_df.columns if "%" in c])
 
-    # Heatmap
-    hm_rows = []
-    for s, df in sector_prices.items():
-        if df is None or df.empty: continue
-        rets = compute_pct_returns(df)
-        hm_rows.append({"Sector": s, "1W%": rets.get("pct_1w"), "1M%": rets.get("pct_1m"),
-                         "3M%": rets.get("pct_3m"), "6M%": rets.get("pct_6m"), "1Y%": rets.get("pct_1y")})
-    hm_df = pd.DataFrame(hm_rows).set_index("Sector") if hm_rows else pd.DataFrame()
-
-    return generate_excel(
-        sector_df=sector_df if not nsdl_df.empty else sector_df,
-        fii_df=fii_df,
-        breadth_df=nsdl_df,
-        alerts_df=pd.DataFrame(),
-        heatmap_df=hm_df,
+    # ── 4. Index Stocks with Weightage ────────────────────────────────────────
+    idx_stocks = _db(
+        "SELECT sector, index_name, index_display, company_name, symbol, "
+        "       industry, weightage_pct, market_cap_cr, weight_source "
+        "FROM sector_intelligence ORDER BY sector, index_name, weightage_pct DESC"
     )
+    if not idx_stocks.empty:
+        _write_sheet(wb, "5_Index_Stocks", idx_stocks)
+
+    # ── 5. Stock Snapshot (all stocks with indicators) ────────────────────────
+    stock_snap = _db(
+        "SELECT date, sector, symbol, name, close, market_cap, "
+        "       pct_1d, pct_1w, pct_1m, pct_3m, pct_6m, pct_1y, "
+        "       rsi_14, ema_20, ema_50, ema_200, macd, "
+        "       fii_holding_pct, dii_holding_pct, promoter_pct, mf_pct, "
+        "       high_52w, low_52w, rs_vs_nifty, momentum_score "
+        "FROM daily_stock_snapshot ORDER BY sector, momentum_score DESC"
+    )
+    if not stock_snap.empty:
+        pct_cols = [c for c in stock_snap.columns
+                    if "pct_" in c or "rs_" in c]
+        _write_sheet(wb, "6_Stock_Snapshot", stock_snap, pct_cols=pct_cols)
+
+    # ── 6. FII / DII Daily Flow ───────────────────────────────────────────────
+    if not fii_df.empty:
+        _write_sheet(wb, "7_FII_DII_Daily",
+                     fii_df.sort_values("date", ascending=False))
+
+    # ── 7. NSDL Sector FII (fortnightly) ─────────────────────────────────────
+    nsdl_df = _db(
+        "SELECT report_date, nsdl_sector, sector, "
+        "       auc_prev_eq, net_prev_eq, net_curr_eq, auc_curr_eq, "
+        "       auc_change, auc_pct_change, net_flow_change, signal "
+        "FROM nsdl_fii_sector ORDER BY report_date DESC, net_curr_eq DESC"
+    )
+    if not nsdl_df.empty:
+        _write_sheet(wb, "8_NSDL_Sector_FII", nsdl_df,
+                     pct_cols=["auc_pct_change"])
+
+    # ── 8. Market Breadth ─────────────────────────────────────────────────────
+    breadth_df = _db("SELECT * FROM market_breadth_daily ORDER BY date DESC")
+    if not breadth_df.empty:
+        _write_sheet(wb, "9_Market_Breadth", breadth_df)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()

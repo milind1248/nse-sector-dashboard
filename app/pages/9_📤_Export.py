@@ -26,11 +26,18 @@ st.title("\U0001f4e5 Export Dashboard Data")
 st.caption("Download full sector intelligence report as Excel.")
 
 st.markdown("""
-**Includes:**
-- NSDL Sector FII — fortnightly sector buying/selling (INR Crore)
-- Sector Summary — scores, RSI, EMA signal, returns
-- Heatmap — % returns across timeframes
-- FII/DII Daily — last 60 days
+**9 sheets included:**
+| Sheet | Contents |
+|-------|----------|
+| 1_Summary | Dashboard overview — sector counts, FII net, history depth |
+| 2_Sector_Analysis | Daily sector snapshot — RSI, EMA, MACD, momentum score, A/D ratio |
+| 3_Heatmap | % returns (1W / 2W / 1M / 3M / 6M / 1Y) per sector |
+| 4_Sector_Live_Scores | Live sector scores + EMA signals from Yahoo Finance |
+| 5_Index_Stocks | All index constituents — company, symbol, weightage %, market cap |
+| 6_Stock_Snapshot | Individual stock indicators — RSI, EMA, FII/DII holding %, 52W high/low |
+| 7_FII_DII_Daily | FII & DII daily buy/sell/net flow — full accumulated history |
+| 8_NSDL_Sector_FII | Fortnightly FII sector breakdown — AUC, net flow, signal |
+| 9_Market_Breadth | Advance/Decline, VIX, 52W highs/lows, EMA breadth metrics |
 """)
 
 st.markdown("---")
