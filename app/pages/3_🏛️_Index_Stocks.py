@@ -484,17 +484,32 @@ YF_SYMBOL = {
 }
 yf_sym = YF_SYMBOL.get(selected_index, f"^{selected_index}")
 
-period_opts = {"3 Months": "3mo", "6 Months": "6mo", "1 Year": "1y", "2 Years": "2y"}
+period_opts = {
+    "15 Days":  "15d",
+    "1 Month":  "1mo",
+    "2 Months": "2mo",
+    "3 Months": "3mo",
+    "6 Months": "6mo",
+    "1 Year":   "1y",
+    "2 Years":  "2y",
+}
 pc1, pc2 = st.columns([2, 6])
 with pc1:
-    period_label = st.selectbox("Period", list(period_opts.keys()), index=2, key="sis_period")
+    period_label = st.selectbox("Period", list(period_opts.keys()), index=3, key="sis_period")
 period = period_opts[period_label]
+
+_PERIOD_DAYS = {"15d": 15, "2mo": 60}  # periods yfinance doesn't support natively
 
 @st.cache_data(ttl=900, show_spinner=False)
 def fetch_index_ohlcv(symbol: str, period: str):
     try:
         import yfinance as yf
-        df = yf.download(symbol, period=period, interval="1d", progress=False, auto_adjust=True)
+        from datetime import datetime, timedelta
+        if period in _PERIOD_DAYS:
+            start = (datetime.today() - timedelta(days=_PERIOD_DAYS[period])).strftime("%Y-%m-%d")
+            df = yf.download(symbol, start=start, interval="1d", progress=False, auto_adjust=True)
+        else:
+            df = yf.download(symbol, period=period, interval="1d", progress=False, auto_adjust=True)
         if df.empty:
             return None
         df = df.reset_index()
