@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 import streamlit as st
 import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Contact | NSE Sector Analysis", page_icon="📧", layout="wide")
+st.set_page_config(page_title="Contact | Market Sector Analysis", page_icon="📧", layout="wide")
 
 from app.utils.seo import inject_seo
 inject_seo("Contact")
@@ -65,7 +65,7 @@ with col_form:
   <form id="cf" onsubmit="sendForm(event)">
     <input type="hidden" name="access_key" value="{_KEY}">
     <input type="hidden" name="subject"    value="[NSE Dashboard] Contact Form Message">
-    <input type="hidden" name="from_name"  value="NSE Sector Analysis">
+    <input type="hidden" name="from_name"  value="Market Sector Analysis">
     <input type="hidden" name="botcheck"   value="">
 
     <label>Your Name *</label>
@@ -134,7 +134,7 @@ async function sendForm(e) {{
 with col_info:
     st.subheader("About This Dashboard")
     st.markdown("""
-**NSE Sector Analysis** is a free tool for Indian equity investors
+**Market Sector Analysis** is a free tool for Indian equity investors
 who follow FII (Foreign Institutional Investor) sector flows.
 
 ---

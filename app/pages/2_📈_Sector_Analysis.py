@@ -18,7 +18,7 @@ from backend.calculations.relative_strength import compute_rs_ratio
 from backend.calculations.advance_decline import compute_sector_advance_decline
 from backend.data_ingestion.yfinance_fetcher import fetch_sector_stocks
 
-st.set_page_config(page_title="NSE Sector Price Analysis | FII Flow vs Price | NSE Sector Analysis", layout="wide")
+st.set_page_config(page_title="NSE Sector Price Analysis | FII Flow vs Price | Market Sector Analysis", layout="wide")
 from app.utils.seo import inject_seo
 inject_seo("Sector_Analysis")
 

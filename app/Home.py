@@ -14,7 +14,7 @@ import plotly.graph_objects as go
 from datetime import date
 
 st.set_page_config(
-    page_title="NSE Sector Analysis | FII Fortnightly Sector Flow Dashboard",
+    page_title="Market Sector Analysis | FII Fortnightly Sector Flow Dashboard",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -53,7 +53,7 @@ _cold_start_sync()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 📊 NSE Sector Analysis")
+    st.markdown("## 📊 Market Sector Analysis")
     st.markdown("""
 <div style="font-size:11px; color:#888; line-height:1.8; margin-top:2px;">
 <b style="color:#aaa; font-size:10px; letter-spacing:1px;">INVESTOR DECISION FLOW</b><br>

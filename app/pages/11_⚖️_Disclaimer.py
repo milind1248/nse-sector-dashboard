@@ -5,7 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 import streamlit as st
 
 st.set_page_config(
-    page_title="Disclaimer | NSE Sector Analysis",
+    page_title="Disclaimer | Market Sector Analysis",
     page_icon="⚖️", layout="wide",
 )
 

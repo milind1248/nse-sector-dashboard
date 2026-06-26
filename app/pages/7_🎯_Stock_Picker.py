@@ -19,7 +19,7 @@ from backend.calculations.indicators import compute_all_indicators, ema_signal
 from backend.calculations.sector_score import compute_sector_score, score_label
 from backend.calculations.relative_strength import compute_rs_ratio
 
-st.set_page_config(page_title="Stock Picker | Best Stocks in FII-Backed Sectors | NSE Sector Analysis", layout="wide")
+st.set_page_config(page_title="Stock Picker | Best Stocks in FII-Backed Sectors | Market Sector Analysis", layout="wide")
 from app.utils.seo import inject_seo
 inject_seo("Stock_Picker")
 

@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 from backend.data_ingestion.nse_fetcher import fetch_fii_dii
 from backend.data_ingestion.nsdl_fetcher import get_latest_nsdl
 
-st.set_page_config(page_title="FII DII Daily Flow | Institutional Activity | NSE Sector Analysis", layout="wide")
+st.set_page_config(page_title="FII DII Daily Flow | Institutional Activity | Market Sector Analysis", layout="wide")
 from app.utils.seo import inject_seo
 inject_seo("FII_DII_Flow")
 
