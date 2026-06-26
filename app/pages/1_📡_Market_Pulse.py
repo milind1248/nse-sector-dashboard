@@ -8,12 +8,12 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import yfinance as yf
+from datetime import date, timedelta
 
 from config import SECTOR_STOCKS, NIFTY_SYMBOL
 from backend.data_ingestion.yfinance_fetcher import (
     fetch_all_sector_prices, compute_pct_returns, fetch_market_summary, _get_close,
 )
-from backend.data_ingestion.nse_fetcher import fetch_market_breadth
 from backend.calculations.relative_strength import compute_rrg_coordinates
 
 st.set_page_config(page_title="Market Pulse | Nifty Breadth & Relative Rotation | Market Sector Analysis", layout="wide")
@@ -28,9 +28,34 @@ show_logo()
 def get_market_summary():
     return fetch_market_summary()
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def get_breadth():
-    return fetch_market_breadth()
+    """Download NSE Bhavcopy and compute advance/decline directly."""
+    import requests, zipfile, io as _io
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    for offset in range(6):
+        dt = date.today() - timedelta(days=offset)
+        url = (f"https://nsearchives.nseindia.com/content/cm/"
+               f"BhavCopy_NSE_CM_0_0_0_{dt.strftime('%Y%m%d')}_F_0000.csv.zip")
+        try:
+            r = requests.get(url, headers=headers, timeout=15)
+            if r.status_code != 200:
+                continue
+            z = zipfile.ZipFile(_io.BytesIO(r.content))
+            df = pd.read_csv(z.open(z.namelist()[0]))
+            eq = df[~df['SctySrs'].isin({'GS', 'GB', 'TB', 'IV'})].copy()
+            eq['ClsPric']      = pd.to_numeric(eq['ClsPric'],      errors='coerce')
+            eq['PrvsClsgPric'] = pd.to_numeric(eq['PrvsClsgPric'], errors='coerce')
+            eq = eq.dropna(subset=['ClsPric', 'PrvsClsgPric'])
+            eq = eq[eq['PrvsClsgPric'] > 0]
+            adv = int((eq['ClsPric'] > eq['PrvsClsgPric']).sum())
+            dec = int((eq['ClsPric'] < eq['PrvsClsgPric']).sum())
+            unc = int((eq['ClsPric'] == eq['PrvsClsgPric']).sum())
+            if adv + dec > 0:
+                return {"advance": adv, "decline": dec, "unchanged": unc}
+        except Exception:
+            continue
+    return {"advance": 0, "decline": 0, "unchanged": 0}
 
 col_h, col_ref = st.columns([6, 1])
 col_h.title("📡 Market Pulse")
@@ -42,7 +67,8 @@ st.caption("Overall market breadth, sector heatmap, and RRG rotation at a glance
 
 with st.spinner("Loading market data..."):
     summary = get_market_summary()
-    breadth = get_breadth()
+
+breadth = get_breadth()
 
 st.subheader("Market Indices")
 idx_cols = st.columns(len(summary))

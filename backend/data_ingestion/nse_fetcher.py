@@ -201,15 +201,14 @@ def fetch_fii_dii(days: int = 90) -> pd.DataFrame:
 
 
 def _breadth_from_bhavcopy() -> Optional[dict]:
-    """Compute advance/decline from NSE daily Bhavcopy CSV (most reliable, no cookies needed).
-    Downloads today's or most recent available Bhavcopy and counts advancers/decliners.
+    """Compute advance/decline from NSE daily Bhavcopy CSV (no cookies needed).
+    Downloads directly from nsearchives.nseindia.com — no session warmup required.
     """
     try:
         import requests, zipfile, io
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                   "Referer": "https://www.nseindia.com"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         session = requests.Session()
-        session.get("https://www.nseindia.com", headers=headers, timeout=8)
+        # No warmup needed — nsearchives is a static file server
 
         # Try last 5 trading days (handles weekends/holidays)
         for offset in range(0, 6):
