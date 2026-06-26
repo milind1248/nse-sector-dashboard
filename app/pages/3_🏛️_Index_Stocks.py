@@ -14,7 +14,7 @@ import sqlite3
 from backend.data_ingestion.sector_sync import sync_all, get_last_sync
 
 st.set_page_config(
-    page_title="Sector Index Stock | NSE Constituents & Weightage",
+    page_title="Index Stocks | NSE Constituents & Weightage",
     page_icon="🏛️", layout="wide"
 )
 
@@ -71,7 +71,7 @@ sectors = sorted(df_all["sector"].dropna().unique())
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE HEADER + SECTOR DROPDOWN  (main area, top of page)
 # ══════════════════════════════════════════════════════════════════════════════
-st.title("🏛️ Sector Index Stock")
+st.title("🏛️ Index Stocks")
 st.caption("Select a sector → choose an index → view constituent stocks with weightage")
 
 # ══════════════════════════════════════════════════════════════════════════════

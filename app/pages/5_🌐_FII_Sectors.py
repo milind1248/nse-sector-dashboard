@@ -14,14 +14,14 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import timedelta
 
-st.set_page_config(page_title="FII Historical Sector Investment | 5-Year Heatmap | NSE Sector Analysis", layout="wide")
+st.set_page_config(page_title="FII Sectors | Historical Sector Investment | NSE", layout="wide")
 from app.utils.seo import inject_seo
 inject_seo("FII_Invest_Sector")
 
 from app.utils.logo import show_logo
 show_logo()
 
-st.title("\U0001f4cb FII Invest Sector — Fortnightly History")
+st.title("🌐 FII Sectors — Fortnightly History")
 st.caption(
     "Sectors × Fortnightly dates × FII equity net investment (₹ Crore). "
     "NSDL publishes on the 15th and last day of every month."
