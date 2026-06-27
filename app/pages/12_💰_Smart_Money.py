@@ -419,11 +419,15 @@ def _load_shareholding(symbol: str) -> pd.DataFrame:
     con = _db()
     df = pd.read_sql_query(
         """SELECT quarter, promoter, fii, dii, government, public_retail, fetched_at
-           FROM shareholding_pattern WHERE symbol=?
-           ORDER BY quarter DESC""",
+           FROM shareholding_pattern WHERE symbol=?""",
         con, params=(symbol,),
     )
     con.close()
+    if df.empty:
+        return df
+    # Parse "Jun 2025" → sortable date, then sort newest first
+    df["_sort"] = pd.to_datetime(df["quarter"], format="%b %Y", errors="coerce")
+    df = df.sort_values("_sort", ascending=False).drop(columns=["_sort"]).reset_index(drop=True)
     return df
 
 
