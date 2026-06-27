@@ -152,13 +152,37 @@ def fetch_all_sector_prices() -> dict[str, pd.DataFrame]:
 
     for sector, sym in SECTOR_INDICES.items():
         try:
+            df = None
             if batch is not None and sym in batch.columns.get_level_values(0):
                 df = batch[sym].dropna(how="all")
-            else:
+            if df is None or df.empty:
                 df = _download_with_retry(sym, period="1y")
             if df is not None and not df.empty:
                 df.index = pd.to_datetime(df.index).date
                 result[sector] = df
+            else:
+                # Index symbol not available in yfinance — build equal-weighted composite
+                stocks = SECTOR_STOCKS.get(sector, [])
+                if stocks:
+                    logger.warning(f"Sector index {sym} unavailable; building composite for {sector}")
+                    sb = _download_multi_with_retry(stocks, period="1y")
+                    closes = []
+                    for s in stocks:
+                        try:
+                            if sb is not None and s in sb.columns.get_level_values(0):
+                                c = sb[s]["Close"].dropna()
+                            else:
+                                c = (_download_with_retry(s, period="1y") or pd.DataFrame()).get("Close", pd.Series()).dropna()
+                            if c is not None and not c.empty:
+                                closes.append(c.rename(s))
+                        except Exception:
+                            pass
+                    if closes:
+                        composite = pd.concat(closes, axis=1).dropna(how="all")
+                        composite = composite.div(composite.iloc[0]).mean(axis=1) * 1000
+                        df = pd.DataFrame({"Close": composite, "Open": composite, "High": composite, "Low": composite})
+                        df.index = pd.to_datetime(df.index).date
+                        result[sector] = df
         except Exception as e:
             logger.error(f"Failed to get sector {sector} ({sym}): {e}")
     return result

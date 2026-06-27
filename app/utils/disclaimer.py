@@ -27,6 +27,23 @@ _FOOTER_HTML = f"""
 """
 
 
+_SEBI_NOTICE_HTML = (
+    "<div style='font-size:11px;color:#888;background:#1a1a2e;border-left:3px solid #555;"
+    "padding:6px 10px;border-radius:4px;line-height:1.5;margin-bottom:4px'>"
+    "⚖️ <b>Regulatory Disclaimer:</b> For educational and informational purposes only. "
+    "Not investment advice, a buy/sell recommendation, or a research report under "
+    "SEBI (Research Analyst) Regulations, 2014. Consult a <b>SEBI-registered investment adviser</b> "
+    "before making any financial decisions. The publisher is <b>not registered</b> with SEBI "
+    "as a Research Analyst or Investment Advisor."
+    "</div>"
+)
+
+
+def show_sebi_notice() -> None:
+    """Render the compact inline SEBI regulatory notice (consistent across all pages)."""
+    st.markdown(_SEBI_NOTICE_HTML, unsafe_allow_html=True)
+
+
 def show_footer() -> None:
     """Render the short disclaimer footer at the bottom of any page."""
     st.markdown(_FOOTER_HTML, unsafe_allow_html=True)

@@ -135,12 +135,12 @@ NSE_INDEX_SOURCES: dict[str, dict] = {
         "pdf_url": "https://www.niftyindices.com/Factsheet/Factsheet_Nifty_NBFC.pdf",
     },
     "NIFTY_OIL_AND_GAS": {
-        "sector": "OIL & GAS", "display": "Nifty Oil & Gas",
+        "sector": "Oil & Gas", "display": "Nifty Oil & Gas",
         "nse_csv": "ind_niftyoilgaslist.csv",
         "pdf_url": "https://www.niftyindices.com/Factsheet/ind_nifty_oil_and_gas.pdf",
     },
     "NIFTY_PHARMA": {
-        "sector": "PHARMA", "display": "Nifty Pharma",
+        "sector": "Pharma", "display": "Nifty Pharma",
         "nse_csv": "ind_niftypharmalist.csv",
         "pdf_url": "https://www.niftyindices.com/Factsheet/ind_nifty_pharma.pdf",
     },
@@ -150,7 +150,7 @@ NSE_INDEX_SOURCES: dict[str, dict] = {
         "pdf_url": "https://www.niftyindices.com/Factsheet/Factsheet_Nifty_Power.pdf",
     },
     "NIFTY_PRIVATE_BANK": {
-        "sector": "Bank", "display": "Nifty Private Bank",
+        "sector": "Private Bank", "display": "Nifty Private Bank",
         "nse_csv": None,
         "pdf_url": "https://www.niftyindices.com/Factsheet/ind_nifty_private_bank.pdf",
     },
@@ -160,12 +160,12 @@ NSE_INDEX_SOURCES: dict[str, dict] = {
         "pdf_url": "https://www.niftyindices.com/Factsheet/ind_nifty_psu_bank.pdf",
     },
     "NIFTY_REALTY": {
-        "sector": "REALTY", "display": "Nifty Realty",
+        "sector": "Real Estate", "display": "Nifty Realty",
         "nse_csv": "ind_niftyrealtylist.csv",
         "pdf_url": "https://www.niftyindices.com/Factsheet/ind_nifty_realty.pdf",
     },
     "NIFTY_REITS_REALTY": {
-        "sector": "REALTY", "display": "Nifty REITs & Realty",
+        "sector": "Real Estate", "display": "Nifty REITs & Realty",
         "nse_csv": None,
         "pdf_url": "https://www.niftyindices.com/Factsheet/Factsheet_Nifty_REITs_and_Realty.pdf",
     },

@@ -18,7 +18,8 @@ from app.utils.logo import show_logo
 show_logo()
 
 st.title("\U0001f6a8 Technical Alerts — Breakout & Reversal Patterns")
-st.warning("⚠️ For research and monitoring reference only. These are not buy/sell signals or investment recommendations. Consult a SEBI-registered investment adviser before making any financial decisions.")
+from app.utils.disclaimer import show_sebi_notice
+show_sebi_notice()
 st.caption("Stocks crossing key technical levels across all sectors. For informational purposes only.")
 
 @st.cache_data(ttl=3600, show_spinner=False)

@@ -70,6 +70,25 @@ def _init_tables():
 _init_tables()
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _build_sector_map() -> dict:
+    """Return {SYMBOL: sector} from sector_intelligence (no .NS suffix)."""
+    try:
+        con = _db()
+        rows = con.execute(
+            "SELECT DISTINCT symbol, sector FROM sector_intelligence WHERE symbol IS NOT NULL"
+        ).fetchall()
+        con.close()
+        return {r[0].replace(".NS", "").upper(): r[1] for r in rows if r[0]}
+    except Exception:
+        return {}
+
+
+def _get_symbol_sector(symbol: str) -> str:
+    m = _build_sector_map()
+    return m.get(symbol.replace(".NS", "").upper(), "–")
+
+
 def _last_trading_date() -> date:
     """
     Return most recent date for which NSE bhav copy is available.
@@ -728,18 +747,8 @@ if col_ref.button("🔄 Refresh", use_container_width=True):
     st.rerun()
 
 # ── Disclaimer (SEBI) ────────────────────────────────────────────────────────
-st.markdown(
-    "<div style='font-size:11px;color:#888;background:#1a1a2e;border-left:3px solid #555;"
-    "padding:6px 10px;border-radius:4px;line-height:1.5;margin-bottom:4px'>"
-    "⚖️ <b>Regulatory Disclaimer:</b> This tool is for educational and informational purposes only. "
-    "It does not constitute investment advice, a recommendation to buy/sell securities, or a research report "
-    "under SEBI (Research Analyst) Regulations, 2014. Signals are derived from publicly available NSE data "
-    "using mathematical formulas. Past patterns do not guarantee future performance. Consult a SEBI-registered "
-    "investment advisor before making investment decisions. The publisher is <b>not registered</b> with SEBI "
-    "as a Research Analyst or Investment Advisor."
-    "</div>",
-    unsafe_allow_html=True,
-)
+from app.utils.disclaimer import show_sebi_notice
+show_sebi_notice()
 
 # ── Legend ────────────────────────────────────────────────────────────────────
 with st.expander("📖 How to read Smart Money signals", expanded=False):
@@ -875,6 +884,9 @@ with tab_stock:
                 f"<div style='font-size:18px;font-weight:700;color:"
                 f"{'#00C853' if latest['oi_signal'] in ('Long Buildup','Short Covering') else '#FF5252' if latest['oi_signal'] != 'Neutral' else '#888'}'>"
                 f"{latest['oi_signal']}</div></div>"
+                f"<div><div style='color:#aaa;font-size:11px'>Sector</div>"
+                f"<div style='font-size:16px;font-weight:600;color:#64B5F6'>"
+                f"{_get_symbol_sector(symbol)}</div></div>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
@@ -1191,6 +1203,7 @@ with tab_screener:
 
             screener_rows.append({
                 "Symbol":            sym,
+                "Sector":            _get_symbol_sector(sym),
                 "Date":              r["trade_date"],
                 "Close (₹)":        r["close_price"],
                 "% Price CHG":       r["pct_price_chg"],
@@ -1198,7 +1211,6 @@ with tab_screener:
                 "90d Avg Delivery%": avg_dlv_s,
                 "Action":            a,
                 "90d Avg Action":    avg_act_s,
-                "Futures OI":        r["futures_oi"],
                 "OI Change":         r["oi_change"],
                 "% OI Change":       r["pct_oi_chg"],
                 "OI Signal":         oi_sig,
@@ -1234,7 +1246,7 @@ with tab_screener:
                 sort_col2 = st.selectbox(
                     "Sort by",
                     ["Delivery %", "Action", "90d Avg Delivery%", "90d Avg Action",
-                     "% OI Change", "% Price CHG", "Symbol"],
+                     "% OI Change", "% Price CHG", "Symbol", "Sector"],
                     index=0, key="scr_sort",
                 )
             with sc2:
@@ -1249,6 +1261,7 @@ with tab_screener:
                 "% OI Change":         "% OI Change",
                 "% Price CHG":         "% Price CHG",
                 "Symbol":              "Symbol",
+                "Sector":              "Sector",
             }
             scr_df = scr_df.sort_values(
                 sort_map2[sort_col2], ascending=(sort_asc2 == "Ascending")
@@ -1257,13 +1270,13 @@ with tab_screener:
             # Build display DataFrame — short column names to avoid horizontal scroll
             display2 = pd.DataFrame({
                 "Symbol":      scr_df["Symbol"],
+                "Sector":      scr_df["Sector"],
                 "Close ₹":     scr_df["Close (₹)"],
                 "Chg%":        scr_df["% Price CHG"],
                 "Dlv%":        scr_df["Delivery %"],
                 "Avg Dlv%":    scr_df["90d Avg Delivery%"],
                 "Action":      scr_df["Action"],
                 "Avg Act":     scr_df["90d Avg Action"],
-                "FUT OI":      scr_df["Futures OI"].apply(lambda x: int(x) if pd.notna(x) else None),
                 "OI Chg%":     scr_df["% OI Change"],
                 "OI Signal":   scr_df["OI Signal"],
                 "Signal":      scr_df["Smart Money"],
@@ -1301,7 +1314,6 @@ with tab_screener:
                         "Action":   "{:.1f}",
                         "Avg Act":  "{:.1f}",
                         "OI Chg%":  "{:+.1f}%",
-                        "FUT OI":   "{:,}",
                     }, na_rep="–"),
                 use_container_width=True, hide_index=True, height=600,
             )

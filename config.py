@@ -26,7 +26,7 @@ SECTOR_INDICES = {
     "Oil & Gas":           "NIFTYOILGAS.NS",
     "Power":               "NIFTYPSE.NS",
     "Infrastructure":      "^CNXINFRA",
-    "Telecom":             "NIFTYTELCOM.NS",
+    "Telecom":             "NIFTYTELCOM.NS",   # not on yfinance; composite fallback used
     "Chemicals":           "NIFTYCHEM.NS",
     "Capital Goods":       "^CNXCPSE",
     "Consumer Durables":   "NIFTYCONSUM.NS",
@@ -115,6 +115,10 @@ SECTOR_STOCKS = {
     "Consumer Durables": [
         "TITAN.NS", "HAVELLS.NS", "VGUARD.NS", "CROMPTON.NS", "BAJAJELECTR.NS",
         "WHIRLPOOL.NS", "BLUESTAR.NS", "VOLTAS.NS", "SYMPHONY.NS", "AMBER.NS",
+    ],
+    "Telecom": [
+        "INDUSTOWER.NS", "BHARTIARTL.NS", "TATACOMM.NS", "HFCL.NS", "STLTECH.NS",
+        "BHARTIHEXA.NS", "TEJASNET.NS", "ITI.NS", "RAILTEL.NS",
     ],
 }
 

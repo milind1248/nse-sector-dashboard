@@ -48,7 +48,8 @@ if net_curr is not None:
     )
 
 st.title(f"\U0001f50d Stock Screener — {sector}")
-st.warning("⚠️ For research and informational purposes only. This is not investment advice. Consult a SEBI-registered investment adviser before making any financial decisions.")
+from app.utils.disclaimer import show_sebi_notice
+show_sebi_notice()
 st.caption("Stocks ranked by momentum score. EMA trend and RSI zone are indicators displayed for research reference only.")
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -177,6 +178,12 @@ df_display["Vol Ratio"] = df_display["Vol Ratio"].apply(
 
 styled = (
     df_display.style
+    .format({
+        "Price":       lambda v: f"₹{v:,.1f}" if isinstance(v, (int, float)) else "–",
+        "Score":       lambda v: f"{v:.1f}"   if isinstance(v, (int, float)) else "–",
+        "RSI":         lambda v: f"{v:.1f}"   if isinstance(v, (int, float)) else "–",
+        "RS vs Nifty": lambda v: f"{v:.1f}"   if isinstance(v, (int, float)) else "–",
+    }, na_rep="–")
     .map(color_pct, subset=["1W %","1M %","3M %"])
     .map(color_ema, subset=["EMA Signal"])
     .map(color_rsi, subset=["RSI"])

@@ -123,7 +123,7 @@ st.markdown("---")
 
 # ── Charts ─────────────────────────────────────────────────────────────────────
 if sector_df is not None and not sector_df.empty:
-    tab1, tab2, tab3 = st.tabs(["Price + EMAs", "RSI", "RS vs Nifty"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Price + EMAs", "RSI", "RS vs Nifty", "📊 Stock RS"])
 
     with tab1:
         fig = go.Figure()
@@ -210,6 +210,133 @@ if sector_df is not None and not sector_df.empty:
                 st.success(f"Sector is outperforming Nifty by {rs_val:+.1f} points — RS is POSITIVE")
             else:
                 st.warning(f"Sector is underperforming Nifty by {rs_val:.1f} points — RS is NEGATIVE")
+    with tab4:
+        st.caption("Stocks rebased to 100 at the start of the selected period. Lines above 100 = outperforming the base; compare against sector index and Nifty50.")
+
+        period_map = {"1 Month": 21, "3 Months": 63, "6 Months": 126, "1 Year": 252}
+        sel_period = st.radio("Period", list(period_map.keys()), index=1, horizontal=True, key="rs_period")
+        lookback   = period_map[sel_period]
+
+        stock_prices = fetch_sector_stocks(sector)  # timed_cache — no re-fetch
+
+        # Build normalised series for each stock
+        nifty_cls  = _get_close(nifty_raw)
+        sector_cls = _get_close(sector_df)
+
+        rs_rows   = []
+        fig4      = go.Figure()
+
+        # Collect all common dates across nifty + sector for trimming
+        ref_dates = set(nifty_cls.index) & set(sector_cls.index)
+
+        stock_series = {}
+        for sym, df_s in stock_prices.items():
+            if df_s is None or df_s.empty:
+                continue
+            cls = _get_close(df_s)
+            if cls is None or len(cls) < 10:
+                continue
+            common = sorted(ref_dates & set(cls.index))
+            if len(common) < 10:
+                continue
+            stock_series[sym] = cls.loc[common]
+
+        if not stock_series:
+            st.info("No stock price data available for this sector.")
+        else:
+            # Trim to lookback window using shared dates
+            all_common = sorted(set.intersection(*[set(s.index) for s in stock_series.values()],
+                                                  set(sector_cls.index), set(nifty_cls.index)))
+            window = all_common[-lookback:] if len(all_common) >= lookback else all_common
+            if not window:
+                st.info("Insufficient data for selected period.")
+            else:
+                base = window[0]
+
+                def _norm(series):
+                    s = series.loc[window]
+                    return (s / float(s.iloc[0])) * 100
+
+                # Sector and Nifty reference lines
+                sec_norm   = _norm(sector_cls)
+                nifty_norm = _norm(nifty_cls)
+
+                fig4.add_trace(go.Scatter(
+                    x=list(window), y=nifty_norm,
+                    name="Nifty50", line=dict(color="#888", width=2, dash="dot"),
+                ))
+                fig4.add_trace(go.Scatter(
+                    x=list(window), y=sec_norm,
+                    name=f"{sector} Index", line=dict(color="#FFD600", width=2.5),
+                ))
+
+                # Each stock — faint, colour by final RS vs sector
+                for sym, cls in stock_series.items():
+                    s_norm = _norm(cls)
+                    last_vs_sector = round(float(s_norm.iloc[-1]) - float(sec_norm.iloc[-1]), 1)
+                    last_vs_nifty  = round(float(s_norm.iloc[-1]) - float(nifty_norm.iloc[-1]), 1)
+                    line_color = "#00C853" if last_vs_sector > 0 else "#FF5252"
+                    short_sym  = sym.replace(".NS", "")
+
+                    fig4.add_trace(go.Scatter(
+                        x=list(window), y=s_norm,
+                        name=short_sym,
+                        line=dict(color=line_color, width=1),
+                        opacity=0.55,
+                        hovertemplate=f"<b>{short_sym}</b><br>%{{x}}<br>Rebased: %{{y:.1f}}<extra></extra>",
+                    ))
+
+                    rs_rows.append({
+                        "Symbol":          short_sym,
+                        "Last Price":      round(float(cls.iloc[-1]), 1),
+                        f"RS vs Sector ({sel_period})":  last_vs_sector,
+                        f"RS vs Nifty ({sel_period})":   last_vs_nifty,
+                        "Signal":          "Outperforming" if last_vs_sector > 0 else "Underperforming",
+                    })
+
+                fig4.add_hline(y=100, line_dash="dot", line_color="#444", opacity=0.6)
+                fig4.update_layout(
+                    template="plotly_dark", height=460,
+                    title=f"{sector} — Stock Relative Strength vs Sector & Nifty50 (base 100, {sel_period})",
+                    margin=dict(t=50, b=20, l=10, r=10),
+                    legend=dict(orientation="v", x=1.01, y=1, font=dict(size=10)),
+                    hovermode="x unified",
+                )
+                st.plotly_chart(fig4, use_container_width=True)
+
+                # RS summary table
+                if rs_rows:
+                    rs_df = pd.DataFrame(rs_rows).sort_values(
+                        f"RS vs Sector ({sel_period})", ascending=False
+                    ).reset_index(drop=True)
+
+                    vs_sec_col = f"RS vs Sector ({sel_period})"
+                    vs_nif_col = f"RS vs Nifty ({sel_period})"
+
+                    def _rs_color(v):
+                        if not isinstance(v, (int, float)): return ""
+                        return "color:#00C853;font-weight:600" if v > 0 else "color:#FF5252;font-weight:600"
+
+                    def _sig_color(v):
+                        return "color:#00C853;font-weight:600" if v == "Outperforming" else "color:#FF5252"
+
+                    st.dataframe(
+                        rs_df.style
+                            .map(_rs_color,  subset=[vs_sec_col, vs_nif_col])
+                            .map(_sig_color, subset=["Signal"])
+                            .format({
+                                "Last Price":  lambda v: f"₹{v:,.1f}",
+                                vs_sec_col:    lambda v: f"{v:+.1f}" if isinstance(v, (int, float)) else "–",
+                                vs_nif_col:    lambda v: f"{v:+.1f}" if isinstance(v, (int, float)) else "–",
+                            }, na_rep="–"),
+                        use_container_width=True, hide_index=True,
+                    )
+                    st.caption(
+                        "RS = rebased index points difference at end of period. "
+                        "Positive = stock outperformed the benchmark over the period. "
+                        "Not a buy/sell signal — for research reference only."
+                    )
+
 else:
     st.warning(f"No price data available for {sector} index. Check config.py for the correct Yahoo Finance symbol.")
 
