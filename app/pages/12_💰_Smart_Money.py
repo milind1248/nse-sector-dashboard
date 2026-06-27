@@ -300,6 +300,166 @@ def _get_fno_list() -> list[str]:
     return syms
 
 
+# ── Bulk date-centric fetch (downloads each bhav copy once for ALL symbols) ───
+
+def _null_row(symbol: str, dt: date) -> dict:
+    return {"symbol": symbol, "trade_date": dt.isoformat(),
+            "close_price": None, "pct_price_chg": None,
+            "trade_qty": None, "tot_trade": None, "action": None,
+            "dlv_pct": None, "futures_oi": None, "oi_change": None, "pct_oi_chg": None}
+
+
+def _fetch_date_all_symbols(dt: date, symbols_set: set[str]) -> list[dict]:
+    """
+    Download CM + MTO + FO bhav copies for `dt` exactly ONCE,
+    extract metrics for every symbol in symbols_set.
+    Returns a list of row dicts (one per symbol that had data).
+    Empty list if the date is not available on NSE archives.
+    """
+    import requests, zipfile, io as _io
+
+    ds  = dt.strftime("%Y%m%d")
+    dmd = dt.strftime("%d%m%Y")
+
+    # ── 1. CM Bhav Copy ───────────────────────────────────────────────────────
+    cm_data: dict[str, dict] = {}
+    try:
+        r = requests.get(
+            f"https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_{ds}_F_0000.csv.zip",
+            headers=_HDR, timeout=20,
+        )
+        if r.status_code == 200:
+            z = zipfile.ZipFile(_io.BytesIO(r.content))
+            df = pd.read_csv(z.open(z.namelist()[0]))
+            eq = df[
+                df["SctySrs"].isin({"EQ", "BE", "BZ", "SM", "ST"}) &
+                df["TckrSymb"].isin(symbols_set)
+            ].copy()
+            for c in ["ClsPric", "PrvsClsgPric", "TtlTradgVol", "TtlNbOfTxsExctd"]:
+                eq[c] = pd.to_numeric(eq[c], errors="coerce")
+            for _, row in eq.iterrows():
+                sym   = row["TckrSymb"]
+                close = row["ClsPric"]
+                prev  = row["PrvsClsgPric"]
+                tqty  = row["TtlTradgVol"]
+                ttrd  = row["TtlNbOfTxsExctd"]
+                cm_data[sym] = {
+                    "close_price":   float(close) if pd.notna(close) else None,
+                    "trade_qty":     float(tqty)  if pd.notna(tqty)  else None,
+                    "tot_trade":     float(ttrd)  if pd.notna(ttrd)  else None,
+                    "pct_price_chg": round((close - prev) / prev * 100, 2)
+                                   if pd.notna(close) and pd.notna(prev) and prev > 0 else None,
+                    "action":        round(tqty / ttrd, 1)
+                                   if pd.notna(tqty) and pd.notna(ttrd) and ttrd > 0 else None,
+                }
+    except Exception:
+        pass
+
+    if not cm_data:
+        return []   # date not available — caller saves null skeletons
+
+    # ── 2. MTO Delivery ───────────────────────────────────────────────────────
+    dlv_data: dict[str, float] = {}
+    try:
+        r = requests.get(
+            f"https://nsearchives.nseindia.com/archives/equities/mto/MTO_{dmd}.DAT",
+            headers=_HDR, timeout=15,
+        )
+        if r.status_code == 200:
+            lines = [l for l in r.text.splitlines() if l.startswith("20,")]
+            mdf = pd.read_csv(
+                _io.StringIO("\n".join(lines)), header=None,
+                names=["rec", "sr", "sym", "series", "qty_traded", "dlv_qty", "dlv_pct"],
+            )
+            mdf = mdf[mdf["series"] == "EQ"]
+            mdf["dlv_pct"] = pd.to_numeric(mdf["dlv_pct"], errors="coerce")
+            for _, row in mdf[mdf["sym"].isin(symbols_set)].iterrows():
+                if pd.notna(row["dlv_pct"]):
+                    dlv_data[row["sym"]] = float(row["dlv_pct"])
+    except Exception:
+        pass
+
+    # ── 3. FO Bhav Copy (nearest expiry per symbol) ───────────────────────────
+    fo_data: dict[str, dict] = {}
+    try:
+        r = requests.get(
+            f"https://nsearchives.nseindia.com/content/fo/BhavCopy_NSE_FO_0_0_0_{ds}_F_0000.csv.zip",
+            headers=_HDR, timeout=20,
+        )
+        if r.status_code == 200:
+            z = zipfile.ZipFile(_io.BytesIO(r.content))
+            df = pd.read_csv(z.open(z.namelist()[0]))
+            stf = df[
+                (df["FinInstrmTp"] == "STF") & df["TckrSymb"].isin(symbols_set)
+            ].copy()
+            stf["XpryDt"] = pd.to_datetime(stf["XpryDt"], errors="coerce")
+            for c in ["OpnIntrst", "ChngInOpnIntrst"]:
+                stf[c] = pd.to_numeric(stf[c], errors="coerce")
+            # Nearest expiry per symbol
+            idx = stf.groupby("TckrSymb")["XpryDt"].idxmin()
+            nearest = stf.loc[idx]
+            for _, row in nearest.iterrows():
+                oi    = row["OpnIntrst"]
+                oichg = row["ChngInOpnIntrst"]
+                if pd.notna(oi):
+                    prev_oi = oi - (oichg if pd.notna(oichg) else 0)
+                    fo_data[row["TckrSymb"]] = {
+                        "futures_oi": float(oi),
+                        "oi_change":  float(oichg) if pd.notna(oichg) else None,
+                        "pct_oi_chg": round((oichg / prev_oi) * 100, 2)
+                                     if pd.notna(oichg) and prev_oi != 0 else None,
+                    }
+    except Exception:
+        pass
+
+    # ── 4. Merge and build rows ───────────────────────────────────────────────
+    rows = []
+    for sym in cm_data:
+        row = {"symbol": sym, "trade_date": dt.isoformat()}
+        row.update(cm_data[sym])
+        row["dlv_pct"] = dlv_data.get(sym)
+        row.update(fo_data.get(sym, {"futures_oi": None, "oi_change": None, "pct_oi_chg": None}))
+        rows.append(row)
+    return rows
+
+
+def _bulk_refresh_history(symbols: list[str], progress_cb=None):
+    """
+    For each of the 90 trading dates, download bhav copies ONCE and save data
+    for all symbols that are missing that date. 90 dates × 3 files = 270 HTTP requests total.
+    """
+    all_90d      = _trading_dates_for_90d()
+    symbols_set  = set(symbols)
+    total        = len(all_90d)
+
+    for i, dt in enumerate(all_90d):
+        # Which symbols already have this date in DB?
+        con = _db()
+        stored_for_date = {r[0] for r in con.execute(
+            "SELECT symbol FROM smart_money_history WHERE trade_date=?",
+            (dt.isoformat(),),
+        ).fetchall()}
+        con.close()
+
+        missing_syms = symbols_set - stored_for_date
+        if missing_syms:
+            fetched_rows = _fetch_date_all_symbols(dt, missing_syms)
+            _save_rows(fetched_rows)
+
+            # Null skeletons for symbols where bhav copy had no data (old dates / non-FNO)
+            fetched_syms = {r["symbol"] for r in fetched_rows}
+            null_rows = [_null_row(s, dt) for s in missing_syms if s not in fetched_syms]
+            _save_rows(null_rows)
+
+        if progress_cb:
+            progress_cb(i + 1, total)
+
+    # Global purge — remove any rows older than the 90-day window
+    cutoff = all_90d[-1].isoformat()
+    con = _db()
+    con.execute("DELETE FROM smart_money_history WHERE trade_date < ?", (cutoff,))
+    con.commit()
+    con.close()
 
 
 # ── Page header ───────────────────────────────────────────────────────────────
@@ -307,7 +467,28 @@ col_h, col_ref = st.columns([6, 1])
 col_h.title("💰 Smart Money Tracker")
 col_h.caption("FII/DII position detection via Cash Delivery % + Action ratio + Futures OI signals")
 if col_ref.button("🔄 Refresh", use_container_width=True):
-    _refresh_fno_list_from_nse()   # re-fetch FNO symbols from NSE into DB
+    with st.status("🔄 Refreshing Smart Money data…", expanded=True) as _ref_sts:
+        st.write("**Step 1 / 2** — Updating FNO symbol list from NSE archives…")
+        new_syms = _refresh_fno_list_from_nse()
+        if new_syms:
+            st.write(f"✅ {len(new_syms)} FNO symbols loaded.")
+        else:
+            st.write("⚠️ Could not fetch symbol list — NSE may be unavailable.")
+            new_syms = _fno_list_from_db()   # fall back to existing DB list
+
+        st.write(f"**Step 2 / 2** — Fetching 90-day history for all {len(new_syms)} FNO stocks…")
+        st.caption("Downloads each date's bhav copy once for all symbols (270 requests, ~60–90 sec).")
+        _ref_prog = st.progress(0)
+        _ref_txt  = st.empty()
+
+        def _ref_cb(done, total):
+            _ref_prog.progress(int(done / total * 100))
+            _ref_txt.text(f"Processing date {done} / {total}…")
+
+        _bulk_refresh_history(new_syms, progress_cb=_ref_cb)
+        _ref_prog.empty()
+        _ref_txt.empty()
+        _ref_sts.update(label="✅ Refresh complete — all FNO stocks updated!", state="complete")
     st.rerun()
 
 # ── Legend ────────────────────────────────────────────────────────────────────
