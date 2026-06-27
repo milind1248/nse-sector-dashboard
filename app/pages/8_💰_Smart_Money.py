@@ -865,7 +865,7 @@ with tab_stock:
 
             with col_ch2:
                 ch2 = hist.sort_values("trade_date")
-                dlv_clean = ch2["dlv_pct"].ffill()
+                buy_df2 = ch2[ch2["smart_money"] == "Buying"]
                 fig2 = go.Figure()
                 fig2.add_trace(go.Bar(
                     x=ch2["trade_date"].astype(str), y=ch2["dlv_pct"],
@@ -873,13 +873,21 @@ with tab_stock:
                                   for v in ch2["dlv_pct"]],
                     name="Delivery %",
                 ))
+                # Green circles at top of bar for Buying days
+                fig2.add_trace(go.Scatter(
+                    x=buy_df2["trade_date"].astype(str), y=buy_df2["dlv_pct"],
+                    mode="markers", name="Smart Money Buying",
+                    marker=dict(color="#00C853", size=10, symbol="circle",
+                                line=dict(color="#fff", width=1.5)),
+                    hovertemplate="<b>%{x}</b><br>Delivery: %{y:.1f}%<br>Smart Money: Buying<extra></extra>",
+                ))
                 if pd.notna(avg_dlv):
                     fig2.add_hline(y=avg_dlv, line_dash="dash",
                                    line_color="#FFD600",
                                    annotation_text=f"Avg {avg_dlv:.1f}%")
                 fig2.update_layout(
                     template="plotly_dark", height=280,
-                    title=f"{symbol} — Delivery % (yellow = 90d avg)",
+                    title=f"{symbol} — Delivery % (yellow = 90d avg, 🟢 = Buying)",
                     margin=dict(t=40, b=20),
                 )
                 st.plotly_chart(fig2, use_container_width=True)
