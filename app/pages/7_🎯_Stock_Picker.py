@@ -321,7 +321,7 @@ if chosen:
 
             # Reference lines on H-M pane
             fig.add_hline(y=70, line_dash="dot",   line_color="#D50000", opacity=0.5, row=2, col=1)
-            fig.add_hline(y=50, line_dash="solid",  line_color="#888888", opacity=0.9, line_width=1.5, row=2, col=1)
+            fig.add_hline(y=50, line_dash="solid",  line_color="#333333", opacity=1.0, line_width=1.5, row=2, col=1)
             fig.add_hline(y=30, line_dash="dot",   line_color="#00C853", opacity=0.5, row=2, col=1)
 
             fig.update_layout(
