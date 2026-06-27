@@ -132,9 +132,9 @@ with st.sidebar:
 <span style="color:#3a5a8a;">⑥</span> 🌐 <b>FII Sectors</b> <span style="color:#555;">→ 5yr fortnightly history</span><br>
 <span style="color:#3a5a8a;">⑦</span> 🌏 <b>FPI Sectors</b> <span style="color:#555;">→ Foreign portfolio by sector</span><br>
 <span style="color:#3a5a8a;">⑧</span> 🎯 <b>Stock Screener</b> <span style="color:#555;">→ Stocks in selected sector</span><br>
-<span style="color:#3a5a8a;">⑨</span> 🔔 <b>Alerts</b> <span style="color:#555;">→ Breakouts & reversals</span><br>
-<span style="color:#3a5a8a;">⑩</span> 📤 <b>Export</b> <span style="color:#555;">→ Download for offline use</span><br>
-<span style="color:#3a5a8a;">⑪</span> 💰 <b>Smart Money</b> <span style="color:#555;">→ FII/DII OI + Delivery signals</span>
+<span style="color:#3a5a8a;">⑨</span> 💰 <b>Smart Money</b> <span style="color:#555;">→ Delivery % + Action + FO OI signals</span><br>
+<span style="color:#3a5a8a;">⑩</span> 🔔 <b>Alerts</b> <span style="color:#555;">→ Breakouts & reversals</span><br>
+<span style="color:#3a5a8a;">⑪</span> 📤 <b>Export</b> <span style="color:#555;">→ Download for offline use</span>
 </div>
 """, unsafe_allow_html=True)
     st.markdown("---")

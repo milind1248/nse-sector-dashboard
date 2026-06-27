@@ -26,7 +26,7 @@ st.title("\U0001f4e5 Export Dashboard Data")
 st.caption("Download full sector intelligence report as Excel.")
 
 st.markdown("""
-**9 sheets included:**
+**11 sheets included:**
 | Sheet | Contents |
 |-------|----------|
 | 1_Summary | Dashboard overview — sector counts, FII net, history depth |
@@ -38,6 +38,8 @@ st.markdown("""
 | 7_FII_DII_Daily | FII & DII daily buy/sell/net flow — full accumulated history |
 | 8_NSDL_Sector_FII | Fortnightly FII sector breakdown — AUC, net flow, signal |
 | 9_Market_Breadth | Advance/Decline, VIX, 52W highs/lows, EMA breadth metrics |
+| 10_Smart_Money_Screener | FNO stocks with active "Buying" signal on last trading day |
+| 11_Smart_Money_History | 90-day Delivery % + Action + OI history for all FNO stocks |
 """)
 
 st.markdown("---")

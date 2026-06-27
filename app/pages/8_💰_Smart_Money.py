@@ -614,7 +614,7 @@ def _bulk_refresh_history(symbols: list[str], progress_cb=None):
 # ── Page header ───────────────────────────────────────────────────────────────
 col_h, col_ref = st.columns([6, 1])
 col_h.title("💰 Smart Money Tracker")
-col_h.caption("FII/DII position detection via Cash Delivery % + Action ratio + Futures OI signals")
+col_h.caption("Institutional activity detection via NSE Cash Delivery %, Action ratio & Futures OI — For educational purposes only. Not SEBI-registered investment advice.")
 if col_ref.button("🔄 Refresh", use_container_width=True):
     with st.status("🔄 Refreshing Smart Money data…", expanded=True) as _ref_sts:
         st.write("**Step 1 / 2** — Updating FNO symbol list from NSE archives…")
@@ -680,6 +680,18 @@ if col_ref.button("🔄 Refresh", use_container_width=True):
         _ref_sts.update(label="✅ Refresh complete — all FNO stocks updated!", state="complete")
     st.rerun()
 
+# ── Disclaimer (SEBI) ────────────────────────────────────────────────────────
+st.info(
+    "⚠️ **Regulatory Disclaimer:** This tool is provided for **educational and informational purposes only**. "
+    "It does not constitute investment advice, a recommendation to buy or sell securities, or any form of "
+    "research report as defined under SEBI (Research Analyst) Regulations, 2014. "
+    "The signals shown are derived from publicly available NSE data using mathematical formulas. "
+    "Past patterns do not guarantee future performance. Users are advised to consult a SEBI-registered "
+    "investment advisor before making any investment decisions. The publisher is **not registered** with SEBI "
+    "as a Research Analyst or Investment Advisor.",
+    icon="⚖️",
+)
+
 # ── Legend ────────────────────────────────────────────────────────────────────
 with st.expander("📖 How to read Smart Money signals", expanded=False):
     st.markdown("""
@@ -687,14 +699,16 @@ with st.expander("📖 How to read Smart Money signals", expanded=False):
 - **Delivery %** > 90-day average delivery % for the stock
 - **Action** (TradeQty ÷ TotTrade) > 90-day average Action for the stock
 
-High delivery = institutions taking physical delivery. High Action = large lot sizes = institutional orders.
+High delivery = institutions taking physical delivery (not intraday). High Action = larger average trade size = possible block/institutional orders.
 
-| OI Signal | Price | OI | Trend |
-|-----------|-------|----|-------|
-| **Long Buildup** | ↑ | ↑ | 🟢 Bullish — new longs added |
-| **Short Covering** | ↑ | ↓ | 🟢 Bullish — shorts squared off |
+| OI Signal | Price | OI | Trend Interpretation |
+|-----------|-------|----|----------------------|
+| **Long Buildup** | ↑ | ↑ | 🟢 Bullish — fresh longs being added |
+| **Short Covering** | ↑ | ↓ | 🟢 Bullish — shorts being squared off |
 | **Long Unwinding** | ↓ | ↓ | 🔴 Bearish — longs exiting |
-| **Short Buildup** | ↓ | ↑ | 🔴 Bearish — new shorts added |
+| **Short Buildup** | ↓ | ↑ | 🔴 Bearish — fresh shorts being added |
+
+> **Note:** OI signals are derived from NSE F&O bhav copy data. Signals are indicative only and must be validated with fundamental analysis. Do not trade solely based on this data.
 """)
 
 # ── Load FNO symbol list (DB-first, no HTTP unless DB is empty) ───────────────

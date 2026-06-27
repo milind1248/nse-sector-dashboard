@@ -191,6 +191,60 @@ def generate_excel_report() -> bytes:
     if not breadth_df.empty:
         _write_sheet(wb, "9_Market_Breadth", breadth_df)
 
+    # ── 9. Smart Money Screener (latest Buying signals) ───────────────────────
+    sm_screener = _db("""
+        WITH latest AS (
+            SELECT symbol, MAX(trade_date) AS last_date
+            FROM smart_money_history
+            WHERE close_price IS NOT NULL
+            GROUP BY symbol
+        ),
+        avg90 AS (
+            SELECT symbol,
+                   AVG(dlv_pct) AS avg_dlv,
+                   AVG(action)  AS avg_action
+            FROM smart_money_history
+            WHERE close_price IS NOT NULL
+            GROUP BY symbol
+        ),
+        last_row AS (
+            SELECT h.symbol, h.trade_date, h.close_price, h.pct_price_chg,
+                   h.dlv_pct, h.action, h.futures_oi, h.oi_change, h.pct_oi_chg
+            FROM smart_money_history h
+            JOIN latest l ON h.symbol = l.symbol AND h.trade_date = l.last_date
+        )
+        SELECT r.symbol, r.trade_date AS signal_date,
+               r.close_price, r.pct_price_chg AS pct_price_chg,
+               ROUND(r.dlv_pct, 2) AS dlv_pct,
+               ROUND(a.avg_dlv, 2) AS avg_dlv_90d,
+               ROUND(r.action, 2)  AS action,
+               ROUND(a.avg_action, 2) AS avg_action_90d,
+               r.futures_oi, r.oi_change, r.pct_oi_chg
+        FROM last_row r
+        JOIN avg90 a ON r.symbol = a.symbol
+        WHERE r.dlv_pct > a.avg_dlv AND r.action > a.avg_action
+        ORDER BY r.dlv_pct DESC
+    """)
+    if not sm_screener.empty:
+        sm_screener.insert(0, "Smart_Money_Signal", "Buying")
+        _write_sheet(wb, "10_Smart_Money_Screener", sm_screener,
+                     pct_cols=["pct_price_chg", "dlv_pct", "avg_dlv_90d", "pct_oi_chg"])
+
+    # ── 10. Smart Money History (last 90 days, all FNO stocks) ────────────────
+    sm_history = _db("""
+        SELECT symbol, trade_date, close_price, pct_price_chg,
+               dlv_pct, action, futures_oi, oi_change, pct_oi_chg,
+               CASE WHEN dlv_pct > AVG(dlv_pct) OVER (PARTITION BY symbol)
+                         AND action > AVG(action) OVER (PARTITION BY symbol)
+                    THEN 'Buying' ELSE '' END AS smart_money_signal
+        FROM smart_money_history
+        WHERE close_price IS NOT NULL
+        ORDER BY symbol, trade_date DESC
+    """)
+    if not sm_history.empty:
+        _write_sheet(wb, "11_Smart_Money_History", sm_history,
+                     pct_cols=["pct_price_chg", "dlv_pct", "pct_oi_chg"])
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
