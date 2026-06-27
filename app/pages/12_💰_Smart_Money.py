@@ -875,9 +875,11 @@ with tab_stock:
             if sh_df.empty:
                 st.info("Shareholding data not available for this symbol on screener.in.")
             else:
-                # Keep only last 6 quarters, oldest→newest for chart
-                sh_df = sh_df.head(12).iloc[::-1].reset_index(drop=True)
-                quarters = sh_df["quarter"].tolist()
+                # chart_df: oldest→newest (left to right on bar chart)
+                # table_df: newest→oldest (latest quarter on top)
+                sh_chart = sh_df.head(12).iloc[::-1].reset_index(drop=True)  # oldest first
+                sh_table = sh_df.head(12).reset_index(drop=True)              # newest first
+                quarters = sh_chart["quarter"].tolist()
 
                 # ── Stacked bar chart ─────────────────────────────────────────
                 CAT_COLORS = {
@@ -896,7 +898,7 @@ with tab_stock:
                     ("Public",     "public_retail"),
                 ]
                 for label, col in cat_cols:
-                    vals = sh_df[col].tolist()
+                    vals = sh_chart[col].tolist()
                     fig_sh.add_trace(go.Bar(
                         name=label,
                         x=quarters,
@@ -909,21 +911,20 @@ with tab_stock:
                     barmode="stack",
                     template="plotly_dark",
                     height=340,
-                    title=f"{symbol} — Shareholding Pattern (%) — Last 6 Quarters",
+                    title=f"{symbol} — Shareholding Pattern (%) — Last 12 Quarters",
                     yaxis=dict(title="%", range=[0, 100]),
                     legend=dict(orientation="h", y=-0.2),
                     margin=dict(t=50, b=60),
                 )
                 st.plotly_chart(fig_sh, use_container_width=True)
 
-                # ── Table ──────────────────────────────────────────────────────
-                # Transpose: rows = categories, cols = quarters (newest right)
-                sh_display = sh_df[["quarter","promoter","fii","dii","government","public_retail"]].copy()
+                # ── Table (latest quarter on top) ─────────────────────────────
+                sh_display = sh_table[["quarter","promoter","fii","dii","government","public_retail"]].copy()
                 sh_display.columns = ["Quarter", "Promoter %", "FII %", "DII %", "Govt %", "Public %"]
 
                 # Compute total to verify ≈ 100%
                 sh_display["Total %"] = (
-                    sh_df[["promoter","fii","dii","government","public_retail"]].sum(axis=1)
+                    sh_table[["promoter","fii","dii","government","public_retail"]].sum(axis=1)
                 )
 
                 def _pct_color(v):
