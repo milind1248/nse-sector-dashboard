@@ -222,7 +222,7 @@ if chosen:
         ic[5].metric("RS vs Nifty",f"{_rs_num:+.2f}" if _rs_num is not None else "–",
                      f"{_rs_num:+.2f}" if _rs_num is not None else None, delta_color="normal")
 
-        tab1, tab2 = st.tabs(["Price + EMAs", "RSI"])
+        tab1, tab2, tab3 = st.tabs(["Price + EMAs", "RSI", "📶 Hilega Milega"])
         with tab1:
             fig = go.Figure()
             try:
@@ -257,6 +257,101 @@ if chosen:
             fig2.update_layout(template="plotly_dark", height=280, yaxis=dict(range=[0,100]),
                                 margin=dict(t=30,b=20))
             st.plotly_chart(fig2, use_container_width=True)
+
+        with tab3:
+            import numpy as np
+
+            delta9 = close_s.diff()
+            gain9  = delta9.clip(lower=0).rolling(9).mean()
+            loss9  = (-delta9.clip(upper=0)).rolling(9).mean()
+            rsi9   = 100 - (100 / (1 + gain9 / loss9.replace(0, float("nan"))))
+
+            ema3  = rsi9.ewm(span=3, adjust=False).mean()
+            wma21 = rsi9.rolling(21).apply(
+                lambda x: np.average(x, weights=range(1, 22)), raw=True
+            )
+
+            prev_e = ema3.shift(1); prev_w = wma21.shift(1)
+            buy_cross  = (prev_e <  prev_w) & (ema3 >= wma21)
+            sell_cross = (prev_e >  prev_w) & (ema3 <= wma21)
+
+            dates = [str(d) for d in df.index]
+
+            last_e = ema3.dropna().iloc[-1]; last_w = wma21.dropna().iloc[-1]
+            sig_color = "#00C853" if last_e > last_w else "#D50000"
+            sig_text  = "🟢 MILEGA (Bullish)" if last_e > last_w else "🔴 HILEGA (Bearish)"
+            st.markdown(
+                f"<div style='background:{sig_color}22;border-left:4px solid {sig_color};"
+                f"padding:8px 14px;border-radius:6px;margin-bottom:8px;font-size:14px;"
+                f"font-weight:700;color:{sig_color}'>{sig_text} — EMA3: {last_e:.1f} | WMA21: {last_w:.1f}</div>",
+                unsafe_allow_html=True,
+            )
+
+            fig3 = go.Figure()
+
+            # Green fill zone (EMA3 >= WMA21)
+            ema3_g  = ema3.where(ema3  >= wma21)
+            wma21_g = wma21.where(ema3 >= wma21)
+            fig3.add_trace(go.Scatter(x=dates, y=wma21_g.tolist(),
+                                      line=dict(width=0), showlegend=False, hoverinfo="skip"))
+            fig3.add_trace(go.Scatter(x=dates, y=ema3_g.tolist(),
+                                      fill="tonexty", fillcolor="rgba(0,200,83,0.15)",
+                                      line=dict(width=0), showlegend=False, hoverinfo="skip"))
+
+            # Red fill zone (EMA3 < WMA21)
+            ema3_r  = ema3.where(ema3  < wma21)
+            wma21_r = wma21.where(ema3 < wma21)
+            fig3.add_trace(go.Scatter(x=dates, y=ema3_r.tolist(),
+                                      line=dict(width=0), showlegend=False, hoverinfo="skip"))
+            fig3.add_trace(go.Scatter(x=dates, y=wma21_r.tolist(),
+                                      fill="tonexty", fillcolor="rgba(213,0,0,0.15)",
+                                      line=dict(width=0), showlegend=False, hoverinfo="skip"))
+
+            fig3.add_trace(go.Scatter(x=dates, y=rsi9.tolist(), name="RSI(9)",
+                                      line=dict(color="#555", width=1), opacity=0.6))
+            fig3.add_trace(go.Scatter(x=dates, y=ema3.tolist(), name="EMA(3)",
+                                      line=dict(color="#FFD600", width=2)))
+            fig3.add_trace(go.Scatter(x=dates, y=wma21.tolist(), name="WMA(21)",
+                                      line=dict(color="#FF6D00", width=2)))
+
+            buy_x = [str(d) for d, v in zip(df.index, buy_cross) if v]
+            buy_y = [ema3.loc[d] for d, v in zip(df.index, buy_cross) if v]
+            if buy_x:
+                fig3.add_trace(go.Scatter(
+                    x=buy_x, y=buy_y, mode="markers", name="Buy (Milega)",
+                    marker=dict(symbol="triangle-up", color="#00C853", size=12,
+                                line=dict(color="#fff", width=1)),
+                    hovertemplate="<b>%{x}</b><br>Milega (Buy) — EMA3: %{y:.1f}<extra></extra>",
+                ))
+
+            sell_x = [str(d) for d, v in zip(df.index, sell_cross) if v]
+            sell_y = [ema3.loc[d] for d, v in zip(df.index, sell_cross) if v]
+            if sell_x:
+                fig3.add_trace(go.Scatter(
+                    x=sell_x, y=sell_y, mode="markers", name="Sell (Hilega)",
+                    marker=dict(symbol="triangle-down", color="#D50000", size=12,
+                                line=dict(color="#fff", width=1)),
+                    hovertemplate="<b>%{x}</b><br>Hilega (Sell) — EMA3: %{y:.1f}<extra></extra>",
+                ))
+
+            fig3.add_hline(y=70, line_dash="dot", line_color="#D50000", opacity=0.5)
+            fig3.add_hline(y=30, line_dash="dot", line_color="#00C853", opacity=0.5)
+            fig3.add_hline(y=50, line_dash="dot", line_color="#555",    opacity=0.3)
+
+            fig3.update_layout(
+                template="plotly_dark", height=320,
+                title=f"{chosen} — Hilega Milega (RSI9 · EMA3 · WMA21)",
+                margin=dict(t=50, b=20, l=10, r=10),
+                yaxis=dict(range=[0, 100]),
+                legend=dict(orientation="h", y=1.08, x=0),
+                xaxis_rangeslider_visible=False,
+            )
+            st.plotly_chart(fig3, use_container_width=True)
+            st.caption(
+                "**Hilega Milega:** EMA(3) of RSI(9) crosses above WMA(21) → 🟢 Buy (Milega). "
+                "Crosses below → 🔴 Sell (Hilega). Green/red shading = current bias. "
+                "Overbought >70, Oversold <30. For informational purposes only."
+            )
 
 st.markdown("---")
 c1, c2, c3 = st.columns(3)
