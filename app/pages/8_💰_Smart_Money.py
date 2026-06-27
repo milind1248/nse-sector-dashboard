@@ -681,15 +681,17 @@ if col_ref.button("🔄 Refresh", use_container_width=True):
     st.rerun()
 
 # ── Disclaimer (SEBI) ────────────────────────────────────────────────────────
-st.info(
-    "⚠️ **Regulatory Disclaimer:** This tool is provided for **educational and informational purposes only**. "
-    "It does not constitute investment advice, a recommendation to buy or sell securities, or any form of "
-    "research report as defined under SEBI (Research Analyst) Regulations, 2014. "
-    "The signals shown are derived from publicly available NSE data using mathematical formulas. "
-    "Past patterns do not guarantee future performance. Users are advised to consult a SEBI-registered "
-    "investment advisor before making any investment decisions. The publisher is **not registered** with SEBI "
-    "as a Research Analyst or Investment Advisor.",
-    icon="⚖️",
+st.markdown(
+    "<div style='font-size:11px;color:#888;background:#1a1a2e;border-left:3px solid #555;"
+    "padding:6px 10px;border-radius:4px;line-height:1.5;margin-bottom:4px'>"
+    "⚖️ <b>Regulatory Disclaimer:</b> This tool is for educational and informational purposes only. "
+    "It does not constitute investment advice, a recommendation to buy/sell securities, or a research report "
+    "under SEBI (Research Analyst) Regulations, 2014. Signals are derived from publicly available NSE data "
+    "using mathematical formulas. Past patterns do not guarantee future performance. Consult a SEBI-registered "
+    "investment advisor before making investment decisions. The publisher is <b>not registered</b> with SEBI "
+    "as a Research Analyst or Investment Advisor."
+    "</div>",
+    unsafe_allow_html=True,
 )
 
 # ── Legend ────────────────────────────────────────────────────────────────────
@@ -1130,24 +1132,19 @@ with tab_screener:
                 sort_map2[sort_col2], ascending=(sort_asc2 == "Ascending")
             ).reset_index(drop=True)
 
-            # Build display DataFrame (same column style as Stock Analysis)
+            # Build display DataFrame — short column names to avoid horizontal scroll
             display2 = pd.DataFrame({
-                "Symbol":              scr_df["Symbol"],
-                "Date":                scr_df["Date"],
-                "Close (₹)":           scr_df["Close (₹)"],
-                "% Price CHG":         scr_df["% Price CHG"],
-                "Delivery %":          scr_df["Delivery %"],
-                "90d Avg Delivery %":  scr_df["90d Avg Delivery%"],
-                "Action":              scr_df["Action"],
-                "90d Avg Action":      scr_df["90d Avg Action"],
-                "Futures OI":          scr_df["Futures OI"].apply(
-                    lambda x: int(x) if pd.notna(x) else None),
-                "OI Change":           scr_df["OI Change"].apply(
-                    lambda x: int(x) if pd.notna(x) else None),
-                "% OI Change":         scr_df["% OI Change"],
-                "OI Signal":           scr_df["OI Signal"],
-                "Smart Money":         scr_df["Smart Money"],
-                "Days in DB":          scr_df["_days"],
+                "Symbol":      scr_df["Symbol"],
+                "Close ₹":     scr_df["Close (₹)"],
+                "Chg%":        scr_df["% Price CHG"],
+                "Dlv%":        scr_df["Delivery %"],
+                "Avg Dlv%":    scr_df["90d Avg Delivery%"],
+                "Action":      scr_df["Action"],
+                "Avg Act":     scr_df["90d Avg Action"],
+                "FUT OI":      scr_df["Futures OI"].apply(lambda x: int(x) if pd.notna(x) else None),
+                "OI Chg%":     scr_df["% OI Change"],
+                "OI Signal":   scr_df["OI Signal"],
+                "Signal":      scr_df["Smart Money"],
             })
 
             OI_C2 = {
@@ -1170,20 +1167,19 @@ with tab_screener:
 
             st.dataframe(
                 display2.style
-                    .map(_cn2,  subset=["% Price CHG", "OI Change", "% OI Change"])
-                    .map(_cavg, subset=["90d Avg Delivery %", "90d Avg Action"])
+                    .map(_cn2,  subset=["Chg%", "OI Chg%"])
+                    .map(_cavg, subset=["Avg Dlv%", "Avg Act"])
                     .map(lambda v: OI_C2.get(v, ""), subset=["OI Signal"])
-                    .map(_csm2, subset=["Smart Money"])
+                    .map(_csm2, subset=["Signal"])
                     .format({
-                        "Close (₹)":           "₹{:,.2f}",
-                        "% Price CHG":         "{:+.2f}%",
-                        "Delivery %":          "{:.1f}%",
-                        "90d Avg Delivery %":  "{:.1f}%",
-                        "Action":              "{:.1f}",
-                        "90d Avg Action":      "{:.1f}",
-                        "% OI Change":         "{:+.2f}%",
-                        "OI Change":           "{:+,}",
-                        "Futures OI":          "{:,}",
+                        "Close ₹":  "₹{:,.0f}",
+                        "Chg%":     "{:+.1f}%",
+                        "Dlv%":     "{:.1f}%",
+                        "Avg Dlv%": "{:.1f}%",
+                        "Action":   "{:.1f}",
+                        "Avg Act":  "{:.1f}",
+                        "OI Chg%":  "{:+.1f}%",
+                        "FUT OI":   "{:,}",
                     }, na_rep="–"),
                 use_container_width=True, hide_index=True, height=600,
             )
