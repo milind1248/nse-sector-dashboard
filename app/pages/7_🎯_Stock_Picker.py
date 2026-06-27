@@ -320,8 +320,9 @@ if chosen:
                 ), row=2, col=1)
 
             # Reference lines on H-M pane
-            for y_val, clr in [(70,"#D50000"),(50,"#444"),(30,"#00C853")]:
-                fig.add_hline(y=y_val, line_dash="dot", line_color=clr, opacity=0.5, row=2, col=1)
+            fig.add_hline(y=70, line_dash="dot",   line_color="#D50000", opacity=0.5, row=2, col=1)
+            fig.add_hline(y=50, line_dash="solid",  line_color="#888888", opacity=0.9, line_width=1.5, row=2, col=1)
+            fig.add_hline(y=30, line_dash="dot",   line_color="#00C853", opacity=0.5, row=2, col=1)
 
             fig.update_layout(
                 template="plotly_dark", height=580,
@@ -330,6 +331,11 @@ if chosen:
                 xaxis_rangeslider_visible=False,
                 xaxis2_rangeslider_visible=False,
                 legend=dict(orientation="h", y=1.04, x=0, font=dict(size=11)),
+                hovermode="x unified",
+            )
+            fig.update_xaxes(
+                showspikes=True, spikemode="across", spikesnap="cursor",
+                spikethickness=1, spikedash="dot", spikecolor="#aaaaaa",
             )
             fig.update_yaxes(range=[0, 100], row=2, col=1)
             st.plotly_chart(fig, use_container_width=True)
