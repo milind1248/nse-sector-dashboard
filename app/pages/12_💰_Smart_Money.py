@@ -27,28 +27,34 @@ _DB_PATH = Path(__file__).parent.parent.parent / "data" / "nse_dashboard.db"
 def _db():
     return sqlite3.connect(_DB_PATH)
 
-def _init_table():
+def _init_tables():
     con = _db()
     con.execute("""
         CREATE TABLE IF NOT EXISTS smart_money_history (
-            symbol       TEXT NOT NULL,
-            trade_date   TEXT NOT NULL,
-            close_price  REAL,
+            symbol        TEXT NOT NULL,
+            trade_date    TEXT NOT NULL,
+            close_price   REAL,
             pct_price_chg REAL,
-            trade_qty    REAL,
-            tot_trade    REAL,
-            action       REAL,
-            dlv_pct      REAL,
-            futures_oi   REAL,
-            oi_change    REAL,
-            pct_oi_chg   REAL,
+            trade_qty     REAL,
+            tot_trade     REAL,
+            action        REAL,
+            dlv_pct       REAL,
+            futures_oi    REAL,
+            oi_change     REAL,
+            pct_oi_chg    REAL,
             PRIMARY KEY (symbol, trade_date)
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS fno_symbols (
+            symbol      TEXT PRIMARY KEY,
+            updated_at  TEXT NOT NULL
         )
     """)
     con.commit()
     con.close()
 
-_init_table()
+_init_tables()
 
 
 def _last_trading_date() -> date:
@@ -244,10 +250,18 @@ def _fetch_missing_days(symbol: str, missing_dates: list[date],
     return results
 
 
-# ── Today's FNO stock list (for selectbox) ─────────────────────────────────────
-@st.cache_data(ttl=3600, show_spinner=False)
-def _load_fno_list() -> list[str]:
+# ── FNO symbol list — DB-backed, only refreshed on explicit Refresh click ────
+def _fno_list_from_db() -> list[str]:
+    con = _db()
+    rows = con.execute("SELECT symbol FROM fno_symbols ORDER BY symbol").fetchall()
+    con.close()
+    return [r[0] for r in rows]
+
+
+def _refresh_fno_list_from_nse() -> list[str]:
+    """Download FO Bhav Copy, extract STF symbols, save to DB. Called only on Refresh."""
     import requests, zipfile, io as _io
+    from datetime import datetime
     for offset in range(7):
         dt = _last_trading_date() - timedelta(days=offset)
         if dt.weekday() >= 5:
@@ -261,11 +275,29 @@ def _load_fno_list() -> list[str]:
             z = zipfile.ZipFile(_io.BytesIO(r.content))
             df = pd.read_csv(z.open(z.namelist()[0]))
             syms = sorted(df[df["FinInstrmTp"] == "STF"]["TckrSymb"].unique().tolist())
-            if syms:
-                return syms
+            if not syms:
+                continue
+            now = datetime.utcnow().isoformat()
+            con = _db()
+            con.execute("DELETE FROM fno_symbols")
+            con.executemany(
+                "INSERT INTO fno_symbols (symbol, updated_at) VALUES (?, ?)",
+                [(s, now) for s in syms],
+            )
+            con.commit()
+            con.close()
+            return syms
         except Exception:
             continue
     return []
+
+
+def _get_fno_list() -> list[str]:
+    """Return FNO symbols from DB; fetch from NSE only if DB is empty."""
+    syms = _fno_list_from_db()
+    if not syms:
+        syms = _refresh_fno_list_from_nse()
+    return syms
 
 
 
@@ -275,7 +307,7 @@ col_h, col_ref = st.columns([6, 1])
 col_h.title("💰 Smart Money Tracker")
 col_h.caption("FII/DII position detection via Cash Delivery % + Action ratio + Futures OI signals")
 if col_ref.button("🔄 Refresh", use_container_width=True):
-    _load_fno_list.clear()
+    _refresh_fno_list_from_nse()   # re-fetch FNO symbols from NSE into DB
     st.rerun()
 
 # ── Legend ────────────────────────────────────────────────────────────────────
@@ -295,9 +327,8 @@ High delivery = institutions taking physical delivery. High Action = large lot s
 | **Short Buildup** | ↓ | ↑ | 🔴 Bearish — new shorts added |
 """)
 
-# ── Load FNO symbol list ───────────────────────────────────────────────────────
-with st.spinner("Loading FNO stock list…"):
-    fno_symbols = _load_fno_list()
+# ── Load FNO symbol list (DB-first, no HTTP unless DB is empty) ───────────────
+fno_symbols = _get_fno_list()
 
 if not fno_symbols:
     st.error("Could not load FNO stock list. NSE archives publish data after ~6 PM IST.")
