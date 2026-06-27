@@ -899,7 +899,7 @@ with tab_stock:
                 "Date":          hist["trade_date"].astype(str),
                 "Close (₹)":     hist["close_price"],
                 "% Price CHG":   hist["pct_price_chg"],
-                "Delivery %":    hist["dlv_pct"].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "–"),
+                "Delivery %":    hist["dlv_pct"],      # keep numeric for styling
                 "Action":        hist["action"],
                 "Futures OI":    hist["futures_oi"].apply(lambda x: int(x) if pd.notna(x) else None),
                 "OI Change":     hist["oi_change"].apply(lambda x: int(x) if pd.notna(x) else None),
@@ -926,14 +926,24 @@ with tab_stock:
             def _coi(v):
                 return OI_COLORS.get(v, "")
 
+            _cdlv = lambda v: ("color:#00C853;font-weight:600"
+                               if isinstance(v, (int, float)) and pd.notna(v) and v > avg_dlv
+                               else "")
+            _cact = lambda v: ("color:#00C853;font-weight:600"
+                               if isinstance(v, (int, float)) and pd.notna(v) and v > avg_act
+                               else "")
+
             st.dataframe(
                 display.style
-                    .map(_cn,  subset=["% Price CHG", "OI Change", "% OI Change"])
-                    .map(_coi, subset=["OI Signal"])
-                    .map(_csm, subset=["Smart Money"])
+                    .map(_cn,   subset=["% Price CHG", "OI Change", "% OI Change"])
+                    .map(_coi,  subset=["OI Signal"])
+                    .map(_csm,  subset=["Smart Money"])
+                    .map(_cdlv, subset=["Delivery %"])
+                    .map(_cact, subset=["Action"])
                     .format({
                         "Close (₹)":   "₹{:,.2f}",
                         "% Price CHG": "{:+.2f}%",
+                        "Delivery %":  "{:.1f}%",
                         "% OI Change": "{:+.2f}%",
                         "OI Change":   "{:+,}",
                         "Futures OI":  "{:,}",
