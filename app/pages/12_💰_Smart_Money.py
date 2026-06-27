@@ -51,6 +51,19 @@ def _init_tables():
             updated_at  TEXT NOT NULL
         )
     """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS shareholding_pattern (
+            symbol           TEXT NOT NULL,
+            quarter          TEXT NOT NULL,
+            promoter         REAL,
+            fii              REAL,
+            dii              REAL,
+            government       REAL,
+            public_retail    REAL,
+            fetched_at       TEXT NOT NULL,
+            PRIMARY KEY (symbol, quarter)
+        )
+    """)
     con.commit()
     con.close()
 
@@ -298,6 +311,138 @@ def _get_fno_list() -> list[str]:
     if not syms:
         syms = _refresh_fno_list_from_nse()
     return syms
+
+
+# ── Shareholding Pattern (screener.in) ───────────────────────────────────────
+
+def _fetch_shareholding_screener(symbol: str) -> list[dict]:
+    """
+    Fetch 6 quarters of shareholding pattern from screener.in.
+    Categories: Promoters, FIIs, DIIs, Government, Public (sum ≈ 100%).
+    Returns list of row dicts ordered newest-first.
+    """
+    import requests
+    from bs4 import BeautifulSoup
+    from datetime import datetime
+
+    # Try consolidated first, then standalone
+    for suffix in ["/consolidated/", "/"]:
+        url = f"https://www.screener.in/company/{symbol}{suffix}"
+        try:
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+            if r.status_code != 200:
+                continue
+            soup = BeautifulSoup(r.text, "html.parser")
+            sh_section = soup.find("section", {"id": "shareholding"})
+            if not sh_section:
+                continue
+            table = sh_section.find("table")
+            if not table:
+                continue
+
+            rows = table.find_all("tr")
+            if len(rows) < 2:
+                continue
+
+            # First row = header with quarter labels
+            headers = [th.get_text(strip=True) for th in rows[0].find_all(["th", "td"])]
+            quarters = headers[1:]   # skip the first label column
+
+            # Parse each category row
+            data: dict[str, list] = {}
+            cat_map = {
+                "Promoters": "promoter",
+                "FIIs":      "fii",
+                "DIIs":      "dii",
+                "Government":"government",
+                "Public":    "public_retail",
+            }
+            for row in rows[1:]:
+                cells = row.find_all(["th", "td"])
+                if not cells:
+                    continue
+                label = cells[0].get_text(strip=True).replace("+", "").strip()
+                key = cat_map.get(label)
+                if not key:
+                    continue
+                vals = []
+                for c in cells[1:]:
+                    txt = c.get_text(strip=True).replace("%", "").replace(",", "").strip()
+                    try:
+                        vals.append(float(txt))
+                    except ValueError:
+                        vals.append(None)
+                data[key] = vals
+
+            if not data:
+                continue
+
+            # Build row dicts — last 6 quarters only, newest first
+            num_q = len(quarters)
+            start  = max(0, num_q - 6)
+            now_ts = datetime.utcnow().isoformat()
+            result = []
+            for i in range(num_q - 1, start - 1, -1):
+                if i >= len(quarters):
+                    continue
+                q = quarters[i]
+                result.append({
+                    "symbol":        symbol,
+                    "quarter":       q,
+                    "promoter":      data.get("promoter",      [None] * num_q)[i],
+                    "fii":           data.get("fii",           [None] * num_q)[i],
+                    "dii":           data.get("dii",           [None] * num_q)[i],
+                    "government":    data.get("government",    [None] * num_q)[i],
+                    "public_retail": data.get("public_retail", [None] * num_q)[i],
+                    "fetched_at":    now_ts,
+                })
+            return result
+        except Exception:
+            continue
+    return []
+
+
+def _save_shareholding(rows: list[dict]):
+    if not rows:
+        return
+    con = _db()
+    con.executemany("""
+        INSERT OR REPLACE INTO shareholding_pattern
+        (symbol, quarter, promoter, fii, dii, government, public_retail, fetched_at)
+        VALUES (:symbol, :quarter, :promoter, :fii, :dii, :government, :public_retail, :fetched_at)
+    """, rows)
+    con.commit()
+    con.close()
+
+
+def _load_shareholding(symbol: str) -> pd.DataFrame:
+    con = _db()
+    df = pd.read_sql_query(
+        """SELECT quarter, promoter, fii, dii, government, public_retail, fetched_at
+           FROM shareholding_pattern WHERE symbol=?
+           ORDER BY quarter DESC""",
+        con, params=(symbol,),
+    )
+    con.close()
+    return df
+
+
+def _get_shareholding(symbol: str) -> pd.DataFrame:
+    """Load from DB; fetch from screener.in if missing or older than 7 days."""
+    from datetime import datetime, timedelta
+    df = _load_shareholding(symbol)
+    needs_refresh = df.empty
+    if not needs_refresh and not df.empty:
+        try:
+            fetched = datetime.fromisoformat(df["fetched_at"].iloc[0])
+            needs_refresh = (datetime.utcnow() - fetched) > timedelta(days=7)
+        except Exception:
+            needs_refresh = True
+    if needs_refresh:
+        rows = _fetch_shareholding_screener(symbol)
+        _save_shareholding(rows)
+        df = _load_shareholding(symbol)
+    return df.drop(columns=["fetched_at"], errors="ignore")
 
 
 # ── Bulk date-centric fetch (downloads each bhav copy once for ALL symbols) ───
@@ -719,6 +864,87 @@ with tab_stock:
                     }, na_rep="–"),
                 use_container_width=True, hide_index=True, height=550,
             )
+
+            # ── Shareholding Pattern (6 quarters) ────────────────────────────
+            st.markdown("---")
+            st.subheader(f"🏦 Shareholding Pattern — {symbol} (Last 6 Quarters)")
+            st.caption("Source: screener.in · Refreshed weekly · DII = Mutual Funds + Other Domestic Institutions")
+
+            sh_df = _get_shareholding(symbol)
+
+            if sh_df.empty:
+                st.info("Shareholding data not available for this symbol on screener.in.")
+            else:
+                # Keep only last 6 quarters, oldest→newest for chart
+                sh_df = sh_df.head(6).iloc[::-1].reset_index(drop=True)
+                quarters = sh_df["quarter"].tolist()
+
+                # ── Stacked bar chart ─────────────────────────────────────────
+                CAT_COLORS = {
+                    "Promoter":   "#2979FF",
+                    "FII":        "#00C853",
+                    "DII":        "#FFD600",
+                    "Government": "#FF6D00",
+                    "Public":     "#AA00FF",
+                }
+                fig_sh = go.Figure()
+                cat_cols = [
+                    ("Promoter",   "promoter"),
+                    ("FII",        "fii"),
+                    ("DII",        "dii"),
+                    ("Government", "government"),
+                    ("Public",     "public_retail"),
+                ]
+                for label, col in cat_cols:
+                    vals = sh_df[col].tolist()
+                    fig_sh.add_trace(go.Bar(
+                        name=label,
+                        x=quarters,
+                        y=vals,
+                        marker_color=CAT_COLORS[label],
+                        text=[f"{v:.1f}%" if v is not None else "" for v in vals],
+                        textposition="inside",
+                    ))
+                fig_sh.update_layout(
+                    barmode="stack",
+                    template="plotly_dark",
+                    height=340,
+                    title=f"{symbol} — Shareholding Pattern (%) — Last 6 Quarters",
+                    yaxis=dict(title="%", range=[0, 100]),
+                    legend=dict(orientation="h", y=-0.2),
+                    margin=dict(t=50, b=60),
+                )
+                st.plotly_chart(fig_sh, use_container_width=True)
+
+                # ── Table ──────────────────────────────────────────────────────
+                # Transpose: rows = categories, cols = quarters (newest right)
+                sh_display = sh_df[["quarter","promoter","fii","dii","government","public_retail"]].copy()
+                sh_display.columns = ["Quarter", "Promoter %", "FII %", "DII %", "Govt %", "Public %"]
+
+                # Compute total to verify ≈ 100%
+                sh_display["Total %"] = (
+                    sh_df[["promoter","fii","dii","government","public_retail"]].sum(axis=1)
+                )
+
+                def _pct_color(v):
+                    if not isinstance(v, float): return ""
+                    return "color:#fff"
+
+                st.dataframe(
+                    sh_display.style
+                        .format({c: "{:.2f}%" for c in sh_display.columns if "%" in c},
+                                na_rep="–")
+                        .background_gradient(
+                            subset=["Promoter %"], cmap="Blues", vmin=0, vmax=80
+                        )
+                        .background_gradient(
+                            subset=["FII %"], cmap="Greens", vmin=0, vmax=30
+                        )
+                        .background_gradient(
+                            subset=["DII %"], cmap="YlOrBr", vmin=0, vmax=30
+                        ),
+                    use_container_width=True, hide_index=True,
+                )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — Smart Money Screener (DB-based, last business day, 90d avg filter)
