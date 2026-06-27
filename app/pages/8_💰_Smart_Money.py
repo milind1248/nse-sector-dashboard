@@ -211,7 +211,10 @@ def _fetch_one_day(symbol: str, dt: date) -> dict | None:
                               names=["rec","sr","sym","series","qty_traded","dlv_qty","dlv_pct"])
             m = mdf[(mdf["sym"] == symbol) & (mdf["series"] == "EQ")]
             if not m.empty:
-                row["dlv_pct"] = float(pd.to_numeric(m["dlv_pct"].iloc[0], errors="coerce"))
+                qty  = pd.to_numeric(m["qty_traded"].iloc[0], errors="coerce")
+                dlv  = pd.to_numeric(m["dlv_qty"].iloc[0],   errors="coerce")
+                if pd.notna(qty) and pd.notna(dlv) and qty > 0:
+                    row["dlv_pct"] = round(dlv / qty * 100, 2)
                 got_any = True
     except Exception:
         pass
@@ -562,10 +565,13 @@ def _fetch_date_all_symbols(dt: date, symbols_set: set[str]) -> list[dict]:
                 names=["rec", "sr", "sym", "series", "qty_traded", "dlv_qty", "dlv_pct"],
             )
             mdf = mdf[mdf["series"] == "EQ"]
-            mdf["dlv_pct"] = pd.to_numeric(mdf["dlv_pct"], errors="coerce")
+            mdf["qty_traded"] = pd.to_numeric(mdf["qty_traded"], errors="coerce")
+            mdf["dlv_qty"]    = pd.to_numeric(mdf["dlv_qty"],    errors="coerce")
             for _, row in mdf[mdf["sym"].isin(symbols_set)].iterrows():
-                if pd.notna(row["dlv_pct"]):
-                    dlv_data[row["sym"]] = float(row["dlv_pct"])
+                qty = row["qty_traded"]
+                dlv = row["dlv_qty"]
+                if pd.notna(qty) and pd.notna(dlv) and qty > 0:
+                    dlv_data[row["sym"]] = round(dlv / qty * 100, 2)
     except Exception:
         pass
 
