@@ -44,6 +44,14 @@ PAGE_SEO = {
         "keywords":    "NSE sector index analysis, Nifty sector performance, FII flow price data, "
                        "sector index chart India, Nifty Bank Nifty IT Nifty Auto research",
     },
+    "Smart_Money": {
+        "title":       "Smart Money Tracker | FII/DII OI + Delivery Analysis | Market Sector Analysis",
+        "description": "Track FII/DII (smart money) positions using Futures Open Interest and Cash Delivery % data. "
+                       "Identify Long Buildup, Short Buildup, Short Covering and Long Unwinding signals across all FNO stocks. "
+                       "For informational and research purposes only. Not investment advice.",
+        "keywords":    "smart money tracker NSE, FII DII open interest India, futures OI change NSE, "
+                       "delivery percentage NSE, long buildup short buildup, institutional activity NSE stocks",
+    },
     "Stock_Picker": {
         "title":       "Stock Screener | FII Sector-Based Stock Analysis | Market Sector Analysis",
         "description": "Analyse stocks within FII-active sectors. "
