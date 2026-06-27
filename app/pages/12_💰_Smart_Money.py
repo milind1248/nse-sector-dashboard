@@ -349,25 +349,43 @@ with tab_stock:
         missing = [d for d in all_90d if d.isoformat() not in stored]
 
         if missing:
-            st.info(f"Fetching {len(missing)} missing trading day(s) for **{symbol}** from NSE archives… "
-                    f"(First load may take up to 30 seconds — subsequent visits are instant)")
             prog_bar  = st.progress(0)
             prog_text = st.empty()
+            prog_text.text(f"Fetching {len(missing)} new trading day(s) for {symbol}…")
 
             _prog = {"done": 0}
             def _cb(done, total):
-                _prog["done"] = done
                 pct = int(done / total * 100)
                 prog_bar.progress(pct)
-                prog_text.text(f"Fetched {done} / {total} trading days…")
+                prog_text.text(f"Fetching {symbol} history: {done} / {total} days…")
 
             new_rows = _fetch_missing_days(symbol, missing, progress_cb=_cb)
+
+            # Save fetched rows
             _save_rows(new_rows)
+
+            # Mark dates that returned no data as attempted (null skeleton)
+            # so they are never retried on future page loads
+            fetched_dates = {r["trade_date"] for r in new_rows}
+            null_rows = [
+                {"symbol": symbol, "trade_date": d.isoformat(),
+                 "close_price": None, "pct_price_chg": None,
+                 "trade_qty": None, "tot_trade": None, "action": None,
+                 "dlv_pct": None, "futures_oi": None, "oi_change": None,
+                 "pct_oi_chg": None}
+                for d in missing if d.isoformat() not in fetched_dates
+            ]
+            if null_rows:
+                _save_rows(null_rows)
+
             _purge_old(symbol)
             prog_bar.empty()
             prog_text.empty()
 
         hist = _load_from_db(symbol)
+
+        # Drop null skeleton rows (dates attempted but not available on NSE archives)
+        hist = hist.dropna(subset=["close_price"])
 
         if hist.empty:
             st.warning("No data available for this symbol. It may not be in F&O segment or NSE archives.")
@@ -543,7 +561,7 @@ with tab_screener:
         # For each symbol: load all rows, compute 90d avg, check last business day signal
         screener_rows = []
         for sym in all_syms_in_db:
-            hist_s = _load_from_db(sym)
+            hist_s = _load_from_db(sym).dropna(subset=["close_price"])
             if hist_s.empty:
                 continue
 
