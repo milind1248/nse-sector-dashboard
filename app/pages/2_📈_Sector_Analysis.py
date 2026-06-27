@@ -28,7 +28,7 @@ show_logo()
 
 # ── Get sector from session ────────────────────────────────────────────────────
 sector = st.session_state.get("selected_sector")
-all_sectors = list(SECTOR_STOCKS.keys())
+all_sectors = sorted(SECTOR_STOCKS.keys())
 sector = st.selectbox("Sector", all_sectors,
                        index=all_sectors.index(sector) if sector and sector in all_sectors else 0,
                        key="sa_sector_sel")
