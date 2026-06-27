@@ -379,7 +379,7 @@ def _fetch_shareholding_screener(symbol: str) -> list[dict]:
 
             # Build row dicts — last 6 quarters only, newest first
             num_q = len(quarters)
-            start  = max(0, num_q - 6)
+            start  = max(0, num_q - 12)
             now_ts = datetime.utcnow().isoformat()
             result = []
             for i in range(num_q - 1, start - 1, -1):
@@ -867,7 +867,7 @@ with tab_stock:
 
             # ── Shareholding Pattern (6 quarters) ────────────────────────────
             st.markdown("---")
-            st.subheader(f"🏦 Shareholding Pattern — {symbol} (Last 6 Quarters)")
+            st.subheader(f"🏦 Shareholding Pattern — {symbol} (Last 12 Quarters)")
             st.caption("Source: screener.in · Refreshed weekly · DII = Mutual Funds + Other Domestic Institutions")
 
             sh_df = _get_shareholding(symbol)
@@ -876,7 +876,7 @@ with tab_stock:
                 st.info("Shareholding data not available for this symbol on screener.in.")
             else:
                 # Keep only last 6 quarters, oldest→newest for chart
-                sh_df = sh_df.head(6).iloc[::-1].reset_index(drop=True)
+                sh_df = sh_df.head(12).iloc[::-1].reset_index(drop=True)
                 quarters = sh_df["quarter"].tolist()
 
                 # ── Stacked bar chart ─────────────────────────────────────────
