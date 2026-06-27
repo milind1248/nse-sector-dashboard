@@ -837,19 +837,28 @@ with tab_stock:
             with col_ch1:
                 ch = hist.sort_values("trade_date")
                 sm_dates = hist[hist["smart_money"] == "Buying"]["trade_date"].tolist()
+                buy_df = ch[ch["smart_money"] == "Buying"]
                 fig = go.Figure()
+                # Price line
                 fig.add_trace(go.Scatter(
                     x=ch["trade_date"].astype(str), y=ch["close_price"],
-                    name="Close", line=dict(color="#2979FF", width=2),
+                    name="Close", mode="lines", line=dict(color="#2979FF", width=2),
                 ))
+                # Green circles at Buying signal days
+                fig.add_trace(go.Scatter(
+                    x=buy_df["trade_date"].astype(str), y=buy_df["close_price"],
+                    mode="markers", name="Smart Money Buying",
+                    marker=dict(color="#00C853", size=10, symbol="circle",
+                                line=dict(color="#fff", width=1.5)),
+                    hovertemplate="<b>%{x}</b><br>Close: ₹%{y:,.2f}<br>Smart Money: Buying<extra></extra>",
+                ))
+                # Subtle vertical lines
                 for sd in sm_dates:
-                    idx = ch[ch["trade_date"] == sd]
-                    if not idx.empty:
-                        fig.add_vline(x=str(sd), line_width=1,
-                                      line_color="#00C853", opacity=0.4)
+                    fig.add_vline(x=str(sd), line_width=1,
+                                  line_color="#00C853", opacity=0.2)
                 fig.update_layout(
                     template="plotly_dark", height=280,
-                    title=f"{symbol} — Close Price (green lines = Smart Money Buying days)",
+                    title=f"{symbol} — Close Price (🟢 = Smart Money Buying)",
                     margin=dict(t=40, b=20),
                 )
                 st.plotly_chart(fig, use_container_width=True)
