@@ -879,11 +879,10 @@ with tab_stock:
             if sh_df.empty:
                 st.info("Shareholding data not available for this symbol on screener.in.")
             else:
-                # chart_df: oldest→newest (left to right on bar chart)
-                # table_df: newest→oldest (latest quarter on top)
-                sh_chart = sh_df.head(12).iloc[::-1].reset_index(drop=True)  # oldest first
-                sh_table = sh_df.head(12).reset_index(drop=True)              # newest first
-                quarters = sh_chart["quarter"].tolist()
+                # Both chart and table: newest first (Mar 2026 → Jun 2023)
+                sh_chart = sh_df.head(12).reset_index(drop=True)   # newest first
+                sh_table = sh_df.head(12).reset_index(drop=True)   # newest first
+                quarters  = sh_chart["quarter"].tolist()
 
                 # ── Stacked bar chart ─────────────────────────────────────────
                 CAT_COLORS = {
