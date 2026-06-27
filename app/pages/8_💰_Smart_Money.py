@@ -986,23 +986,22 @@ with tab_stock:
                     sh_table[["promoter","fii","dii","government","public_retail"]].sum(axis=1)
                 )
 
-                def _pct_color(v):
-                    if not isinstance(v, float): return ""
-                    return "color:#fff"
+                def _sh_color(col_name, lo, hi, rgb):
+                    def _fn(v):
+                        if not isinstance(v, (int, float)): return ""
+                        intensity = max(0.0, min(1.0, (v - lo) / max(hi - lo, 1)))
+                        r, g, b = [int(c + (255 - c) * (1 - intensity)) for c in rgb]
+                        fg = "#fff" if intensity > 0.5 else "#ccc"
+                        return f"background-color:rgb({r},{g},{b});color:{fg}"
+                    return _fn
 
                 st.dataframe(
                     sh_display.style
                         .format({c: "{:.2f}%" for c in sh_display.columns if "%" in c},
                                 na_rep="–")
-                        .background_gradient(
-                            subset=["Promoter %"], cmap="Blues", vmin=0, vmax=80
-                        )
-                        .background_gradient(
-                            subset=["FII %"], cmap="Greens", vmin=0, vmax=30
-                        )
-                        .background_gradient(
-                            subset=["DII %"], cmap="YlOrBr", vmin=0, vmax=30
-                        ),
+                        .map(_sh_color("Promoter %", 0, 80, (25, 118, 210)),  subset=["Promoter %"])
+                        .map(_sh_color("FII %",      0, 30, (27, 94,  32)),   subset=["FII %"])
+                        .map(_sh_color("DII %",      0, 30, (230, 81, 0)),    subset=["DII %"]),
                     use_container_width=True, hide_index=True,
                 )
 
