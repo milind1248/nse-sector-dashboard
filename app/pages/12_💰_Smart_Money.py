@@ -247,77 +247,6 @@ def _load_fno_list() -> list[str]:
     return []
 
 
-# ── Today's screener data ─────────────────────────────────────────────────────
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_today_screener():
-    import requests, zipfile, io as _io
-
-    def _fetch_cm(dt):
-        url = (f"https://nsearchives.nseindia.com/content/cm/"
-               f"BhavCopy_NSE_CM_0_0_0_{dt.strftime('%Y%m%d')}_F_0000.csv.zip")
-        r = requests.get(url, headers=_HDR, timeout=15)
-        if r.status_code != 200: return None
-        z = zipfile.ZipFile(_io.BytesIO(r.content))
-        df = pd.read_csv(z.open(z.namelist()[0]))
-        eq = df[df["SctySrs"].isin({"EQ","BE","BZ","SM","ST"})].copy()
-        for c in ["ClsPric","PrvsClsgPric","TtlTradgVol","TtlNbOfTxsExctd"]:
-            eq[c] = pd.to_numeric(eq[c], errors="coerce")
-        return eq[["TckrSymb","ClsPric","PrvsClsgPric","TtlTradgVol","TtlNbOfTxsExctd"]].dropna()
-
-    def _fetch_fo(dt):
-        url = (f"https://nsearchives.nseindia.com/content/fo/"
-               f"BhavCopy_NSE_FO_0_0_0_{dt.strftime('%Y%m%d')}_F_0000.csv.zip")
-        r = requests.get(url, headers=_HDR, timeout=15)
-        if r.status_code != 200: return None
-        z = zipfile.ZipFile(_io.BytesIO(r.content))
-        df = pd.read_csv(z.open(z.namelist()[0]))
-        stf = df[df["FinInstrmTp"]=="STF"].copy()
-        stf["XpryDt"] = pd.to_datetime(stf["XpryDt"], errors="coerce")
-        for c in ["OpnIntrst","ChngInOpnIntrst","TtlTradgVol","TtlNbOfTxsExctd"]:
-            stf[c] = pd.to_numeric(stf[c], errors="coerce")
-        nearest = stf.loc[stf.groupby("TckrSymb")["XpryDt"].idxmin()].copy()
-        return nearest[["TckrSymb","OpnIntrst","ChngInOpnIntrst",
-                        "TtlTradgVol","TtlNbOfTxsExctd"]].dropna(subset=["OpnIntrst"])
-
-    def _fetch_mto(dt):
-        url = f"https://nsearchives.nseindia.com/archives/equities/mto/MTO_{dt.strftime('%d%m%Y')}.DAT"
-        r = requests.get(url, headers=_HDR, timeout=10)
-        if r.status_code != 200: return None
-        lines = [l for l in r.text.splitlines() if l.startswith("20,")]
-        df = pd.read_csv(_io.StringIO("\n".join(lines)), header=None,
-                         names=["rec","sr","symbol","series","qty","dlv_qty","dlv_pct"])
-        eq = df[df["series"]=="EQ"].copy()
-        eq["dlv_pct"] = pd.to_numeric(eq["dlv_pct"], errors="coerce")
-        return eq[["symbol","dlv_pct"]].dropna().rename(columns={"symbol":"TckrSymb"})
-
-    for offset in range(7):
-        dt = _last_trading_date() - timedelta(days=offset)
-        if dt.weekday() >= 5: continue
-        fo = _fetch_fo(dt); cm = _fetch_cm(dt); mto = _fetch_mto(dt)
-        if fo is None or cm is None: continue
-        fo2 = fo.rename(columns={"TtlTradgVol":"FO_Vol","TtlNbOfTxsExctd":"FO_Trades"})
-        merged = fo2.merge(cm, on="TckrSymb", how="left")
-        if mto is not None:
-            merged = merged.merge(mto, on="TckrSymb", how="left")
-        else:
-            merged["dlv_pct"] = float("nan")
-        merged["pct_price_chg"] = ((merged["ClsPric"]-merged["PrvsClsgPric"])/merged["PrvsClsgPric"]*100).round(2)
-        prev_oi = merged["OpnIntrst"]-merged["ChngInOpnIntrst"]
-        merged["pct_oi_chg"] = (merged["ChngInOpnIntrst"]/prev_oi.replace(0,float("nan"))*100).round(2)
-        merged["action"] = (merged["FO_Vol"]/merged["FO_Trades"].replace(0,float("nan"))).round(1)
-        merged["dlv_action"] = merged["dlv_pct"].apply(lambda x: "High" if pd.notna(x) and x>=40 else "Medium" if pd.notna(x) and x>=20 else "Low" if pd.notna(x) else "–")
-        def _oi_sig(r):
-            p,o = r["pct_price_chg"], r["pct_oi_chg"]
-            if pd.isna(p) or pd.isna(o): return "Neutral"
-            if p>0 and o>0: return "Long Buildup"
-            if p>0 and o<0: return "Short Covering"
-            if p<0 and o<0: return "Long Unwinding"
-            if p<0 and o>0: return "Short Buildup"
-            return "Neutral"
-        merged["oi_signal"] = merged.apply(_oi_sig, axis=1)
-        if len(merged) > 10:
-            return merged.sort_values("TckrSymb").reset_index(drop=True), dt
-    return pd.DataFrame(), None
 
 
 # ── Page header ───────────────────────────────────────────────────────────────
@@ -325,7 +254,6 @@ col_h, col_ref = st.columns([6, 1])
 col_h.title("💰 Smart Money Tracker")
 col_h.caption("FII/DII position detection via Cash Delivery % + Action ratio + Futures OI signals")
 if col_ref.button("🔄 Refresh", use_container_width=True):
-    load_today_screener.clear()
     _load_fno_list.clear()
     st.rerun()
 
@@ -542,100 +470,188 @@ with tab_stock:
             )
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — Smart Money Screener (today only)
+# TAB 2 — Smart Money Screener (DB-based, last business day, 90d avg filter)
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_screener:
-    with st.status("🌐 Loading today's Smart Money data…", expanded=False) as _sts:
-        st.write("Fetching FO Bhav Copy, CM Bhav Copy, MTO Delivery file…")
-        today_df, data_date = load_today_screener()
-        if today_df is not None and not today_df.empty:
-            _sts.update(
-                label=f"✅ {len(today_df)} FNO stocks · {data_date.strftime('%d %b %Y')}",
-                state="complete", expanded=False,
+    last_bd = _last_trading_date().isoformat()
+
+    # Pull all symbols that have data in DB
+    con = _db()
+    all_syms_in_db = [r[0] for r in con.execute(
+        "SELECT DISTINCT symbol FROM smart_money_history"
+    ).fetchall()]
+    con.close()
+
+    if not all_syms_in_db:
+        st.info(
+            "No data in screener yet. Go to **Stock Analysis** tab and search for stocks — "
+            "their 90-day history will be saved automatically and appear here."
+        )
+    else:
+        # For each symbol: load all rows, compute 90d avg, check last business day signal
+        screener_rows = []
+        for sym in all_syms_in_db:
+            hist_s = _load_from_db(sym)
+            if hist_s.empty:
+                continue
+
+            # Require at least 60 trading days of data for a meaningful average
+            if len(hist_s) < 60:
+                continue
+
+            avg_dlv_s = hist_s["dlv_pct"].mean()
+            avg_act_s = hist_s["action"].mean()
+
+            # Get last business day row
+            last_row = hist_s[hist_s["trade_date"] == last_bd]
+            if last_row.empty:
+                # Try the most recent available date
+                last_row = hist_s.sort_values("trade_date", ascending=False).head(1)
+
+            r = last_row.iloc[0]
+            d = r["dlv_pct"]
+            a = r["action"]
+
+            # Smart Money = Buying only if BOTH above their 90d average
+            if not (pd.notna(d) and pd.notna(a) and
+                    pd.notna(avg_dlv_s) and pd.notna(avg_act_s) and
+                    d > avg_dlv_s and a > avg_act_s):
+                continue
+
+            # OI signal
+            pp = r["pct_price_chg"]
+            po = r["pct_oi_chg"]
+            if pd.notna(pp) and pd.notna(po):
+                if pp > 0 and po > 0:   oi_sig = "Long Buildup"
+                elif pp > 0 and po < 0: oi_sig = "Short Covering"
+                elif pp < 0 and po < 0: oi_sig = "Long Unwinding"
+                elif pp < 0 and po > 0: oi_sig = "Short Buildup"
+                else:                   oi_sig = "Neutral"
+            else:
+                oi_sig = "Neutral"
+
+            screener_rows.append({
+                "Symbol":            sym,
+                "Date":              r["trade_date"],
+                "Close (₹)":        r["close_price"],
+                "% Price CHG":       r["pct_price_chg"],
+                "Delivery %":        d,
+                "90d Avg Delivery%": avg_dlv_s,
+                "Action":            a,
+                "90d Avg Action":    avg_act_s,
+                "Futures OI":        r["futures_oi"],
+                "OI Change":         r["oi_change"],
+                "% OI Change":       r["pct_oi_chg"],
+                "OI Signal":         oi_sig,
+                "Smart Money":       "Buying",
+                "_days":             len(hist_s),
+            })
+
+        total_tracked = len(all_syms_in_db)
+
+        if not screener_rows:
+            st.subheader("📊 Smart Money Screener")
+            st.info(
+                f"No stocks show a Smart Money **Buying** signal on the last business day "
+                f"({last_bd}) among the **{total_tracked}** stock(s) tracked in the database.\n\n"
+                "Add more stocks via **Stock Analysis** tab to broaden the scan."
             )
         else:
-            _sts.update(label="⚠️ Data unavailable — NSE archives publish after ~6 PM IST", state="error")
+            scr_df = pd.DataFrame(screener_rows)
 
-    if today_df is None or today_df.empty:
-        st.warning("Screener data unavailable.")
-    else:
-        st.subheader(f"📊 All FNO Stocks — {data_date.strftime('%d %b %Y')}")
-
-        fc1, fc2, fc3 = st.columns([3, 2, 2])
-        with fc1:
-            sig_filter = st.radio(
-                "OI Signal filter",
-                ["All", "Long Buildup", "Short Covering", "Long Unwinding",
-                 "Short Buildup", "High Delivery (≥40%)"],
-                horizontal=True, index=0,
+            st.subheader(
+                f"📊 Smart Money Screener — {last_bd}  ·  "
+                f"{len(scr_df)} Buying signal(s) from {total_tracked} tracked stocks"
             )
-        with fc2:
-            sort_col = st.selectbox(
-                "Sort by",
-                ["% OI Change", "% Price CHG", "Delivery %", "Action", "Symbol"],
-                index=0,
+            st.caption(
+                "Only stocks with ≥60 days of DB history are scanned. "
+                "Smart Money = Buying when last business day Delivery % > 90d avg "
+                "AND Action > 90d avg. Add more stocks in Stock Analysis tab."
             )
-        with fc3:
-            sort_asc = st.radio("Order", ["Descending", "Ascending"], horizontal=True, index=0)
 
-        scr = today_df.copy()
-        if sig_filter == "High Delivery (≥40%)":
-            scr = scr[scr["dlv_pct"] >= 40]
-        elif sig_filter != "All":
-            scr = scr[scr["oi_signal"] == sig_filter]
+            # Sort controls
+            sc1, sc2 = st.columns([3, 2])
+            with sc1:
+                sort_col2 = st.selectbox(
+                    "Sort by",
+                    ["Delivery %", "Action", "90d Avg Delivery%", "90d Avg Action",
+                     "% OI Change", "% Price CHG", "Symbol"],
+                    index=0, key="scr_sort",
+                )
+            with sc2:
+                sort_asc2 = st.radio("Order", ["Descending", "Ascending"],
+                                     horizontal=True, index=0, key="scr_asc")
 
-        sort_map = {
-            "% OI Change": "pct_oi_chg", "% Price CHG": "pct_price_chg",
-            "Delivery %": "dlv_pct", "Action": "action", "Symbol": "TckrSymb",
-        }
-        scr = scr.sort_values(sort_map[sort_col], ascending=(sort_asc == "Ascending")).reset_index(drop=True)
+            sort_map2 = {
+                "Delivery %":          "Delivery %",
+                "Action":              "Action",
+                "90d Avg Delivery%":   "90d Avg Delivery%",
+                "90d Avg Action":      "90d Avg Action",
+                "% OI Change":         "% OI Change",
+                "% Price CHG":         "% Price CHG",
+                "Symbol":              "Symbol",
+            }
+            scr_df = scr_df.sort_values(
+                sort_map2[sort_col2], ascending=(sort_asc2 == "Ascending")
+            ).reset_index(drop=True)
 
-        st.caption(f"Showing {len(scr)} of {len(today_df)} stocks")
+            # Build display DataFrame (same column style as Stock Analysis)
+            display2 = pd.DataFrame({
+                "Symbol":              scr_df["Symbol"],
+                "Date":                scr_df["Date"],
+                "Close (₹)":           scr_df["Close (₹)"],
+                "% Price CHG":         scr_df["% Price CHG"],
+                "Delivery %":          scr_df["Delivery %"],
+                "90d Avg Delivery %":  scr_df["90d Avg Delivery%"],
+                "Action":              scr_df["Action"],
+                "90d Avg Action":      scr_df["90d Avg Action"],
+                "Futures OI":          scr_df["Futures OI"].apply(
+                    lambda x: int(x) if pd.notna(x) else None),
+                "OI Change":           scr_df["OI Change"].apply(
+                    lambda x: int(x) if pd.notna(x) else None),
+                "% OI Change":         scr_df["% OI Change"],
+                "OI Signal":           scr_df["OI Signal"],
+                "Smart Money":         scr_df["Smart Money"],
+                "Days in DB":          scr_df["_days"],
+            })
 
-        display2 = pd.DataFrame({
-            "Symbol":        scr["TckrSymb"],
-            "Close (₹)":     scr["ClsPric"],
-            "% Price CHG":   scr["pct_price_chg"],
-            "Delivery %":    scr["dlv_pct"].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "–"),
-            "Dlv Action":    scr["dlv_action"],
-            "Futures OI":    scr["OpnIntrst"].apply(lambda x: int(x) if pd.notna(x) else 0),
-            "OI Change":     scr["ChngInOpnIntrst"].apply(lambda x: int(x) if pd.notna(x) else 0),
-            "% OI Change":   scr["pct_oi_chg"],
-            "Action":        scr["action"],
-            "OI Signal":     scr["oi_signal"],
-        })
+            OI_C2 = {
+                "Long Buildup":   "color:#00C853;font-weight:600",
+                "Short Covering": "color:#64DD17;font-weight:600",
+                "Long Unwinding": "color:#FF5252;font-weight:600",
+                "Short Buildup":  "color:#D50000;font-weight:600",
+                "Neutral":        "color:#666",
+            }
 
-        OI_C = {
-            "Long Buildup":   "color:#00C853;font-weight:600",
-            "Short Covering": "color:#64DD17;font-weight:600",
-            "Long Unwinding": "color:#FF5252;font-weight:600",
-            "Short Buildup":  "color:#D50000;font-weight:600",
-            "Neutral":        "color:#666",
-        }
-        def _cn2(v):
-            if not isinstance(v, (int, float)): return ""
-            return "color:#00C853" if v > 0 else "color:#D50000" if v < 0 else ""
-        def _cd(v):
-            if v == "High":   return "color:#00C853;font-weight:600"
-            if v == "Medium": return "color:#FFD600"
-            if v == "Low":    return "color:#FF5252"
-            return ""
+            def _cn2(v):
+                if not isinstance(v, (int, float)): return ""
+                return "color:#00C853" if v > 0 else "color:#D50000" if v < 0 else ""
 
-        st.dataframe(
-            display2.style
-                .map(_cn2, subset=["% Price CHG", "OI Change", "% OI Change"])
-                .map(_cd,  subset=["Dlv Action"])
-                .map(lambda v: OI_C.get(v, ""), subset=["OI Signal"])
-                .format({
-                    "Close (₹)":   "₹{:,.2f}",
-                    "% Price CHG": "{:+.2f}%",
-                    "% OI Change": "{:+.2f}%",
-                    "OI Change":   "{:+,}",
-                    "Futures OI":  "{:,}",
-                    "Action":      "{:.1f}",
-                }, na_rep="–"),
-            use_container_width=True, hide_index=True, height=600,
-        )
+            def _csm2(v):
+                return "color:#00C853;font-weight:700" if v == "Buying" else "color:#555"
+
+            def _cavg(v):
+                return "color:#FFD600" if isinstance(v, float) else ""
+
+            st.dataframe(
+                display2.style
+                    .map(_cn2,  subset=["% Price CHG", "OI Change", "% OI Change"])
+                    .map(_cavg, subset=["90d Avg Delivery %", "90d Avg Action"])
+                    .map(lambda v: OI_C2.get(v, ""), subset=["OI Signal"])
+                    .map(_csm2, subset=["Smart Money"])
+                    .format({
+                        "Close (₹)":           "₹{:,.2f}",
+                        "% Price CHG":         "{:+.2f}%",
+                        "Delivery %":          "{:.1f}%",
+                        "90d Avg Delivery %":  "{:.1f}%",
+                        "Action":              "{:.1f}",
+                        "90d Avg Action":      "{:.1f}",
+                        "% OI Change":         "{:+.2f}%",
+                        "OI Change":           "{:+,}",
+                        "Futures OI":          "{:,}",
+                    }, na_rep="–"),
+                use_container_width=True, hide_index=True, height=600,
+            )
 
 from app.utils.disclaimer import show_footer
 show_footer()
