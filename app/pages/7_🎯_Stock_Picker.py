@@ -239,7 +239,7 @@ if chosen:
             prev_e = ema3.shift(1); prev_w = wma21.shift(1)
             buy_cross  = (prev_e <  prev_w) & (ema3 >= wma21)
             sell_cross = (prev_e >  prev_w) & (ema3 <= wma21)
-            dates = [str(d) for d in df.index]
+            idx = list(df.index)   # shared x-axis for ALL traces — same objects, no mismatch
 
             last_e = ema3.dropna().iloc[-1]; last_w = wma21.dropna().iloc[-1]
             sig_color = "#00C853" if last_e > last_w else "#D50000"
@@ -261,59 +261,59 @@ if chosen:
             # Row 1 — Candlestick + EMAs
             try:
                 fig.add_trace(go.Candlestick(
-                    x=list(df.index),
+                    x=idx,
                     open=df["Open"].squeeze(), high=df["High"].squeeze(),
                     low=df["Low"].squeeze(),   close=df["Close"].squeeze(),
                     name="OHLC",
                     increasing_line_color="#00C853", decreasing_line_color="#D50000",
                 ), row=1, col=1)
             except Exception:
-                fig.add_trace(go.Scatter(x=list(df.index), y=close_s, name="Close"), row=1, col=1)
+                fig.add_trace(go.Scatter(x=idx, y=close_s, name="Close"), row=1, col=1)
             for period, color, lbl in [(20,"#FFD600","EMA20"),(50,"#FF6D00","EMA50"),(200,"#2979FF","EMA200")]:
                 ema_line = close_s.ewm(span=period, adjust=False).mean()
-                fig.add_trace(go.Scatter(x=list(df.index), y=ema_line, name=lbl,
+                fig.add_trace(go.Scatter(x=idx, y=ema_line, name=lbl,
                                          line=dict(color=color, width=1.5)), row=1, col=1)
 
             # Row 2 — H-M (RSI9 + EMA3 + WMA21 with fills)
             # Green fill zone
             ema3_g  = ema3.where(ema3  >= wma21)
             wma21_g = wma21.where(ema3 >= wma21)
-            fig.add_trace(go.Scatter(x=dates, y=wma21_g.tolist(),
+            fig.add_trace(go.Scatter(x=idx, y=wma21_g.tolist(),
                                      line=dict(width=0), showlegend=False, hoverinfo="skip"), row=2, col=1)
-            fig.add_trace(go.Scatter(x=dates, y=ema3_g.tolist(),
+            fig.add_trace(go.Scatter(x=idx, y=ema3_g.tolist(),
                                      fill="tonexty", fillcolor="rgba(0,200,83,0.2)",
                                      line=dict(width=0), showlegend=False, hoverinfo="skip"), row=2, col=1)
             # Red fill zone
             ema3_r  = ema3.where(ema3  < wma21)
             wma21_r = wma21.where(ema3 < wma21)
-            fig.add_trace(go.Scatter(x=dates, y=ema3_r.tolist(),
+            fig.add_trace(go.Scatter(x=idx, y=ema3_r.tolist(),
                                      line=dict(width=0), showlegend=False, hoverinfo="skip"), row=2, col=1)
-            fig.add_trace(go.Scatter(x=dates, y=wma21_r.tolist(),
+            fig.add_trace(go.Scatter(x=idx, y=wma21_r.tolist(),
                                      fill="tonexty", fillcolor="rgba(213,0,0,0.2)",
                                      line=dict(width=0), showlegend=False, hoverinfo="skip"), row=2, col=1)
 
-            fig.add_trace(go.Scatter(x=dates, y=rsi9.tolist(), name="RSI(9)",
+            fig.add_trace(go.Scatter(x=idx, y=rsi9.tolist(), name="RSI(9)",
                                      line=dict(color="#666", width=1), opacity=0.7), row=2, col=1)
-            fig.add_trace(go.Scatter(x=dates, y=ema3.tolist(), name="EMA3",
+            fig.add_trace(go.Scatter(x=idx, y=ema3.tolist(), name="EMA3",
                                      line=dict(color="#FFD600", width=1.5)), row=2, col=1)
-            fig.add_trace(go.Scatter(x=dates, y=wma21.tolist(), name="WMA21",
+            fig.add_trace(go.Scatter(x=idx, y=wma21.tolist(), name="WMA21",
                                      line=dict(color="#FF6D00", width=1.5)), row=2, col=1)
 
             # Buy/Sell crossover markers
-            buy_x = [str(d) for d, v in zip(df.index, buy_cross) if v]
-            buy_y = [ema3.loc[d] for d, v in zip(df.index, buy_cross) if v]
-            if buy_x:
+            buy_pts  = [(d, ema3.loc[d]) for d, v in zip(df.index, buy_cross)  if v]
+            sell_pts = [(d, ema3.loc[d]) for d, v in zip(df.index, sell_cross) if v]
+            if buy_pts:
                 fig.add_trace(go.Scatter(
-                    x=buy_x, y=buy_y, mode="markers", name="Milega ▲",
+                    x=[p[0] for p in buy_pts], y=[p[1] for p in buy_pts],
+                    mode="markers", name="Milega ▲",
                     marker=dict(symbol="triangle-up", color="#00C853", size=10,
                                 line=dict(color="#fff", width=1)),
                     hovertemplate="<b>%{x}</b><br>Milega — EMA3: %{y:.1f}<extra></extra>",
                 ), row=2, col=1)
-            sell_x = [str(d) for d, v in zip(df.index, sell_cross) if v]
-            sell_y = [ema3.loc[d] for d, v in zip(df.index, sell_cross) if v]
-            if sell_x:
+            if sell_pts:
                 fig.add_trace(go.Scatter(
-                    x=sell_x, y=sell_y, mode="markers", name="Hilega ▼",
+                    x=[p[0] for p in sell_pts], y=[p[1] for p in sell_pts],
+                    mode="markers", name="Hilega ▼",
                     marker=dict(symbol="triangle-down", color="#D50000", size=10,
                                 line=dict(color="#fff", width=1)),
                     hovertemplate="<b>%{x}</b><br>Hilega — EMA3: %{y:.1f}<extra></extra>",
@@ -331,11 +331,16 @@ if chosen:
                 xaxis_rangeslider_visible=False,
                 xaxis2_rangeslider_visible=False,
                 legend=dict(orientation="h", y=1.04, x=0, font=dict(size=11)),
-                hovermode="x unified",
+                hovermode="x",
             )
+            # Solid vertical crosshair spanning both panes (Zerodha-style)
             fig.update_xaxes(
-                showspikes=True, spikemode="across", spikesnap="cursor",
-                spikethickness=1, spikedash="dot", spikecolor="#aaaaaa",
+                showspikes=True,
+                spikemode="across+toaxis",
+                spikesnap="cursor",
+                spikethickness=1,
+                spikedash="solid",
+                spikecolor="#888888",
             )
             fig.update_yaxes(range=[0, 100], row=2, col=1)
             st.plotly_chart(fig, use_container_width=True)
