@@ -7,7 +7,7 @@ Call inject_seo() at the top of every page after set_page_config().
 import streamlit as st
 
 _SITE_NAME  = "Market Sector Analysis"
-_SITE_URL   = "https://nse-sector-dashboard-milind.streamlit.app"
+_SITE_URL   = "https://marketsector.streamlit.app"
 _SITE_IMAGE = f"{_SITE_URL}/favicon.ico"
 
 # Per-page SEO config  ─ key = page filename stem (without number/emoji prefix)
