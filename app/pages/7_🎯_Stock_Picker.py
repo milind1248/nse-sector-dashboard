@@ -243,7 +243,7 @@ if chosen:
 
             last_e = ema3.dropna().iloc[-1]; last_w = wma21.dropna().iloc[-1]
             sig_color = "#00C853" if last_e > last_w else "#D50000"
-            sig_text  = "🟢 H-M: MILEGA (Bullish)" if last_e > last_w else "🔴 H-M: HILEGA (Bearish)"
+            sig_text  = "🟢 H-M: POSITIVE (Bullish)" if last_e > last_w else "🔴 H-M: NEGATIVE (Bearish)"
             st.markdown(
                 f"<div style='background:{sig_color}22;border-left:4px solid {sig_color};"
                 f"padding:6px 12px;border-radius:4px;margin-bottom:6px;font-size:13px;"
@@ -305,18 +305,18 @@ if chosen:
             if buy_pts:
                 fig.add_trace(go.Scatter(
                     x=[p[0] for p in buy_pts], y=[p[1] for p in buy_pts],
-                    mode="markers", name="Milega ▲",
+                    mode="markers", name="Positive ▲",
                     marker=dict(symbol="triangle-up", color="#00C853", size=10,
                                 line=dict(color="#fff", width=1)),
-                    hovertemplate="<b>%{x}</b><br>Milega — EMA3: %{y:.1f}<extra></extra>",
+                    hovertemplate="<b>%{x}</b><br>Positive — EMA3: %{y:.1f}<extra></extra>",
                 ), row=2, col=1)
             if sell_pts:
                 fig.add_trace(go.Scatter(
                     x=[p[0] for p in sell_pts], y=[p[1] for p in sell_pts],
-                    mode="markers", name="Hilega ▼",
+                    mode="markers", name="Negative ▼",
                     marker=dict(symbol="triangle-down", color="#D50000", size=10,
                                 line=dict(color="#fff", width=1)),
-                    hovertemplate="<b>%{x}</b><br>Hilega — EMA3: %{y:.1f}<extra></extra>",
+                    hovertemplate="<b>%{x}</b><br>Negative — EMA3: %{y:.1f}<extra></extra>",
                 ), row=2, col=1)
 
             # Reference lines on H-M pane
@@ -345,8 +345,8 @@ if chosen:
             fig.update_yaxes(range=[0, 100], row=2, col=1)
             st.plotly_chart(fig, use_container_width=True)
             st.caption(
-                "**H-M:** EMA(3) of RSI(9) crosses above WMA(21) → 🟢 Milega. "
-                "Crosses below → 🔴 Hilega. Shading = current bias. For informational purposes only."
+                "**H-M:** EMA(3) of RSI(9) crosses above WMA(21) → 🟢 Positive. "
+                "Crosses below → 🔴 Negative. Shading = current bias. For informational purposes only."
             )
 
         with tab2:
