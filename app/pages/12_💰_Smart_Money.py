@@ -625,7 +625,7 @@ if col_ref.button("🔄 Refresh", use_container_width=True):
             st.write("⚠️ Could not fetch symbol list — NSE may be unavailable.")
             new_syms = _fno_list_from_db()   # fall back to existing DB list
 
-        st.write(f"**Step 2 / 2** — Fetching 90-day history for all {len(new_syms)} FNO stocks…")
+        st.write(f"**Step 2 / 3** — Fetching 90-day history for all {len(new_syms)} FNO stocks…")
         st.caption("Downloads each date's bhav copy once for all symbols (270 requests, ~60–90 sec).")
         _ref_prog = st.progress(0)
         _ref_txt  = st.empty()
@@ -637,6 +637,46 @@ if col_ref.button("🔄 Refresh", use_container_width=True):
         _bulk_refresh_history(new_syms, progress_cb=_ref_cb)
         _ref_prog.empty()
         _ref_txt.empty()
+
+        # Step 3 — Shareholding pattern for all FNO symbols
+        st.write(f"**Step 3 / 3** — Fetching shareholding pattern for all {len(new_syms)} FNO stocks…")
+        st.caption("Parallel fetch from screener.in · skips symbols refreshed within last 7 days.")
+
+        from datetime import datetime as _dt
+        _sh_prog = st.progress(0)
+        _sh_txt  = st.empty()
+
+        # Find which symbols need a refresh (missing or older than 7 days)
+        con = _db()
+        existing = {
+            r[0]: r[1] for r in con.execute(
+                "SELECT symbol, MAX(fetched_at) FROM shareholding_pattern GROUP BY symbol"
+            ).fetchall()
+        }
+        con.close()
+
+        cutoff_ts = (_dt.utcnow() - __import__("datetime").timedelta(days=7)).isoformat()
+        syms_to_fetch = [
+            s for s in new_syms
+            if s not in existing or (existing[s] or "") < cutoff_ts
+        ]
+        _sh_txt.text(f"0 / {len(syms_to_fetch)} symbols to fetch ({len(new_syms) - len(syms_to_fetch)} already up-to-date)…")
+
+        _sh_done = {"n": 0}
+        def _fetch_and_save_sh(sym):
+            rows = _fetch_shareholding_screener(sym)
+            _save_shareholding(rows)
+            _sh_done["n"] += 1
+
+        with ThreadPoolExecutor(max_workers=8) as _sh_ex:
+            _sh_futures = {_sh_ex.submit(_fetch_and_save_sh, s): s for s in syms_to_fetch}
+            for _f in as_completed(_sh_futures):
+                pct = int(_sh_done["n"] / max(len(syms_to_fetch), 1) * 100)
+                _sh_prog.progress(pct)
+                _sh_txt.text(f"{_sh_done['n']} / {len(syms_to_fetch)} shareholding patterns fetched…")
+
+        _sh_prog.empty()
+        _sh_txt.empty()
         _ref_sts.update(label="✅ Refresh complete — all FNO stocks updated!", state="complete")
     st.rerun()
 
