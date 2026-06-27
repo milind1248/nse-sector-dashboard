@@ -313,6 +313,47 @@ def _get_fno_list() -> list[str]:
     return syms
 
 
+# ── Fair Value (yfinance) ─────────────────────────────────────────────────────
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_fair_value(symbol: str) -> dict:
+    """Graham Number, P/E intrinsic, and DCF (Graham revised) via yfinance."""
+    import yfinance as yf
+    try:
+        info = yf.Ticker(f"{symbol}.NS").info
+    except Exception:
+        return {}
+
+    eps        = info.get("trailingEps")
+    book_value = info.get("bookValue")
+    pe         = info.get("trailingPE")
+    fwd_pe     = info.get("forwardPE")
+    current    = info.get("currentPrice") or info.get("regularMarketPrice")
+    growth_raw = info.get("earningsQuarterlyGrowth")
+
+    result = {"current": current, "eps": eps, "book_value": book_value, "pe": pe}
+    if not current:
+        return result
+
+    # 1. Graham Number = √(22.5 × EPS × Book Value)
+    if eps and eps > 0 and book_value and book_value > 0:
+        result["graham"] = (22.5 * eps * book_value) ** 0.5
+
+    # 2. P/E-based Intrinsic = EPS × fair P/E (capped at 40)
+    fair_pe = min(pe or fwd_pe or 20, 40)
+    if eps and eps > 0:
+        result["pe_value"] = eps * fair_pe
+
+    # 3. DCF — Graham revised formula: EPS × (8.5 + 2g) × (4.4 / AAA_yield)
+    #    AAA bond yield for India ≈ 7%; growth capped between 0–25%
+    if eps and eps > 0:
+        g = growth_raw * 100 if growth_raw and growth_raw < 1 else (growth_raw or 12)
+        g = max(0, min(float(g), 25))
+        result["dcf"] = eps * (8.5 + 2 * g) * (4.4 / 7.0)
+
+    return result
+
+
 # ── Shareholding Pattern (screener.in) ───────────────────────────────────────
 
 def _fetch_shareholding_screener(symbol: str) -> list[dict]:
@@ -831,6 +872,55 @@ with tab_stock:
                 f"</div>",
                 unsafe_allow_html=True,
             )
+
+            # ── Fair Value row ────────────────────────────────────────────────
+            with st.spinner("Loading fair value estimates…"):
+                fv = _fetch_fair_value(symbol)
+
+            if fv and fv.get("current"):
+                cmp       = fv["current"]
+                graham    = fv.get("graham")
+                pe_val    = fv.get("pe_value")
+                dcf_val   = fv.get("dcf")
+                eps_val   = fv.get("eps")
+                bv_val    = fv.get("book_value")
+                pe_used   = fv.get("pe")
+
+                def _fv_card(label, formula, value):
+                    if value is None or cmp is None:
+                        return (f"<div style='text-align:center;padding:0 12px'>"
+                                f"<div style='color:#aaa;font-size:10px'>{label}</div>"
+                                f"<div style='color:#666;font-size:10px'>{formula}</div>"
+                                f"<div style='color:#555;font-size:16px'>N/A</div></div>")
+                    pct   = (value - cmp) / cmp * 100
+                    arrow = "▲" if value >= cmp else "▼"
+                    col   = "#00C853" if value >= cmp else "#FF5252"
+                    return (f"<div style='text-align:center;padding:0 12px;border-left:1px solid #2a2a3e'>"
+                            f"<div style='color:#aaa;font-size:10px'>{label}</div>"
+                            f"<div style='color:#888;font-size:9px'>{formula}</div>"
+                            f"<div style='color:#CE93D8;font-size:20px;font-weight:700'>₹{value:,.0f}</div>"
+                            f"<div style='color:{col};font-size:11px'>{arrow} {pct:+.1f}% vs CMP</div></div>")
+
+                meta = []
+                if eps_val: meta.append(f"EPS ₹{eps_val:.1f}")
+                if bv_val:  meta.append(f"BV ₹{bv_val:.1f}")
+                if pe_used: meta.append(f"P/E {pe_used:.1f}x")
+                meta_str = " · ".join(meta) if meta else ""
+
+                st.markdown(
+                    f"<div style='background:#1a1f2e;border-radius:8px;padding:10px 20px;"
+                    f"display:flex;gap:0;flex-wrap:wrap;margin-bottom:8px;align-items:center'>"
+                    f"<div style='min-width:90px;padding-right:16px'>"
+                    f"<div style='color:#CE93D8;font-size:11px;font-weight:700'>📐 FAIR VALUE</div>"
+                    f"<div style='color:#555;font-size:9px'>CMP ₹{cmp:,.0f}</div>"
+                    f"<div style='color:#444;font-size:9px'>{meta_str}</div></div>"
+                    + _fv_card("Graham Number", "√(22.5×EPS×BV)", graham)
+                    + _fv_card("P/E Intrinsic", f"EPS × P/E (capped 40)", pe_val)
+                    + _fv_card("DCF (Graham)", "EPS×(8.5+2g)×4.4/7", dcf_val)
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
+                st.caption("⚖️ Fair value estimates are mathematical models for reference only — not investment advice.")
 
             # ── Charts ────────────────────────────────────────────────────────
             col_ch1, col_ch2 = st.columns(2)
