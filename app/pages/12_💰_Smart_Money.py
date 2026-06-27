@@ -52,13 +52,34 @@ _init_table()
 
 
 def _last_trading_date() -> date:
-    """Return most recent completed trading date (Friday if weekend)."""
-    today = date.today()
+    """
+    Return most recent date for which NSE bhav copy is available.
+    Bhav copy publishes after ~6 PM IST, so during market hours (before 18:00 IST)
+    today's data doesn't exist yet — return the previous trading day instead.
+    """
+    from datetime import datetime
+    import pytz
+    ist = pytz.timezone("Asia/Kolkata")
+    now_ist = datetime.now(ist)
+    today = now_ist.date()
     wd = today.weekday()
-    if wd == 5:   # Saturday
+
+    # Weekend — use Friday
+    if wd == 5:
         return today - timedelta(days=1)
-    if wd == 6:   # Sunday
+    if wd == 6:
         return today - timedelta(days=2)
+
+    # Weekday but before 6 PM IST — today's bhav copy not yet published
+    if now_ist.hour < 18:
+        prev = today - timedelta(days=1)
+        # Skip back over weekend
+        if prev.weekday() == 5:   # Saturday
+            prev -= timedelta(days=1)
+        if prev.weekday() == 6:   # Sunday
+            prev -= timedelta(days=2)
+        return prev
+
     return today
 
 
