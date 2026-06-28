@@ -440,7 +440,17 @@ with col_info:
         f"Last full refresh: **{last_refresh[:10] if last_refresh else 'Never'}**",
         f"Next auto-refresh scheduled: **{next_refresh}**",
     ]
-    st.info("  \n".join(status_parts))
+    st.markdown(
+        "<div style='background:#1a3a4a;border-left:4px solid #4da6d4;padding:10px 14px;"
+        "border-radius:4px;font-size:0.78rem;line-height:1.6'>"
+        + "<br>".join(
+            p.replace("**", "<b>", 1).replace("**", "</b>", 1)
+             .replace("**", "<b>", 1).replace("**", "</b>", 1)
+            for p in status_parts
+        )
+        + "</div>",
+        unsafe_allow_html=True,
+    )
 with col_btn:
     if is_admin():
         refresh = st.button(
