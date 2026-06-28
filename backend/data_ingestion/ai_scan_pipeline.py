@@ -94,8 +94,11 @@ def run_ai_scan_pipeline(triggered_by: str = "scheduler") -> dict:
         if not xgb_dir or not prophet_tr or xgb_prob is None:
             continue
 
-        aligned = (xgb_dir == "UP"   and prophet_tr == "Bullish") or \
-                  (xgb_dir == "DOWN" and prophet_tr == "Bearish")
+        arima_dir = res.get("arima_direction")  # None if ARIMA failed → falls back to 2-way
+        aligned = (
+            (xgb_dir == "UP"   and prophet_tr == "Bullish" and arima_dir in ("Bullish", None)) or
+            (xgb_dir == "DOWN" and prophet_tr == "Bearish" and arima_dir in ("Bearish", None))
+        )
         if not aligned:
             continue
 

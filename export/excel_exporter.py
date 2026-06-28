@@ -245,6 +245,27 @@ def generate_excel_report() -> bytes:
         _write_sheet(wb, "11_Smart_Money_History", sm_history,
                      pct_cols=["pct_price_chg", "dlv_pct", "pct_oi_chg"])
 
+    # ── 11. AI Forecast Signals (Prophet + XGBoost for all stocks) ───────────
+    ai_df = _db("""
+        SELECT symbol            AS "Symbol",
+               sector            AS "Sector",
+               ROUND(price, 2)   AS "Price (Rs)",
+               xgb_direction     AS "XGB Direction",
+               ROUND(xgb_prob * 100, 1) AS "XGB Probability %",
+               xgb_signal        AS "Signal",
+               ROUND(xgb_accuracy, 1)   AS "Backtest Accuracy %",
+               prophet_trend     AS "Prophet Trend",
+               ROUND(prophet_trend_pct, 2) AS "Prophet % Change (30d)",
+               arima_direction   AS "ARIMA Trend",
+               ROUND(arima_trend_pct, 2)   AS "ARIMA % Change (30d)",
+               scan_date         AS "Scan Date"
+        FROM ai_forecast_cache
+        ORDER BY xgb_prob DESC
+    """)
+    if not ai_df.empty:
+        _write_sheet(wb, "12_AI_Forecast_Signals", ai_df,
+                     pct_cols=["XGB Probability %", "Backtest Accuracy %", "Prophet % Change (30d)", "ARIMA % Change (30d)"])
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)

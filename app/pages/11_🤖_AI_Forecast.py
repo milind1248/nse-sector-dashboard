@@ -98,14 +98,28 @@ with st.expander("📋 Aligned Signals — All Dashboard Stocks (Both Models Agr
     all_cached = load_all_latest()
 
     if all_cached:
-        full_df    = pd.DataFrame(all_cached)
-        bullish_df = full_df[(full_df["Direction"] == "UP")   & (full_df["Prophet Trend"] == "Bullish")].reset_index(drop=True)
-        bearish_df = full_df[(full_df["Direction"] == "DOWN") & (full_df["Prophet Trend"] == "Bearish")].reset_index(drop=True)
-        show_cols  = ["Symbol", "Sector", "Price (₹)", "XGB Prob", "Signal", "Accuracy %"]
+        full_df = pd.DataFrame(all_cached)
+
+        # 3-way alignment: XGB + Prophet must agree; ARIMA counts as third vote when available
+        def _bullish_aligned(row):
+            xgb_up  = row.get("Direction") == "UP"
+            proph   = row.get("Prophet Trend") == "Bullish"
+            arima   = row.get("ARIMA Trend") in ("Bullish", None)
+            return xgb_up and proph and arima
+
+        def _bearish_aligned(row):
+            xgb_dn  = row.get("Direction") == "DOWN"
+            proph   = row.get("Prophet Trend") == "Bearish"
+            arima   = row.get("ARIMA Trend") in ("Bearish", None)
+            return xgb_dn and proph and arima
+
+        bullish_df = full_df[full_df.apply(_bullish_aligned, axis=1)].reset_index(drop=True)
+        bearish_df = full_df[full_df.apply(_bearish_aligned, axis=1)].reset_index(drop=True)
+        show_cols  = ["Symbol", "Sector", "Price (₹)", "XGB Prob", "Signal", "Accuracy %", "Prophet Trend", "ARIMA Trend"]
 
         col_b, col_s = st.columns(2)
         with col_b:
-            st.markdown(f"#### 🟢 Both Bullish &nbsp;<span style='font-size:13px;color:#888'>({len(bullish_df)} stocks)</span>", unsafe_allow_html=True)
+            st.markdown(f"#### 🟢 All Models Bullish &nbsp;<span style='font-size:13px;color:#888'>({len(bullish_df)} stocks)</span>", unsafe_allow_html=True)
             if not bullish_df.empty:
                 st.dataframe(
                     bullish_df[show_cols].style
@@ -118,7 +132,7 @@ with st.expander("📋 Aligned Signals — All Dashboard Stocks (Both Models Agr
                 st.info("No bullish aligned signals in last scan.")
 
         with col_s:
-            st.markdown(f"#### 🔴 Both Bearish &nbsp;<span style='font-size:13px;color:#888'>({len(bearish_df)} stocks)</span>", unsafe_allow_html=True)
+            st.markdown(f"#### 🔴 All Models Bearish &nbsp;<span style='font-size:13px;color:#888'>({len(bearish_df)} stocks)</span>", unsafe_allow_html=True)
             if not bearish_df.empty:
                 st.dataframe(
                     bearish_df[show_cols].style
@@ -192,7 +206,9 @@ def _fetch_and_model(ticker_ns: str, xgb_fwd: int):
 
     prophet_res = run_prophet_forecast(close, horizon_days=30)
     xgb_res     = run_xgb_direction(raw, forward_days=xgb_fwd)
-    return raw, prophet_res, xgb_res
+    from backend.calculations.ai_forecast import run_arima_forecast
+    arima_res   = run_arima_forecast(close, horizon_days=30)
+    return raw, prophet_res, xgb_res, arima_res
 
 
 # ── Load data: DB cache first, live fallback ──────────────────────────────────
@@ -209,6 +225,7 @@ if use_cache:
     # ── Instant render from DB cache ──────────────────────────────────────────
     prophet_res = cached_result["prophet_res"]
     xgb_res     = cached_result["xgb_res"]
+    arima_res   = cached_result.get("arima_res")
 
     c6m = cached_result.get("close_6m", {})
     ema = cached_result.get("ema", {})
@@ -227,7 +244,7 @@ else:
         st.session_state["ai_last_ticker"] = ticker_ns
 
     with st.spinner(f"Fetching data and training models for {ticker_name} — first load ~15–20 seconds…"):
-        raw, prophet_res, xgb_res = _fetch_and_model(ticker_ns, xgb_fwd_days)
+        raw, prophet_res, xgb_res, arima_res = _fetch_and_model(ticker_ns, xgb_fwd_days)
 
     if raw is None:
         st.error(f"Could not fetch enough data for {ticker_name}. Need at least 3 years of history.")
@@ -279,6 +296,17 @@ else:
                 },
                 "computed_at": datetime.datetime.utcnow().isoformat(),
             }
+            # Add ARIMA if available
+            _arima_ok = arima_res and not arima_res.get("error")
+            if _arima_ok:
+                _fc_res["arima_direction"] = arima_res["direction"]
+                _fc_res["arima_trend_pct"] = arima_res["trend_pct"]
+                _fc_res["arima_forecast"]  = {
+                    "forecast_dates": arima_res["forecast_dates"],
+                    "yhat":           arima_res["yhat"],
+                    "yhat_lower":     arima_res["yhat_lower"],
+                    "yhat_upper":     arima_res["yhat_upper"],
+                }
             _store_fc(ticker_name, _sector, _fc_res)
         except Exception:
             pass  # cache store failure is non-fatal
@@ -287,14 +315,15 @@ else:
 # ── Error handling ────────────────────────────────────────────────────────────
 prophet_ok = prophet_res and not prophet_res.get("error")
 xgb_ok     = xgb_res    and not xgb_res.get("error")
+arima_ok   = arima_res  and not (arima_res or {}).get("error")
 
-if not prophet_ok and not xgb_ok:
+if not prophet_ok and not xgb_ok and not arima_ok:
     st.error(f"Model error: {(prophet_res or {}).get('error') or (xgb_res or {}).get('error')}")
     st.stop()
 
 # ── Summary metric cards ──────────────────────────────────────────────────────
 st.markdown("---")
-m1, m2, m3, m4 = st.columns(4)
+m1, m2, m3, m4, m5 = st.columns(5)
 
 if xgb_ok:
     prob_up   = xgb_res["prob_up"]
@@ -316,6 +345,13 @@ if prophet_ok:
     t_color = "#00C853" if t_dir == "Bullish" else ("#D50000" if t_dir == "Bearish" else "#FFD600")
 else:
     t_dir = "—"; t_pct = 0; t_color = "#888"
+
+if arima_ok:
+    a_dir   = arima_res["direction"]
+    a_pct   = arima_res["trend_pct"]
+    a_color = "#00C853" if a_dir == "Bullish" else ("#D50000" if a_dir == "Bearish" else "#FFD600")
+else:
+    a_dir = "—"; a_pct = 0; a_color = "#888"
 
 m1.markdown(f"""
 <div style='background:#1a2236;border-radius:10px;padding:18px 16px;text-align:center;border-left:4px solid {dir_color}'>
@@ -343,6 +379,13 @@ m4.markdown(f"""
   <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Prophet Trend (30d)</div>
   <div style='color:{t_color};font-size:30px;font-weight:700'>{t_dir}</div>
   <div style='color:#ccc;font-size:13px;margin-top:4px'>{t_pct:+.2f}% projected</div>
+</div>""", unsafe_allow_html=True)
+
+m5.markdown(f"""
+<div style='background:#1a2236;border-radius:10px;padding:18px 16px;text-align:center;border-left:4px solid {a_color}'>
+  <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>ARIMA Trend (30d)</div>
+  <div style='color:{a_color};font-size:30px;font-weight:700'>{a_dir}</div>
+  <div style='color:#ccc;font-size:13px;margin-top:4px'>{a_pct:+.2f}% projected</div>
 </div>""", unsafe_allow_html=True)
 
 # ── Prophet chart ─────────────────────────────────────────────────────────────
@@ -435,6 +478,70 @@ if prophet_ok:
     st.plotly_chart(fig, use_container_width=True)
 else:
     st.warning(f"Prophet model error: {(prophet_res or {}).get('error')}")
+
+# ── ARIMA chart ───────────────────────────────────────────────────────────────
+st.markdown("---")
+st.subheader(f"📉 {ticker_name} — ARIMA Statistical Forecast ({horizon_days} days)")
+
+if arima_ok:
+    af_dates = arima_res["forecast_dates"][:horizon_days]
+    af_yhat  = arima_res["yhat"][:horizon_days]
+    af_lower = arima_res["yhat_lower"][:horizon_days]
+    af_upper = arima_res["yhat_upper"][:horizon_days]
+
+    fig_a = go.Figure()
+
+    # Confidence band
+    fig_a.add_trace(go.Scatter(
+        x=af_dates + af_dates[::-1],
+        y=af_upper + af_lower[::-1],
+        fill="toself",
+        fillcolor="rgba(255,152,0,0.12)",
+        line=dict(width=0), showlegend=False, hoverinfo="skip",
+    ))
+
+    # Actual price
+    fig_a.add_trace(go.Scatter(
+        x=list(actual_6m.index),
+        y=list(actual_6m.values),
+        name="Actual Price",
+        line=dict(color="#90CAF9", width=1.8),
+    ))
+
+    # ARIMA forecast line
+    fig_a.add_trace(go.Scatter(
+        x=af_dates,
+        y=af_yhat,
+        name=f"ARIMA Forecast ({horizon_days}d)",
+        line=dict(color="#FF9800", width=2.5),
+    ))
+
+    # Today marker
+    today_date = list(actual_6m.index)[-1] if not actual_6m.empty else datetime.date.today()
+    fig_a.add_vline(x=str(today_date), line_dash="dash", line_color="#555",
+                    annotation_text="Today", annotation_position="top")
+
+    if af_yhat:
+        fig_a.add_annotation(
+            x=str(af_dates[-1]), y=af_yhat[-1],
+            text=f"  ₹{af_yhat[-1]:,.0f}",
+            showarrow=False, font=dict(color="#FF9800", size=13),
+        )
+
+    fig_a.update_layout(
+        template="plotly_dark",
+        height=360,
+        title=f"{ticker_name} — ARIMA Log-Return Forecast · {a_dir} ({a_pct:+.2f}%)",
+        yaxis=dict(tickprefix="₹"),
+        legend=dict(orientation="h", y=1.06),
+        margin=dict(t=55, b=30),
+        hovermode="x unified",
+        xaxis_rangeslider_visible=False,
+    )
+    st.plotly_chart(fig_a, use_container_width=True)
+    st.caption("ARIMA fits on daily log-returns using auto-selected order (p,d,q). Confidence bands are 95% prediction intervals converted back to price levels.")
+else:
+    st.info("ARIMA model not available for this stock.")
 
 # ── XGBoost section ───────────────────────────────────────────────────────────
 st.markdown("---")

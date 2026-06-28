@@ -564,6 +564,54 @@ def run_market_scan(forward_days: int = 5, stock_list: list[tuple] | None = None
 # PUBLIC: Full single-stock forecast (Prophet + XGBoost) — used by nightly job
 # ─────────────────────────────────────────────────────────────────────────────
 
+def run_arima_forecast(close: pd.Series, horizon_days: int = 30) -> dict:
+    """ARIMA on log-returns — statistical time-series pattern forecast.
+
+    Fits auto_arima() on daily log-returns (no manual p/d/q tuning), then
+    converts cumulative return forecasts back to price levels.
+    Returns same-shape dict as run_prophet_forecast() for easy page integration.
+    """
+    try:
+        from pmdarima import auto_arima
+        import numpy as np
+
+        log_ret = np.log(close / close.shift(1)).dropna()
+        if len(log_ret) < 60:
+            return {"error": "insufficient data for ARIMA"}
+
+        model = auto_arima(
+            log_ret, seasonal=False, stepwise=True,
+            suppress_warnings=True, error_action="ignore",
+            max_p=3, max_q=3, max_d=2,
+        )
+
+        fc, conf = model.predict(n_periods=horizon_days, return_conf_int=True)
+
+        last_price  = float(close.iloc[-1])
+        prices      = np.array(last_price * np.exp(np.cumsum(fc)))
+        lower       = np.array(last_price * np.exp(np.cumsum(conf[:, 0])))
+        upper       = np.array(last_price * np.exp(np.cumsum(conf[:, 1])))
+
+        last_date   = close.index[-1]
+        fcast_dates = pd.bdate_range(start=last_date, periods=horizon_days + 1)[1:]
+
+        end_price   = float(prices[-1])
+        trend_pct   = round((end_price - last_price) / last_price * 100, 2)
+        direction   = "Bullish" if trend_pct > 0.5 else ("Bearish" if trend_pct < -0.5 else "Neutral")
+
+        return {
+            "error":          None,
+            "forecast_dates": [str(d.date()) for d in fcast_dates],
+            "yhat":           [round(float(p), 2) for p in prices],
+            "yhat_lower":     [round(float(p), 2) for p in lower],
+            "yhat_upper":     [round(float(p), 2) for p in upper],
+            "direction":      direction,
+            "trend_pct":      trend_pct,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def run_full_stock_forecast(ticker_ns: str, forward_days: int = 5,
                             horizon_days: int = 30) -> dict | None:
     """
@@ -597,7 +645,12 @@ def run_full_stock_forecast(ticker_ns: str, forward_days: int = 5,
         if xgb_res.get("error"):
             xgb_res = None
 
-        if prophet_res is None and xgb_res is None:
+        # ── ARIMA 30-day forecast ─────────────────────────────────────────────
+        arima_res = run_arima_forecast(close, horizon_days=horizon_days)
+        if arima_res.get("error"):
+            arima_res = None
+
+        if prophet_res is None and xgb_res is None and arima_res is None:
             return None
 
         # ── Chart data: last 6 months of close + EMA overlays ─────────────────
@@ -648,6 +701,19 @@ def run_full_stock_forecast(ticker_ns: str, forward_days: int = 5,
                     "yhat":           prophet_res["yhat"],
                     "yhat_lower":     prophet_res["yhat_lower"],
                     "yhat_upper":     prophet_res["yhat_upper"],
+                },
+            })
+
+        # ARIMA fields
+        if arima_res:
+            result.update({
+                "arima_direction":  arima_res["direction"],
+                "arima_trend_pct":  arima_res["trend_pct"],
+                "arima_forecast": {
+                    "forecast_dates": arima_res["forecast_dates"],
+                    "yhat":           arima_res["yhat"],
+                    "yhat_lower":     arima_res["yhat_lower"],
+                    "yhat_upper":     arima_res["yhat_upper"],
                 },
             })
 

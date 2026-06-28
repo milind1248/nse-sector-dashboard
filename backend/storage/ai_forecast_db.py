@@ -43,12 +43,27 @@ def ensure_table():
             -- Chart data (last 6 months so page needs no Yahoo call)
             close_6m_json           TEXT,
             ema_json                TEXT,
+            -- ARIMA
+            arima_direction         TEXT,
+            arima_trend_pct         REAL,
+            arima_forecast_json     TEXT,
             -- Meta
             computed_at             TEXT,
             UNIQUE(symbol, scan_date)
         )
     """)
     con.commit()
+    # Add ARIMA columns if upgrading existing DB (ALTER TABLE is idempotent via try/except)
+    for col_def in [
+        "arima_direction TEXT",
+        "arima_trend_pct REAL",
+        "arima_forecast_json TEXT",
+    ]:
+        try:
+            con.execute(f"ALTER TABLE ai_forecast_cache ADD COLUMN {col_def}")
+            con.commit()
+        except Exception:
+            pass  # column already exists
     con.close()
 
 
@@ -66,8 +81,10 @@ def store_forecast(symbol: str, sector: str, result: dict,
              xgb_prob, xgb_direction, xgb_signal, xgb_accuracy,
              n_train_bars, n_features, backtest_monthly_json, feature_importance_json,
              prophet_trend, prophet_trend_pct, prophet_forecast_json,
-             close_6m_json, ema_json, computed_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+             close_6m_json, ema_json,
+             arima_direction, arima_trend_pct, arima_forecast_json,
+             computed_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
         symbol, sector, today,
         result.get("price"),
@@ -84,6 +101,9 @@ def store_forecast(symbol: str, sector: str, result: dict,
         json.dumps(result.get("prophet_forecast") or {}),
         json.dumps(result.get("close_6m") or {}),
         json.dumps(result.get("ema") or {}),
+        result.get("arima_direction"),
+        result.get("arima_trend_pct"),
+        json.dumps(result.get("arima_forecast") or {}),
         result.get("computed_at"),
     ))
     con.commit()
@@ -110,7 +130,8 @@ def load_forecast(symbol: str) -> tuple[dict | None, str | None]:
                    n_train_bars, n_features,
                    backtest_monthly_json, feature_importance_json,
                    prophet_trend, prophet_trend_pct, prophet_forecast_json,
-                   close_6m_json, ema_json
+                   close_6m_json, ema_json,
+                   arima_direction, arima_trend_pct, arima_forecast_json
             FROM ai_forecast_cache
             WHERE symbol = ?
             ORDER BY scan_date DESC LIMIT 1
@@ -124,6 +145,7 @@ def load_forecast(symbol: str) -> tuple[dict | None, str | None]:
         fi        = json.loads(row[9]  or "[]")
         c6m       = json.loads(row[13] or "{}")
         ema       = json.loads(row[14] or "{}")
+        af        = json.loads(row[17] or "{}")
 
         # Reconstruct prophet_res in same shape as run_prophet_forecast()
         prophet_res = {
@@ -153,9 +175,23 @@ def load_forecast(symbol: str) -> tuple[dict | None, str | None]:
             "forward_days":       5,
         }
 
+        # Reconstruct arima_res in same shape as run_arima_forecast()
+        arima_res = None
+        if row[15]:
+            arima_res = {
+                "error":          None,
+                "direction":      row[15],
+                "trend_pct":      row[16],
+                "forecast_dates": af.get("forecast_dates", []),
+                "yhat":           af.get("yhat", []),
+                "yhat_lower":     af.get("yhat_lower", []),
+                "yhat_upper":     af.get("yhat_upper", []),
+            }
+
         result = {
             "prophet_res": prophet_res,
             "xgb_res":     xgb_res,
+            "arima_res":   arima_res,
             "close_6m":    c6m,
             "ema":         ema,
             "price":       row[1],
@@ -179,7 +215,7 @@ def load_all_latest() -> list[dict]:
             return []
         rows = con.execute("""
             SELECT symbol, sector, price, xgb_prob, xgb_direction,
-                   xgb_signal, xgb_accuracy, prophet_trend, scan_date
+                   xgb_signal, xgb_accuracy, prophet_trend, arima_direction, scan_date
             FROM ai_forecast_cache
             WHERE scan_date = ?
             ORDER BY xgb_prob DESC
@@ -194,7 +230,8 @@ def load_all_latest() -> list[dict]:
                 "Signal":        r[5],
                 "Accuracy %":    r[6],
                 "Prophet Trend": r[7],
-                "scan_date":     r[8],
+                "ARIMA Trend":   r[8],
+                "scan_date":     r[9],
             }
             for r in rows
         ]
