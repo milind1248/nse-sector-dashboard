@@ -4,6 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import sqlite3
+import time
 from datetime import datetime, date, timezone, timedelta
 
 _IST = timezone(timedelta(hours=5, minutes=30))
@@ -503,3 +504,60 @@ try:
     d4.metric("Smart Money History Stocks", sm_count)
 except Exception as e:
     st.warning(f"Could not load coverage data: {e}")
+
+st.markdown("---")
+
+# ── Page Health Check ──────────────────────────────────────────────────────────
+st.subheader("Page Health Check")
+st.caption(
+    "Validates data dependencies for every menu page — checks DB table freshness, "
+    "row counts, and live market connectivity. Does not render pages in a browser."
+)
+
+_STATUS_ICON  = {"OK": "✅", "WARN": "⚠️", "FAIL": "❌"}
+_STATUS_COLOR = {"OK": "green", "WARN": "orange", "FAIL": "red"}
+
+if st.button("🔍 Run Health Check", type="primary", use_container_width=False):
+    from backend.health_check import run_health_check
+    with st.spinner("Running health checks across all pages…"):
+        t_start = time.time()
+        results = run_health_check()
+        total_elapsed = round(time.time() - t_start, 1)
+
+    # ── Summary bar ──────────────────────────────────────────────────────────
+    ok   = sum(1 for r in results if r["status"] == "OK")
+    warn = sum(1 for r in results if r["status"] == "WARN")
+    fail = sum(1 for r in results if r["status"] == "FAIL")
+
+    sc1, sc2, sc3, sc4 = st.columns(4)
+    sc1.metric("Total Pages", len(results))
+    sc2.metric("✅ OK",   ok)
+    sc3.metric("⚠️ Warn", warn)
+    sc4.metric("❌ Fail", fail)
+
+    if fail == 0 and warn == 0:
+        st.success(f"All {len(results)} pages healthy — completed in {total_elapsed}s")
+    elif fail == 0:
+        st.warning(f"{warn} page(s) have warnings — completed in {total_elapsed}s")
+    else:
+        st.error(f"{fail} page(s) failed, {warn} warning(s) — completed in {total_elapsed}s")
+
+    st.markdown(f"*Checked {sum(len(r['checks']) for r in results)} data points in {total_elapsed}s*")
+    st.divider()
+
+    # ── Per-page report ───────────────────────────────────────────────────────
+    for r in results:
+        icon  = _STATUS_ICON[r["status"]]
+        color = _STATUS_COLOR[r["status"]]
+        with st.expander(
+            f"{icon} {r['page']} — **:{color}[{r['status']}]** · {r['elapsed']}s",
+            expanded=(r["status"] != "OK"),
+        ):
+            for label, status, detail in r["checks"]:
+                ci = _STATUS_ICON[status]
+                if status == "OK":
+                    st.markdown(f"{ci} `{label}` — {detail}")
+                elif status == "WARN":
+                    st.warning(f"{ci} **{label}** — {detail}")
+                else:
+                    st.error(f"{ci} **{label}** — {detail}")
