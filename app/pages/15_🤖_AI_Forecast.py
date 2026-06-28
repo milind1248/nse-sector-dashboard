@@ -29,6 +29,71 @@ st.caption(
     "For educational and research purposes only."
 )
 
+# ── Pre-populated aligned signals scan ───────────────────────────────────────
+@st.cache_data(ttl=86400, show_spinner=False)
+def _load_scan():
+    from backend.calculations.ai_forecast import run_market_scan
+    return run_market_scan(forward_days=5)
+
+with st.expander("📋 Aligned Signals — Nifty Stocks (Both Models Agree)", expanded=True):
+    st.caption("XGBoost direction + EMA trend both pointing the same way. Refreshed once daily. For research only.")
+    with st.spinner("Scanning 28 Nifty stocks… (~60s on first load, instant after)"):
+        scan_data = _load_scan()
+
+    if scan_data:
+        scan_df = pd.DataFrame(scan_data)
+        bullish_df = scan_df[scan_df["Direction"] == "UP"].reset_index(drop=True)
+        bearish_df = scan_df[scan_df["Direction"] == "DOWN"].reset_index(drop=True)
+
+        col_b, col_s = st.columns(2)
+
+        def _signal_color(v):
+            if "Strong Buy"  in str(v): return "color:#00C853;font-weight:700"
+            if "Buy"         in str(v): return "color:#69F0AE;font-weight:600"
+            if "Strong Sell" in str(v): return "color:#D50000;font-weight:700"
+            if "Sell"        in str(v): return "color:#FF6D00;font-weight:600"
+            return ""
+
+        def _prob_color(v):
+            if not isinstance(v, (int, float)): return ""
+            if v >= 68: return "color:#00C853;font-weight:700"
+            if v >= 58: return "color:#69F0AE"
+            if v <= 32: return "color:#D50000;font-weight:700"
+            if v <= 42: return "color:#FF6D00"
+            return ""
+
+        with col_b:
+            st.markdown("#### 🟢 Both Bullish")
+            if not bullish_df.empty:
+                show_cols = ["Symbol", "Sector", "Price (₹)", "XGB Prob", "Signal"]
+                st.dataframe(
+                    bullish_df[show_cols].style
+                        .map(_signal_color, subset=["Signal"])
+                        .map(_prob_color,   subset=["XGB Prob"])
+                        .format({"XGB Prob": "{:.1f}%", "Price (₹)": "₹{:,.1f}"}),
+                    use_container_width=True, hide_index=True,
+                )
+            else:
+                st.info("No bullish aligned signals right now.")
+
+        with col_s:
+            st.markdown("#### 🔴 Both Bearish")
+            if not bearish_df.empty:
+                show_cols = ["Symbol", "Sector", "Price (₹)", "XGB Prob", "Signal"]
+                st.dataframe(
+                    bearish_df[show_cols].style
+                        .map(_signal_color, subset=["Signal"])
+                        .map(_prob_color,   subset=["XGB Prob"])
+                        .format({"XGB Prob": "{:.1f}%", "Price (₹)": "₹{:,.1f}"}),
+                    use_container_width=True, hide_index=True,
+                )
+            else:
+                st.info("No bearish aligned signals right now.")
+    else:
+        st.warning("Scan returned no results. Check internet connection.")
+
+st.markdown("---")
+
 # ── Build stock list (all 186 stocks, grouped by sector) ─────────────────────
 _all_stocks: list[tuple[str, str]] = []  # (symbol_clean, sector)
 for sec, stocks in sorted(SECTOR_STOCKS.items()):
@@ -365,8 +430,8 @@ with col_right:
         )
         st.plotly_chart(fig_bt, use_container_width=True)
 
-        # Monthly table
-        display_bt = bt_df[["month", "accuracy", "correct", "n_bars"]].copy()
+        # Monthly table — latest month first
+        display_bt = bt_df[["month", "accuracy", "correct", "n_bars"]].iloc[::-1].reset_index(drop=True).copy()
         display_bt.columns = ["Month", "Accuracy %", "Correct", "Total Bars"]
 
         def _acc_color(v):
@@ -411,6 +476,38 @@ with st.expander("📖 Model Methodology"):
 **Walk-Forward Backtesting**
 - Training window: rolling 252 bars · Test window: next 21 bars · Slide: 21 bars (no look-ahead bias)
 - ~12 independent test folds → overall directional accuracy shown
+
+**How to Use Both Signals Together**
+
+<table style='width:100%;border-collapse:collapse;font-size:12px;margin:6px 0'>
+<tr style='background:#1e2a3a;color:#90caf9'>
+  <th style='padding:7px 10px;text-align:left;border:1px solid #2e3f55'>XGBoost</th>
+  <th style='padding:7px 10px;text-align:left;border:1px solid #2e3f55'>Prophet</th>
+  <th style='padding:7px 10px;text-align:left;border:1px solid #2e3f55'>Interpretation</th>
+</tr>
+<tr style='background:#0d1a10'>
+  <td style='padding:6px 10px;border:1px solid #2e3f55'>▲ UP</td>
+  <td style='padding:6px 10px;border:1px solid #2e3f55'>Bullish</td>
+  <td style='padding:6px 10px;border:1px solid #2e3f55'>✅ Strong alignment — high confidence setup</td>
+</tr>
+<tr style='background:#1a0d0d'>
+  <td style='padding:6px 10px;border:1px solid #2e3f55'>▼ DOWN</td>
+  <td style='padding:6px 10px;border:1px solid #2e3f55'>Bearish</td>
+  <td style='padding:6px 10px;border:1px solid #2e3f55'>✅ Strong alignment — avoid or wait</td>
+</tr>
+<tr style='background:#1a1a0d'>
+  <td style='padding:6px 10px;border:1px solid #2e3f55'>▼ DOWN</td>
+  <td style='padding:6px 10px;border:1px solid #2e3f55'>Bullish</td>
+  <td style='padding:6px 10px;border:1px solid #2e3f55'>⚠️ Short-term dip within a longer uptrend — may recover after weakness passes</td>
+</tr>
+<tr style='background:#1a1a0d'>
+  <td style='padding:6px 10px;border:1px solid #2e3f55'>▲ UP</td>
+  <td style='padding:6px 10px;border:1px solid #2e3f55'>Bearish</td>
+  <td style='padding:6px 10px;border:1px solid #2e3f55'>⚠️ Short-term bounce in a downtrend — bounce may not sustain</td>
+</tr>
+</table>
+
+Best setups: XGB and Prophet **agree** AND backtest accuracy **> 60%**.
 
 **Realistic Expectations**
 - Typical accuracy range on liquid NSE stocks: **55–67%**

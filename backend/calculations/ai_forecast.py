@@ -419,3 +419,137 @@ def run_xgb_direction(df_ohlcv: pd.DataFrame, forward_days: int = 5) -> dict:
 
     except Exception as e:
         return {"error": str(e)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PUBLIC: Quick multi-stock scan (no backtest — fast)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Curated list: liquid Nifty 50 / Nifty 100 stocks, one per major sector
+_SCAN_STOCKS = [
+    ("RELIANCE",   "Energy"),
+    ("ONGC",       "Energy"),
+    ("TCS",        "IT"),
+    ("INFY",       "IT"),
+    ("HCLTECH",    "IT"),
+    ("WIPRO",      "IT"),
+    ("HDFCBANK",   "Banking"),
+    ("ICICIBANK",  "Banking"),
+    ("SBIN",       "Banking"),
+    ("KOTAKBANK",  "Banking"),
+    ("AXISBANK",   "Banking"),
+    ("HINDUNILVR", "FMCG"),
+    ("ITC",        "FMCG"),
+    ("NESTLEIND",  "FMCG"),
+    ("SUNPHARMA",  "Pharma"),
+    ("DRREDDY",    "Pharma"),
+    ("BHARTIARTL", "Telecom"),
+    ("LT",         "Infra"),
+    ("POWERGRID",  "Utilities"),
+    ("NTPC",       "Utilities"),
+    ("BAJFINANCE", "NBFC"),
+    ("MARUTI",     "Auto"),
+    ("TATAMOTORS", "Auto"),
+    ("ASIANPAINT", "Paints"),
+    ("TITAN",      "Consumer"),
+    ("ULTRACEMCO", "Cement"),
+    ("TATASTEEL",  "Metals"),
+    ("JSWSTEEL",   "Metals"),
+]
+
+
+def run_market_scan(forward_days: int = 5) -> list[dict]:
+    """
+    Quick XGBoost scan + EMA trend proxy across curated Nifty stocks.
+    No walk-forward backtest — fast enough for a pre-populated table.
+    Returns only rows where XGBoost direction and EMA trend AGREE.
+    """
+    import yfinance as yf
+    from xgboost import XGBClassifier
+    from sklearn.preprocessing import RobustScaler
+
+    results = []
+
+    for symbol, sector in _SCAN_STOCKS:
+        try:
+            raw = yf.download(symbol + ".NS", period="2y", interval="1d",
+                              progress=False, auto_adjust=True)
+            if raw is None or len(raw) < 200:
+                continue
+            raw.index = pd.to_datetime(raw.index).date
+
+            close = _get_close(raw)
+            if close is None or len(close) < 200:
+                continue
+
+            # ── Trend proxy: EMA50 slope + price vs EMA200 ───────────────────
+            ema50        = close.ewm(span=50, adjust=False).mean()
+            ema200       = close.ewm(span=200, adjust=False).mean()
+            ema50_slope  = (ema50.iloc[-1] - ema50.iloc[-6]) / ema50.iloc[-6] * 100
+            above_ema200 = close.iloc[-1] > ema200.iloc[-1]
+            trend = "Bullish" if (ema50_slope > 0 and above_ema200) else "Bearish"
+
+            # ── XGBoost quick prediction ──────────────────────────────────────
+            feat    = _build_features(raw)
+            fwd_ret = close.pct_change(forward_days).shift(-forward_days)
+            target  = (fwd_ret > 0).astype(int)
+
+            combined = feat.copy()
+            combined["_target"] = target.values
+            combined = combined.replace([np.inf, -np.inf], np.nan).dropna()
+            if len(combined) < 150:
+                continue
+
+            X = combined.drop(columns=["_target"])
+            y = combined["_target"]
+
+            scaler = RobustScaler()
+            X_s    = scaler.fit_transform(X)
+
+            model = XGBClassifier(
+                n_estimators=100, max_depth=4, learning_rate=0.05,
+                subsample=0.8, colsample_bytree=0.8,
+                use_label_encoder=False, eval_metric="logloss",
+                verbosity=0, random_state=42,
+            )
+            model.fit(X_s, y)
+
+            last_row = scaler.transform(X.iloc[[-1]])
+            prob_up  = float(model.predict_proba(last_row)[0][1])
+            xgb_dir  = "UP" if prob_up >= 0.5 else "DOWN"
+
+            # Only keep aligned signals
+            aligned = (xgb_dir == "UP"   and trend == "Bullish") or \
+                      (xgb_dir == "DOWN" and trend == "Bearish")
+            if not aligned:
+                continue
+
+            if prob_up >= 0.68:
+                sig = "Strong Buy"
+            elif prob_up >= 0.58:
+                sig = "Buy"
+            elif prob_up <= 0.32:
+                sig = "Strong Sell"
+            elif prob_up <= 0.42:
+                sig = "Sell"
+            else:
+                continue   # too neutral
+
+            results.append({
+                "Symbol":    symbol,
+                "Sector":    sector,
+                "Price (₹)": round(float(close.iloc[-1]), 1),
+                "XGB Prob":  round(prob_up * 100, 1),
+                "Direction": xgb_dir,
+                "Trend":     trend,
+                "Signal":    sig,
+            })
+
+        except Exception:
+            continue
+
+    bullish = sorted([r for r in results if r["Direction"] == "UP"],
+                     key=lambda x: x["XGB Prob"], reverse=True)
+    bearish = sorted([r for r in results if r["Direction"] == "DOWN"],
+                     key=lambda x: x["XGB Prob"])
+    return bullish + bearish
