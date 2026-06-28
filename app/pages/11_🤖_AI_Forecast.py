@@ -153,9 +153,8 @@ with c2:
     horizon = st.selectbox("Forecast Horizon", ["5 days", "15 days", "30 days"], index=2, key="ai_horizon")
 with c3:
     forward_days_map = {"5 days": 5, "15 days": 15, "30 days": 30}
-    xgb_fwd_map      = {"5 days": 5, "15 days": 10, "30 days": 15}
     horizon_days  = forward_days_map[horizon]
-    xgb_fwd_days  = xgb_fwd_map[horizon]
+    xgb_fwd_days  = 5   # XGBoost always predicts 5-day direction; horizon only affects Prophet
     st.markdown("<br>", unsafe_allow_html=True)
     run_btn = st.button("▶ Run Forecast", type="primary", use_container_width=True)
 
