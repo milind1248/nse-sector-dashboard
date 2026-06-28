@@ -29,50 +29,76 @@ st.caption(
     "For educational and research purposes only."
 )
 
-# ── Pre-populated aligned signals scan ───────────────────────────────────────
-# Build full stock list from all 186 dashboard stocks
+# ── Pre-populated aligned signals scan (DB-backed, cook-once) ────────────────
+from backend.storage.ai_scan_db import load_latest_scan, store_scan, scan_age_days
+
+# Build deduplicated stock list from all dashboard stocks
+_seen: set = set()
 _scan_stock_list: list[tuple[str, str]] = []
 for _sec, _syms in sorted(SECTOR_STOCKS.items()):
     for _sym in _syms:
-        _scan_stock_list.append((_sym.replace(".NS", ""), _sec))
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def _load_scan(stock_list):
-    from backend.calculations.ai_forecast import run_market_scan
-    return run_market_scan(forward_days=5, stock_list=stock_list)
-
+        _s = _sym.replace(".NS", "")
+        if _s not in _seen:
+            _seen.add(_s)
+            _scan_stock_list.append((_s, _sec))
 _n_stocks = len(_scan_stock_list)
+
+def _signal_color(v):
+    if "Strong Buy"  in str(v): return "color:#00C853;font-weight:700"
+    if "Buy"         in str(v): return "color:#69F0AE;font-weight:600"
+    if "Strong Sell" in str(v): return "color:#D50000;font-weight:700"
+    if "Sell"        in str(v): return "color:#FF6D00;font-weight:600"
+    return ""
+
+def _prob_color(v):
+    if not isinstance(v, (int, float)): return ""
+    if v >= 65: return "color:#00C853;font-weight:700"
+    if v >= 55: return "color:#69F0AE"
+    if v <= 35: return "color:#D50000;font-weight:700"
+    if v <= 45: return "color:#FF6D00"
+    return ""
+
 with st.expander("📋 Aligned Signals — All Dashboard Stocks (Both Models Agree)", expanded=True):
-    st.caption(f"XGBoost direction + EMA trend both pointing the same way across {_n_stocks} stocks. Refreshed once daily. For research only.")
-    with st.spinner(f"Scanning {_n_stocks} stocks… (first load ~3–5 min, instant after)"):
-        scan_data = _load_scan(tuple(_scan_stock_list))
+
+    # ── Header row: last scan info + refresh button ───────────────────────────
+    age = scan_age_days()
+    h1, h2 = st.columns([5, 2])
+    with h1:
+        if age is None:
+            st.caption(f"🕐 No scan data yet. Click **Run Scan** to generate signals across {_n_stocks} unique stocks (~3–5 min).")
+        elif age == 0:
+            st.caption(f"✅ Scanned today across {_n_stocks} stocks · Results load instantly from DB · For research only.")
+        else:
+            st.caption(f"⚠️ Last scanned **{age} day(s) ago** · Click **Run Scan** to refresh · {_n_stocks} unique stocks.")
+    with h2:
+        run_scan_btn = st.button("🔄 Run Scan", type="primary", use_container_width=True,
+                                 help=f"Scans {_n_stocks} stocks with XGBoost + EMA trend (~3–5 min). Results saved to DB.")
+
+    # ── Run scan if button clicked ────────────────────────────────────────────
+    if run_scan_btn:
+        from backend.calculations.ai_forecast import run_market_scan
+        prog = st.progress(0, text="Starting scan…")
+        with st.spinner(f"Scanning {_n_stocks} stocks — please wait (~3–5 min)…"):
+            results = run_market_scan(forward_days=5, stock_list=_scan_stock_list)
+        prog.progress(100, text="Saving to database…")
+        store_scan(results)
+        st.success(f"✅ Scan complete — {len(results)} aligned signals found across {_n_stocks} stocks.")
+        st.cache_data.clear()
+        st.rerun()
+
+    # ── Load from DB and display ──────────────────────────────────────────────
+    scan_data, scan_date = load_latest_scan()
 
     if scan_data:
-        scan_df = pd.DataFrame(scan_data)
+        scan_df    = pd.DataFrame(scan_data)
         bullish_df = scan_df[scan_df["Direction"] == "UP"].reset_index(drop=True)
         bearish_df = scan_df[scan_df["Direction"] == "DOWN"].reset_index(drop=True)
+        show_cols  = ["Symbol", "Sector", "Price (₹)", "XGB Prob", "Signal"]
 
         col_b, col_s = st.columns(2)
-
-        def _signal_color(v):
-            if "Strong Buy"  in str(v): return "color:#00C853;font-weight:700"
-            if "Buy"         in str(v): return "color:#69F0AE;font-weight:600"
-            if "Strong Sell" in str(v): return "color:#D50000;font-weight:700"
-            if "Sell"        in str(v): return "color:#FF6D00;font-weight:600"
-            return ""
-
-        def _prob_color(v):
-            if not isinstance(v, (int, float)): return ""
-            if v >= 68: return "color:#00C853;font-weight:700"
-            if v >= 58: return "color:#69F0AE"
-            if v <= 32: return "color:#D50000;font-weight:700"
-            if v <= 42: return "color:#FF6D00"
-            return ""
-
         with col_b:
-            st.markdown("#### 🟢 Both Bullish")
+            st.markdown(f"#### 🟢 Both Bullish &nbsp;<span style='font-size:13px;color:#888'>({len(bullish_df)} stocks)</span>", unsafe_allow_html=True)
             if not bullish_df.empty:
-                show_cols = ["Symbol", "Sector", "Price (₹)", "XGB Prob", "Signal"]
                 st.dataframe(
                     bullish_df[show_cols].style
                         .map(_signal_color, subset=["Signal"])
@@ -81,12 +107,11 @@ with st.expander("📋 Aligned Signals — All Dashboard Stocks (Both Models Agr
                     use_container_width=True, hide_index=True,
                 )
             else:
-                st.info("No bullish aligned signals right now.")
+                st.info("No bullish aligned signals in last scan.")
 
         with col_s:
-            st.markdown("#### 🔴 Both Bearish")
+            st.markdown(f"#### 🔴 Both Bearish &nbsp;<span style='font-size:13px;color:#888'>({len(bearish_df)} stocks)</span>", unsafe_allow_html=True)
             if not bearish_df.empty:
-                show_cols = ["Symbol", "Sector", "Price (₹)", "XGB Prob", "Signal"]
                 st.dataframe(
                     bearish_df[show_cols].style
                         .map(_signal_color, subset=["Signal"])
@@ -95,9 +120,9 @@ with st.expander("📋 Aligned Signals — All Dashboard Stocks (Both Models Agr
                     use_container_width=True, hide_index=True,
                 )
             else:
-                st.info("No bearish aligned signals right now.")
+                st.info("No bearish aligned signals in last scan.")
     else:
-        st.warning("Scan returned no results. Check internet connection.")
+        st.info(f"No scan data in database yet. Click **🔄 Run Scan** above to generate signals.")
 
 st.markdown("---")
 
