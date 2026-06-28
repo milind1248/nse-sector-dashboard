@@ -1046,15 +1046,17 @@ with tab_hm:
                 .map(_rsi9_color,     subset=["RSI(9)"])
                 .map(_rs_color,       subset=["RS vs Nifty %"])
                 .format({
-                    "Price (₹)":     "₹{:,.2f}",
-                    "RSI(9)":        "{:.1f}",
-                    "RSI(14)":       lambda v: f"{v:.1f}" if isinstance(v, (int, float)) else "—",
-                    "Stoch %K":      lambda v: f"{v:.1f}" if isinstance(v, (int, float)) else "—",
-                    "Stoch %D":      lambda v: f"{v:.1f}" if isinstance(v, (int, float)) else "—",
-                    "MACD Hist":     lambda v: f"{v:+.3f}" if isinstance(v, (int, float)) else "—",
-                    "Vol Ratio":     lambda v: f"{v:.2f}x" if isinstance(v, (int, float)) else "—",
-                    "Dist SMA50 %":  lambda v: f"{v:+.2f}%" if isinstance(v, (int, float)) else "—",
-                    "RS vs Nifty %": lambda v: f"{v:+.2f}%" if isinstance(v, (int, float)) else "—",
+                    "Price (₹)":      "₹{:,.2f}",
+                    "RSI(9)":         "{:.1f}",
+                    "EMA(3) of RSI":  lambda v: f"{v:.1f}" if isinstance(v, (int, float)) else "—",
+                    "WMA(21) of RSI": lambda v: f"{v:.1f}" if isinstance(v, (int, float)) else "—",
+                    "RSI(14)":        lambda v: f"{v:.1f}" if isinstance(v, (int, float)) else "—",
+                    "Stoch %K":       lambda v: f"{v:.1f}" if isinstance(v, (int, float)) else "—",
+                    "Stoch %D":       lambda v: f"{v:.1f}" if isinstance(v, (int, float)) else "—",
+                    "MACD Hist":      lambda v: f"{v:+.3f}" if isinstance(v, (int, float)) else "—",
+                    "Vol Ratio":      lambda v: f"{v:.2f}x" if isinstance(v, (int, float)) else "—",
+                    "Dist SMA50 %":   lambda v: f"{v:+.2f}%" if isinstance(v, (int, float)) else "—",
+                    "RS vs Nifty %":  lambda v: f"{v:+.2f}%" if isinstance(v, (int, float)) else "—",
                 }, na_rep="—")
             )
             _row_px = 35
