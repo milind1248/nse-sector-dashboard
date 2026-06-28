@@ -12,7 +12,7 @@ from plotly.subplots import make_subplots
 from config import SECTOR_STOCKS
 from backend.data_ingestion.yfinance_fetcher import _get_close
 
-st.set_page_config(page_title="AI Forecast | NSE Stock Prediction | Market Sector Analysis", layout="wide")
+st.set_page_config(page_title="AI Forecast | NSE Stock Prediction | Market Sector Analysis", page_icon="🤖", layout="wide")
 from app.utils.guard import enforce_deployment_gate
 enforce_deployment_gate()
 from app.utils.seo import inject_seo
