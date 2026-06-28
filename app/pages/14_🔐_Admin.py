@@ -268,6 +268,33 @@ if r5c5.button("▶ Run", key="btn_sh", use_container_width=True):
             st.error(f"Pipeline failed: {e}")
     st.rerun()
 
+# ── Row 6: Market Pulse Snapshot ─────────────────────────────────────────────
+r6c1, r6c2, r6c3, r6c4, r6c5 = st.columns([2, 3, 4, 3, 2])
+r6c1.markdown("6")
+r6c2.markdown("📡 Market Pulse")
+r6c3.markdown("Market Pulse Snapshot — Bhavcopy breadth + sector heatmap + RRG → stored in DB (~3–5 min)")
+r6c4.markdown(_last_run_for("market_pulse_snapshot"))
+if r6c5.button("▶ Run", key="btn_mps", use_container_width=True):
+    with st.spinner("Running Market Pulse pipeline…"):
+        try:
+            from backend.data_ingestion.market_pulse_pipeline import run_market_pulse_pipeline
+            from backend.data_ingestion.job_logger import log_start, log_finish
+            rid = log_start("market_pulse_snapshot",
+                            "Market Pulse Snapshot (Breadth + Heatmap + RRG)", "admin")
+            summary = run_market_pulse_pipeline(triggered_by="admin")
+            log_finish(rid, "success", records_done=summary.get("heatmap_sectors", 0))
+            st.cache_data.clear()
+            st.success(
+                f"✅ Market Pulse snapshot complete — "
+                f"Breadth: {summary.get('breadth_date', '—')} · "
+                f"Sectors: {summary.get('heatmap_sectors', 0)} · "
+                f"RRG: {summary.get('rrg_sectors', 0)}"
+            )
+        except Exception as e:
+            log_finish(rid, "failed", error_msg=str(e))
+            st.error(f"Pipeline failed: {e}")
+    st.rerun()
+
 st.markdown("---")
 
 # ── Upcoming scheduled runs ────────────────────────────────────────────────────
@@ -312,43 +339,43 @@ schedule_data = {
     "Job": [
         "Sector Snapshot (FII/DII + Breadth + Prices)",
         "Stock Snapshot (Delivery + OI)",
+        "Market Pulse Snapshot (Breadth + Heatmap + RRG)",
         "Quarterly Shareholding Refresh",
-        "Market Pulse Cache Clear",
-        "Index Stocks Sync (NSE + Yahoo Finance)",
+        "Index Stocks Sync",
     ],
     "Pages": [
         "Home · Sector Analysis · FII DII Flow · FII Sectors",
         "Smart Money",
-        "FII Accumulation",
         "Market Pulse",
+        "FII Accumulation",
         "Index Stocks",
     ],
     "Frequency": [
         "Mon–Fri daily",
         "Mon–Fri daily",
+        "Mon–Fri daily",
         "4× per year",
-        "Manual only",
         "Manual only",
     ],
     "Cron (IST)": [
         "Mon–Fri 18:00",
         "Mon–Fri 18:30",
+        "Mon–Fri 20:00",
         "27th Jan / Apr / Jul / Oct @ 07:00",
-        "—",
         "—",
     ],
     "Next Run": [
         _next_weekday(18, 0),
         _next_weekday(18, 30),
+        _next_weekday(20, 0),
         _next_quarterly("1,4,7,10", 27),
-        "On demand",
         "On demand",
     ],
     "Last Run": [
         _last_run_for("sector_snapshot"),
         _last_run_for("stock_snapshot"),
+        _last_run_for("market_pulse_snapshot"),
         _last_run_for("shareholding_quarterly"),
-        _last_run_for("market_pulse_refresh"),
         _last_run_for("index_stocks_sync"),
     ],
 }

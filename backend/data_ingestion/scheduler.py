@@ -7,6 +7,7 @@ from backend.data_ingestion.pipeline import (
     run_sector_pipeline, run_stock_pipeline,
 )
 from backend.data_ingestion.shareholding_pipeline import run_shareholding_pipeline
+from backend.data_ingestion.market_pulse_pipeline import run_market_pulse_pipeline
 from backend.data_ingestion.job_logger import log_start, log_finish
 from backend.storage.cache import invalidate_all
 from config import SCHEDULE_TZ
@@ -51,6 +52,19 @@ def start_scheduler():
         CronTrigger(hour=18, minute=30, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
         id="stock_snapshot",
         name="Stock snapshot @ 6:30 PM",
+    )
+
+    # 8:00 PM IST — Market Pulse snapshot (after Bhavcopy is published by NSE)
+    # Bhavcopy is published ~6–7 PM; 8 PM gives buffer for NSE to publish
+    scheduler.add_job(
+        _logged(
+            "market_pulse_snapshot",
+            "Market Pulse Snapshot (Breadth + Heatmap + RRG)",
+            lambda: run_market_pulse_pipeline(triggered_by="scheduler"),
+        ),
+        CronTrigger(hour=20, minute=0, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
+        id="market_pulse_snapshot",
+        name="Market Pulse snapshot @ 8 PM IST",
     )
 
     # Quarterly shareholding refresh — 27th of Jan, Apr, Jul, Oct at 7:00 AM IST
