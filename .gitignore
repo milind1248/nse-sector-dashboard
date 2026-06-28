@@ -11,3 +11,7 @@ inspect_*.py
 venv/
 dist/
 build/
+
+# Local documentation and Claude context — stay on local machine only
+docs/
+CLAUDE.md
