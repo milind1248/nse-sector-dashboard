@@ -17,6 +17,8 @@ st.set_page_config(
     page_title="FII Accumulation Screener | Quarterly Shareholding | Market Sector Analysis",
     layout="wide",
 )
+from app.utils.guard import enforce_deployment_gate
+enforce_deployment_gate()
 
 from app.utils.seo import inject_seo
 inject_seo("FII_Accumulation")

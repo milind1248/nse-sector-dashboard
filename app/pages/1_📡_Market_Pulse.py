@@ -23,6 +23,8 @@ st.set_page_config(
     page_title="Market Pulse | Nifty Breadth & Relative Rotation | Market Sector Analysis",
     layout="wide",
 )
+from app.utils.guard import enforce_deployment_gate
+enforce_deployment_gate()
 from app.utils.seo import inject_seo
 inject_seo("Market_Pulse")
 from app.utils.logo import show_logo

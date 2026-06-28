@@ -13,6 +13,8 @@ from backend.data_ingestion.yfinance_fetcher import _get_close
 from backend.calculations.indicators import ema_signal
 
 st.set_page_config(page_title="Alerts & Scanners | NSE Swing Trading | Market Sector Analysis", layout="wide")
+from app.utils.guard import enforce_deployment_gate
+enforce_deployment_gate()
 from app.utils.seo import inject_seo
 inject_seo("Alerts")
 from app.utils.logo import show_logo

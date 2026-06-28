@@ -20,6 +20,8 @@ from backend.calculations.sector_score import compute_sector_score, score_label
 from backend.calculations.relative_strength import compute_rs_ratio
 
 st.set_page_config(page_title="Stock Screener | FII Sector Stock Analysis | Market Sector Analysis", layout="wide")
+from app.utils.guard import enforce_deployment_gate
+enforce_deployment_gate()
 from app.utils.seo import inject_seo
 inject_seo("Stock_Picker")
 

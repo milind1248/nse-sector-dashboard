@@ -10,6 +10,8 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Contact | Market Sector Analysis", page_icon="📧", layout="wide")
+from app.utils.guard import enforce_deployment_gate
+enforce_deployment_gate()
 
 from app.utils.seo import inject_seo
 inject_seo("Contact")

@@ -15,6 +15,8 @@ import plotly.graph_objects as go
 from datetime import date
 
 st.set_page_config(page_title="FPI Sector Investment Tracker | First Half Second Half | Market Sector Analysis", layout="wide")
+from app.utils.guard import enforce_deployment_gate
+enforce_deployment_gate()
 from app.utils.seo import inject_seo
 inject_seo("FPI_Sectors")
 

@@ -14,6 +14,8 @@ st.set_page_config(
     page_title="Smart Money Tracker | FII/DII OI + Delivery | Market Sector Analysis",
     layout="wide",
 )
+from app.utils.guard import enforce_deployment_gate
+enforce_deployment_gate()
 
 from app.utils.seo import inject_seo
 inject_seo("Smart_Money")

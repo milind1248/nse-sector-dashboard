@@ -8,6 +8,8 @@ st.set_page_config(
     page_title="Disclaimer | Market Sector Analysis",
     page_icon="⚖️", layout="wide",
 )
+from app.utils.guard import enforce_deployment_gate
+enforce_deployment_gate()
 
 from app.utils.logo import show_logo
 show_logo()

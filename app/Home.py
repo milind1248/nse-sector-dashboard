@@ -20,6 +20,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+from app.utils.guard import enforce_deployment_gate
+enforce_deployment_gate()
+
 from app.utils.seo import inject_seo
 inject_seo("Home")
 

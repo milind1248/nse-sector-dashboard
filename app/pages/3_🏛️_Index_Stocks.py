@@ -17,6 +17,8 @@ st.set_page_config(
     page_title="Index Stocks | NSE Constituents & Weightage",
     page_icon="🏛️", layout="wide"
 )
+from app.utils.guard import enforce_deployment_gate
+enforce_deployment_gate()
 
 from app.utils.seo import inject_seo
 inject_seo("Home")

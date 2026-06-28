@@ -15,6 +15,8 @@ import plotly.graph_objects as go
 from datetime import timedelta
 
 st.set_page_config(page_title="FII Sectors | Historical Sector Investment | Market Sector Analysis", layout="wide")
+from app.utils.guard import enforce_deployment_gate
+enforce_deployment_gate()
 from app.utils.seo import inject_seo
 inject_seo("FII_Invest_Sector")
 
