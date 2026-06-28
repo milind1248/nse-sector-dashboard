@@ -7,6 +7,10 @@ import sqlite3
 import time
 from datetime import datetime, date, timezone, timedelta
 
+# Ensure all app-managed tables exist before any inventory queries run
+from backend.storage.ai_scan_db import ensure_table as _ensure_ai_scan_table
+_ensure_ai_scan_table()
+
 _IST = timezone(timedelta(hours=5, minutes=30))
 _DB_PATH = Path(__file__).parent.parent.parent / "data" / "nse_dashboard.db"
 
