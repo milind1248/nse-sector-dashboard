@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+import datetime
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -10,7 +11,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from config import SECTOR_STOCKS
-from backend.data_ingestion.yfinance_fetcher import _get_close
 
 st.set_page_config(page_title="AI Forecast | NSE Stock Prediction | Market Sector Analysis", page_icon="🤖", layout="wide")
 from app.utils.guard import enforce_deployment_gate
@@ -31,6 +31,7 @@ st.caption(
 
 # ── Pre-populated aligned signals scan (DB-backed, cook-once) ────────────────
 from backend.storage.ai_scan_db import load_latest_scan, store_scan, scan_age_days
+from backend.storage.ai_forecast_db import load_all_latest, cache_age_days
 from app.utils.auth import is_admin
 
 # Build deduplicated stock list from all dashboard stocks
@@ -62,45 +63,45 @@ def _prob_color(v):
 with st.expander("📋 Aligned Signals — All Dashboard Stocks (Both Models Agree)", expanded=True):
 
     # ── Header row: last scan info + refresh button ───────────────────────────
-    age = scan_age_days()
+    age = cache_age_days()
     h1, h2 = st.columns([5, 2])
     with h1:
         if age is None:
-            st.caption(f"🕐 No scan data yet — auto-scan runs daily at **9 PM IST** via scheduler. Click **Force Scan** to run now (~3–5 min).")
+            st.caption(f"🕐 No forecast data yet — auto-scan runs daily at **9 PM IST** via scheduler. Click **Force Scan** to run now (~15 min).")
         elif age == 0:
-            st.caption(f"✅ Scanned **today** across {_n_stocks} stocks · Auto-refreshes nightly at 9 PM IST · For research only.")
+            st.caption(f"✅ Forecast computed **today** across {_n_stocks} stocks · Auto-refreshes nightly at 9 PM IST · For research only.")
         elif age <= 2:
-            st.caption(f"✅ Last scanned **{age} day(s) ago** · Auto-refreshes nightly · {_n_stocks} stocks · For research only.")
+            st.caption(f"✅ Last computed **{age} day(s) ago** · Auto-refreshes nightly · {_n_stocks} stocks · For research only.")
         else:
-            st.caption(f"⚠️ Last scanned **{age} day(s) ago** — scheduler may be offline. Click **Force Scan** to refresh manually.")
+            st.caption(f"⚠️ Last computed **{age} day(s) ago** — scheduler may be offline. Click **Force Scan** to refresh manually.")
     with h2:
         if is_admin():
             run_scan_btn = st.button("⚡ Force Scan", type="secondary", use_container_width=True,
-                                     help=f"Admin only. Runs immediately. Normally auto-triggered at 9 PM IST. Scans {_n_stocks} stocks (~3–5 min).")
+                                     help=f"Admin only. Runs Prophet + XGBoost for all {_n_stocks} stocks and caches results (~15 min).")
         else:
             run_scan_btn = False
             st.caption("🔒 Admin only")
 
-    # ── Run scan if button clicked ────────────────────────────────────────────
+    # ── Run pipeline if button clicked ────────────────────────────────────────
     if run_scan_btn:
         from backend.data_ingestion.ai_scan_pipeline import run_ai_scan_pipeline
-        with st.spinner(f"Scanning {_n_stocks} stocks — please wait (~3–5 min)…"):
+        with st.spinner(f"Running Prophet + XGBoost for {_n_stocks} stocks — please wait (~15 min)…"):
             summary = run_ai_scan_pipeline(triggered_by="manual")
         st.success(
-            f"✅ Scan complete — {summary['total']} signals stored "
-            f"({summary['bullish']} bullish · {summary['bearish']} bearish)"
+            f"✅ Done — {summary['cached']} stocks cached "
+            f"({summary['bullish']} bullish · {summary['bearish']} bearish aligned · {summary['failed']} failed)"
         )
         st.cache_data.clear()
         st.rerun()
 
-    # ── Load from DB and display ──────────────────────────────────────────────
-    scan_data, scan_date = load_latest_scan()
+    # ── Load from ai_forecast_cache and display aligned signals ───────────────
+    all_cached = load_all_latest()
 
-    if scan_data:
-        scan_df    = pd.DataFrame(scan_data)
-        bullish_df = scan_df[scan_df["Direction"] == "UP"].reset_index(drop=True)
-        bearish_df = scan_df[scan_df["Direction"] == "DOWN"].reset_index(drop=True)
-        show_cols  = ["Symbol", "Sector", "Price (₹)", "XGB Prob", "Signal"]
+    if all_cached:
+        full_df    = pd.DataFrame(all_cached)
+        bullish_df = full_df[(full_df["Direction"] == "UP")   & (full_df["Prophet Trend"] == "Bullish")].reset_index(drop=True)
+        bearish_df = full_df[(full_df["Direction"] == "DOWN") & (full_df["Prophet Trend"] == "Bearish")].reset_index(drop=True)
+        show_cols  = ["Symbol", "Sector", "Price (₹)", "XGB Prob", "Signal", "Accuracy %"]
 
         col_b, col_s = st.columns(2)
         with col_b:
@@ -110,7 +111,7 @@ with st.expander("📋 Aligned Signals — All Dashboard Stocks (Both Models Agr
                     bullish_df[show_cols].style
                         .map(_signal_color, subset=["Signal"])
                         .map(_prob_color,   subset=["XGB Prob"])
-                        .format({"XGB Prob": "{:.1f}%", "Price (₹)": "₹{:,.1f}"}),
+                        .format({"XGB Prob": "{:.1f}%", "Price (₹)": "₹{:,.1f}", "Accuracy %": "{:.1f}%"}),
                     use_container_width=True, hide_index=True,
                 )
             else:
@@ -123,18 +124,18 @@ with st.expander("📋 Aligned Signals — All Dashboard Stocks (Both Models Agr
                     bearish_df[show_cols].style
                         .map(_signal_color, subset=["Signal"])
                         .map(_prob_color,   subset=["XGB Prob"])
-                        .format({"XGB Prob": "{:.1f}%", "Price (₹)": "₹{:,.1f}"}),
+                        .format({"XGB Prob": "{:.1f}%", "Price (₹)": "₹{:,.1f}", "Accuracy %": "{:.1f}%"}),
                     use_container_width=True, hide_index=True,
                 )
             else:
                 st.info("No bearish aligned signals in last scan.")
     else:
-        st.info(f"No scan data yet — scheduler runs automatically at 9 PM IST. Click **⚡ Force Scan** above to run now.")
+        st.info(f"No forecast data yet — scheduler runs automatically at 9 PM IST. Click **⚡ Force Scan** above to run now.")
 
 st.markdown("---")
 
-# ── Build stock list (all 186 stocks, grouped by sector) ─────────────────────
-_all_stocks: list[tuple[str, str]] = []  # (symbol_clean, sector)
+# ── Build stock list (all stocks, grouped by sector) ─────────────────────────
+_all_stocks: list[tuple[str, str]] = []
 for sec, stocks in sorted(SECTOR_STOCKS.items()):
     for sym in stocks:
         _all_stocks.append((sym.replace(".NS", ""), sec))
@@ -152,8 +153,8 @@ with c2:
     horizon = st.selectbox("Forecast Horizon", ["5 days", "15 days", "30 days"], index=2, key="ai_horizon")
 with c3:
     forward_days_map = {"5 days": 5, "15 days": 15, "30 days": 30}
+    xgb_fwd_map      = {"5 days": 5, "15 days": 10, "30 days": 15}
     horizon_days  = forward_days_map[horizon]
-    xgb_fwd_map   = {"5 days": 5, "15 days": 10, "30 days": 15}
     xgb_fwd_days  = xgb_fwd_map[horizon]
     st.markdown("<br>", unsafe_allow_html=True)
     run_btn = st.button("▶ Run Forecast", type="primary", use_container_width=True)
@@ -161,11 +162,24 @@ with c3:
 ticker_ns   = symbol_map[selected_label]
 ticker_name = symbol_clean[selected_label]
 
-# ── Data fetch + model (cached 6 hours per stock) ────────────────────────────
+# ── DB cache helpers ──────────────────────────────────────────────────────────
+from backend.storage.ai_forecast_db import load_forecast, store_forecast as _store_fc
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_cached(ticker_clean: str):
+    return load_forecast(ticker_clean)
+
+def _to_series(date_list: list, value_list: list) -> pd.Series:
+    """Reconstruct pd.Series with date index from cached lists."""
+    dates = [datetime.date.fromisoformat(d) if isinstance(d, str) else d for d in date_list]
+    return pd.Series(value_list, index=dates)
+
+# ── Live fetch + model (fallback when not cached) ─────────────────────────────
 @st.cache_data(ttl=21600, show_spinner=False)
-def _fetch_and_model(ticker_ns: str, horizon_days: int, xgb_fwd: int):
+def _fetch_and_model(ticker_ns: str, xgb_fwd: int):
     import yfinance as yf
     from backend.calculations.ai_forecast import run_prophet_forecast, run_xgb_direction
+    from backend.data_ingestion.yfinance_fetcher import _get_close
 
     raw = yf.download(ticker_ns, period="3y", interval="1d",
                       progress=False, auto_adjust=True)
@@ -177,33 +191,106 @@ def _fetch_and_model(ticker_ns: str, horizon_days: int, xgb_fwd: int):
     if close is None:
         return None, None, None
 
-    prophet_res = run_prophet_forecast(close, horizon_days=horizon_days)
+    prophet_res = run_prophet_forecast(close, horizon_days=30)
     xgb_res     = run_xgb_direction(raw, forward_days=xgb_fwd)
     return raw, prophet_res, xgb_res
 
 
-if not run_btn and "ai_last_ticker" not in st.session_state:
-    st.info("Select a stock and click **▶ Run Forecast** to generate predictions.")
+# ── Load data: DB cache first, live fallback ──────────────────────────────────
+cached_result, cache_date = _load_cached(ticker_name)
+
+# Decide what to do
+use_cache = bool(cached_result and not run_btn)
+
+if not use_cache and not run_btn and "ai_last_ticker" not in st.session_state:
+    st.info("Select a stock and click **▶ Run Forecast** to generate predictions, or wait for nightly cache.")
     st.stop()
 
-# Auto-run when ticker changes
-if run_btn or st.session_state.get("ai_last_ticker") != ticker_ns:
-    st.session_state["ai_last_ticker"] = ticker_ns
-    st.session_state["ai_last_horizon"] = horizon_days
+if use_cache:
+    # ── Instant render from DB cache ──────────────────────────────────────────
+    prophet_res = cached_result["prophet_res"]
+    xgb_res     = cached_result["xgb_res"]
 
-with st.spinner(f"Training models on {ticker_name} — first load takes ~10 seconds…"):
-    raw, prophet_res, xgb_res = _fetch_and_model(ticker_ns, horizon_days, xgb_fwd_days)
+    c6m = cached_result.get("close_6m", {})
+    ema = cached_result.get("ema", {})
 
-if raw is None:
-    st.error(f"Could not fetch enough data for {ticker_name}. Need at least 3 years of history.")
-    st.stop()
+    actual_6m = _to_series(c6m.get("dates", []), c6m.get("prices", []))
+    ema20_6m  = _to_series(ema.get("ema20",  {}).get("dates", []), ema.get("ema20",  {}).get("values", []))
+    ema50_6m  = _to_series(ema.get("ema50",  {}).get("dates", []), ema.get("ema50",  {}).get("values", []))
+    ema200_6m = _to_series(ema.get("ema200", {}).get("dates", []), ema.get("ema200", {}).get("values", []))
+
+    cache_notice = f"📦 Showing cached forecast from **{cache_date}** · No live data needed · Recomputed nightly at 9 PM IST"
+    st.caption(cache_notice)
+
+else:
+    # ── Live compute: fetch from Yahoo Finance + train models ─────────────────
+    if run_btn or st.session_state.get("ai_last_ticker") != ticker_ns:
+        st.session_state["ai_last_ticker"] = ticker_ns
+
+    with st.spinner(f"Fetching data and training models for {ticker_name} — first load ~15–20 seconds…"):
+        raw, prophet_res, xgb_res = _fetch_and_model(ticker_ns, xgb_fwd_days)
+
+    if raw is None:
+        st.error(f"Could not fetch enough data for {ticker_name}. Need at least 3 years of history.")
+        st.stop()
+
+    from backend.data_ingestion.yfinance_fetcher import _get_close
+    close = _get_close(raw)
+    actual_6m = close.tail(126)
+    ema20_6m  = close.ewm(span=20,  adjust=False).mean().tail(126)
+    ema50_6m  = close.rolling(50, min_periods=1).mean().tail(126)
+    ema200_6m = close.ewm(span=200, adjust=False).mean().tail(126)
+
+    # Store to cache so next visit is instant
+    if prophet_res and not prophet_res.get("error") and xgb_res and not xgb_res.get("error"):
+        try:
+            from backend.calculations.ai_forecast import run_full_stock_forecast as _rfs
+            # Determine sector for this stock
+            _sector = next((sec for sec, syms in SECTOR_STOCKS.items()
+                            if ticker_ns in syms or ticker_ns.replace(".NS","") in [s.replace(".NS","") for s in syms]),
+                           "Unknown")
+            _fc_res = {
+                "price":          float(close.iloc[-1]),
+                "xgb_prob":       xgb_res["prob_up"],
+                "xgb_direction":  xgb_res["direction"],
+                "xgb_signal":     xgb_res["signal_label"],
+                "xgb_accuracy":   xgb_res["backtest_accuracy"],
+                "n_train_bars":   xgb_res["n_train_bars"],
+                "n_features":     xgb_res["n_features"],
+                "backtest_monthly":   xgb_res["backtest_monthly"],
+                "feature_importance": xgb_res["feature_importance"],
+                "prophet_trend":     prophet_res["trend_direction"],
+                "prophet_trend_pct": prophet_res["trend_pct"],
+                "prophet_forecast": {
+                    "history_dates":  [str(d) for d in prophet_res["history_dates"]],
+                    "history_prices": prophet_res["history_prices"],
+                    "forecast_dates": [str(d) for d in prophet_res["forecast_dates"]],
+                    "yhat":           prophet_res["yhat"],
+                    "yhat_lower":     prophet_res["yhat_lower"],
+                    "yhat_upper":     prophet_res["yhat_upper"],
+                },
+                "close_6m": {
+                    "dates":  [str(d) for d in actual_6m.index],
+                    "prices": [float(v) for v in actual_6m.values],
+                },
+                "ema": {
+                    "ema20":  {"dates": [str(d) for d in ema20_6m.index],  "values": [float(v) for v in ema20_6m.values]},
+                    "ema50":  {"dates": [str(d) for d in ema50_6m.index],  "values": [float(v) for v in ema50_6m.values]},
+                    "ema200": {"dates": [str(d) for d in ema200_6m.index], "values": [float(v) for v in ema200_6m.values]},
+                },
+                "computed_at": datetime.datetime.utcnow().isoformat(),
+            }
+            _store_fc(ticker_name, _sector, _fc_res)
+        except Exception:
+            pass  # cache store failure is non-fatal
+
 
 # ── Error handling ────────────────────────────────────────────────────────────
 prophet_ok = prophet_res and not prophet_res.get("error")
 xgb_ok     = xgb_res    and not xgb_res.get("error")
 
 if not prophet_ok and not xgb_ok:
-    st.error(f"Model error: {prophet_res.get('error') or xgb_res.get('error')}")
+    st.error(f"Model error: {(prophet_res or {}).get('error') or (xgb_res or {}).get('error')}")
     st.stop()
 
 # ── Summary metric cards ──────────────────────────────────────────────────────
@@ -254,7 +341,7 @@ m3.markdown(f"""
 
 m4.markdown(f"""
 <div style='background:#1a2236;border-radius:10px;padding:18px 16px;text-align:center;border-left:4px solid {t_color}'>
-  <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Prophet Trend ({horizon_days}d)</div>
+  <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Prophet Trend (30d)</div>
   <div style='color:{t_color};font-size:30px;font-weight:700'>{t_dir}</div>
   <div style='color:#ccc;font-size:13px;margin-top:4px'>{t_pct:+.2f}% projected</div>
 </div>""", unsafe_allow_html=True)
@@ -264,20 +351,18 @@ st.markdown("---")
 st.subheader(f"📈 {ticker_name} — Price Trend Forecast ({horizon_days} days)")
 
 if prophet_ok:
-    close     = _get_close(raw)
-    ema20     = close.ewm(span=20, adjust=False).mean()
-    ema50     = close.rolling(50,  min_periods=1).mean()
-    ema200    = close.ewm(span=200, adjust=False).mean()
-
-    hist_dates = prophet_res["history_dates"]
-    actual_6m  = close.tail(126)
+    # Truncate forecast to selected horizon
+    fcast_dates  = prophet_res["forecast_dates"][:horizon_days]
+    fcast_yhat   = prophet_res["yhat"][:horizon_days]
+    fcast_lower  = prophet_res["yhat_lower"][:horizon_days]
+    fcast_upper  = prophet_res["yhat_upper"][:horizon_days]
 
     fig = go.Figure()
 
     # Confidence band (shaded)
     fig.add_trace(go.Scatter(
-        x=prophet_res["forecast_dates"] + prophet_res["forecast_dates"][::-1],
-        y=prophet_res["yhat_upper"] + prophet_res["yhat_lower"][::-1],
+        x=fcast_dates + fcast_dates[::-1],
+        y=fcast_upper + fcast_lower[::-1],
         fill="toself",
         fillcolor="rgba(30,136,229,0.15)",
         line=dict(width=0), showlegend=False, hoverinfo="skip",
@@ -287,14 +372,14 @@ if prophet_ok:
     # Actual price
     fig.add_trace(go.Scatter(
         x=list(actual_6m.index),
-        y=actual_6m.values,
+        y=list(actual_6m.values),
         name="Actual Price",
         line=dict(color="#90CAF9", width=1.8),
     ))
 
     # Prophet fitted line on history
     fig.add_trace(go.Scatter(
-        x=hist_dates,
+        x=prophet_res["history_dates"],
         y=prophet_res["history_prices"],
         name="Prophet Trend",
         line=dict(color="#E040FB", width=1.5, dash="dot"),
@@ -303,35 +388,35 @@ if prophet_ok:
 
     # Forecast line
     fig.add_trace(go.Scatter(
-        x=prophet_res["forecast_dates"],
-        y=prophet_res["yhat"],
+        x=fcast_dates,
+        y=fcast_yhat,
         name=f"Forecast ({horizon_days}d)",
         line=dict(color="#1E88E5", width=2.5),
     ))
 
     # EMA overlays
     fig.add_trace(go.Scatter(
-        x=list(ema20.tail(126).index), y=ema20.tail(126).values,
+        x=list(ema20_6m.index), y=list(ema20_6m.values),
         name="20 EMA", line=dict(color="#FFD600", width=1.5),
     ))
     fig.add_trace(go.Scatter(
-        x=list(ema50.tail(126).index), y=ema50.tail(126).values,
+        x=list(ema50_6m.index), y=list(ema50_6m.values),
         name="50 SMA", line=dict(color="#FF7043", width=1.5, dash="dash"),
     ))
     fig.add_trace(go.Scatter(
-        x=list(ema200.tail(126).index), y=ema200.tail(126).values,
+        x=list(ema200_6m.index), y=list(ema200_6m.values),
         name="200 EMA", line=dict(color="#EF5350", width=1.5, dash="dot"),
     ))
 
     # Vertical "today" line
-    today_date = list(actual_6m.index)[-1]
+    today_date = list(actual_6m.index)[-1] if not actual_6m.empty else datetime.date.today()
     fig.add_vline(x=str(today_date), line_dash="dash", line_color="#555",
                   annotation_text="Today", annotation_position="top")
 
     # Forecast end target annotation
-    if prophet_res["yhat"]:
-        end_y = prophet_res["yhat"][-1]
-        end_x = str(prophet_res["forecast_dates"][-1])
+    if fcast_yhat:
+        end_y = fcast_yhat[-1]
+        end_x = str(fcast_dates[-1])
         fig.add_annotation(
             x=end_x, y=end_y,
             text=f"  ₹{end_y:,.0f}",
@@ -350,7 +435,7 @@ if prophet_ok:
     )
     st.plotly_chart(fig, use_container_width=True)
 else:
-    st.warning(f"Prophet model error: {prophet_res.get('error')}")
+    st.warning(f"Prophet model error: {(prophet_res or {}).get('error')}")
 
 # ── XGBoost section ───────────────────────────────────────────────────────────
 st.markdown("---")
@@ -405,35 +490,40 @@ with col_left:
             f"{xgb_res['signal_label']}</div>",
             unsafe_allow_html=True,
         )
-        st.caption(f"Model trained on {xgb_res['n_train_bars']} bars · {xgb_res['n_features']} features")
+        n_bars  = xgb_res.get("n_train_bars", "—")
+        n_feats = xgb_res.get("n_features", "—")
+        st.caption(f"Model trained on {n_bars} bars · {n_feats} features")
 
         # Feature importance chart
-        st.markdown("**Top 10 Predictive Features**")
-        fi_df = pd.DataFrame(xgb_res["feature_importance"][:10])
-        fig_fi = go.Figure(go.Bar(
-            x=fi_df["importance"],
-            y=fi_df["feature"],
-            orientation="h",
-            marker=dict(color=fi_df["importance"],
-                        colorscale="Blues", showscale=False),
-            text=[f"{v:.1f}%" for v in fi_df["importance"]],
-            textposition="outside",
-        ))
-        fig_fi.update_layout(
-            template="plotly_dark", height=320,
-            margin=dict(t=10, b=10, l=10, r=60),
-            yaxis=dict(autorange="reversed"),
-            xaxis=dict(title="Importance (%)"),
-        )
-        st.plotly_chart(fig_fi, use_container_width=True)
+        fi = xgb_res.get("feature_importance", [])
+        if fi:
+            st.markdown("**Top 10 Predictive Features**")
+            fi_df = pd.DataFrame(fi[:10])
+            fig_fi = go.Figure(go.Bar(
+                x=fi_df["importance"],
+                y=fi_df["feature"],
+                orientation="h",
+                marker=dict(color=fi_df["importance"],
+                            colorscale="Blues", showscale=False),
+                text=[f"{v:.1f}%" for v in fi_df["importance"]],
+                textposition="outside",
+            ))
+            fig_fi.update_layout(
+                template="plotly_dark", height=320,
+                margin=dict(t=10, b=10, l=10, r=60),
+                yaxis=dict(autorange="reversed"),
+                xaxis=dict(title="Importance (%)"),
+            )
+            st.plotly_chart(fig_fi, use_container_width=True)
     else:
-        st.warning(f"XGBoost error: {xgb_res.get('error')}")
+        st.warning(f"XGBoost error: {(xgb_res or {}).get('error')}")
 
 with col_right:
     st.subheader("📊 Walk-Forward Backtest Results")
 
-    if xgb_ok and xgb_res.get("backtest_monthly"):
-        bt_df = pd.DataFrame(xgb_res["backtest_monthly"])
+    bt_monthly = xgb_res.get("backtest_monthly", []) if xgb_ok else []
+    if xgb_ok and bt_monthly:
+        bt_df = pd.DataFrame(bt_monthly)
 
         # Overall accuracy banner
         acc_color = "#00C853" if bt_acc >= 60 else ("#FFD600" if bt_acc >= 53 else "#FF6D00")

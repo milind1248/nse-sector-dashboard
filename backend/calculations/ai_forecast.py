@@ -558,3 +558,100 @@ def run_market_scan(forward_days: int = 5, stock_list: list[tuple] | None = None
     bearish = sorted([r for r in results if r["Direction"] == "DOWN"],
                      key=lambda x: x["XGB Prob"])
     return bullish + bearish
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PUBLIC: Full single-stock forecast (Prophet + XGBoost) — used by nightly job
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run_full_stock_forecast(ticker_ns: str, forward_days: int = 5,
+                            horizon_days: int = 30) -> dict | None:
+    """
+    Complete pipeline for one stock: fetch 3y OHLCV, run Prophet + XGBoost with backtest,
+    compute EMA/close chart data.  Returns a dict ready for store_forecast(), or None on failure.
+
+    Called by the nightly pipeline (all 185 stocks in parallel) so the AI Forecast page
+    reads from DB the next morning — zero Yahoo Finance calls at page load time.
+    """
+    import yfinance as yf
+    from datetime import datetime
+
+    try:
+        raw = yf.download(ticker_ns, period="3y", interval="1d",
+                          progress=False, auto_adjust=True)
+        if raw is None or len(raw) < 300:
+            return None
+        raw.index = pd.to_datetime(raw.index).date
+
+        close = _get_close(raw)
+        if close is None or len(close) < 300:
+            return None
+
+        # ── Prophet 30-day forecast ───────────────────────────────────────────
+        prophet_res = run_prophet_forecast(close, horizon_days=horizon_days)
+        if prophet_res.get("error"):
+            prophet_res = None
+
+        # ── XGBoost direction + full walk-forward backtest ────────────────────
+        xgb_res = run_xgb_direction(raw, forward_days=forward_days)
+        if xgb_res.get("error"):
+            xgb_res = None
+
+        if prophet_res is None and xgb_res is None:
+            return None
+
+        # ── Chart data: last 6 months of close + EMA overlays ─────────────────
+        close_6m = close.tail(126)
+        ema20    = close.ewm(span=20,  adjust=False).mean().tail(126)
+        ema50    = close.rolling(50, min_periods=1).mean().tail(126)
+        ema200   = close.ewm(span=200, adjust=False).mean().tail(126)
+
+        def _series_to_dict(s: pd.Series) -> dict:
+            return {"dates": [str(d) for d in s.index], "values": [float(v) for v in s.values]}
+
+        result: dict = {
+            "price":       float(close.iloc[-1]),
+            "computed_at": datetime.utcnow().isoformat(),
+            "close_6m": {
+                "dates":  [str(d) for d in close_6m.index],
+                "prices": [float(v) for v in close_6m.values],
+            },
+            "ema": {
+                "ema20":  _series_to_dict(ema20),
+                "ema50":  _series_to_dict(ema50),
+                "ema200": _series_to_dict(ema200),
+            },
+        }
+
+        # XGBoost fields
+        if xgb_res:
+            result.update({
+                "xgb_prob":            xgb_res["prob_up"],
+                "xgb_direction":       xgb_res["direction"],
+                "xgb_signal":          xgb_res["signal_label"],
+                "xgb_accuracy":        xgb_res["backtest_accuracy"],
+                "n_train_bars":        xgb_res["n_train_bars"],
+                "n_features":          xgb_res["n_features"],
+                "backtest_monthly":    xgb_res["backtest_monthly"],
+                "feature_importance":  xgb_res["feature_importance"],
+            })
+
+        # Prophet fields
+        if prophet_res:
+            result.update({
+                "prophet_trend":     prophet_res["trend_direction"],
+                "prophet_trend_pct": prophet_res["trend_pct"],
+                "prophet_forecast": {
+                    "history_dates":  [str(d) for d in prophet_res["history_dates"]],
+                    "history_prices": prophet_res["history_prices"],
+                    "forecast_dates": [str(d) for d in prophet_res["forecast_dates"]],
+                    "yhat":           prophet_res["yhat"],
+                    "yhat_lower":     prophet_res["yhat_lower"],
+                    "yhat_upper":     prophet_res["yhat_upper"],
+                },
+            })
+
+        return result
+
+    except Exception:
+        return None
