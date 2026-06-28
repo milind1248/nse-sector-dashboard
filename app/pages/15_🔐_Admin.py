@@ -280,6 +280,31 @@ if r5c5.button("▶ Run", key="btn_sh", use_container_width=True):
             st.error(f"Pipeline failed: {e}")
     st.rerun()
 
+# ── Row 6: AI Scan ───────────────────────────────────────────────────────────
+r6c1, r6c2, r6c3, r6c4, r6c5 = st.columns([2, 3, 4, 3, 2])
+r6c1.markdown("6")
+r6c2.markdown("🤖 AI Forecast")
+r6c3.markdown("AI Scan — XGBoost direction signal for all dashboard stocks · stored to DB (~3–5 min)")
+r6c4.markdown(_last_run_for("ai_scan_daily"))
+if r6c5.button("▶ Run", key="btn_ai", use_container_width=True):
+    with st.spinner("Running AI scan for all dashboard stocks (~3–5 min)…"):
+        try:
+            from backend.data_ingestion.ai_scan_pipeline import run_ai_scan_pipeline
+            from backend.data_ingestion.job_logger import log_start, log_finish
+            rid = log_start("ai_scan_daily",
+                            "AI Scan — XGBoost Direction (All Dashboard Stocks)", "admin")
+            summary = run_ai_scan_pipeline(triggered_by="admin")
+            log_finish(rid, "success", records_done=summary.get("total", 0))
+            st.cache_data.clear()
+            st.success(
+                f"✅ AI scan complete — {summary.get('total', 0)} signals stored "
+                f"({summary.get('bullish', 0)} bullish · {summary.get('bearish', 0)} bearish)"
+            )
+        except Exception as e:
+            log_finish(rid, "failed", error_msg=str(e))
+            st.error(f"AI scan failed: {e}")
+    st.rerun()
+
 st.markdown("---")
 
 # ── Data Inventory ────────────────────────────────────────────────────────────

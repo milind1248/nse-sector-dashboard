@@ -65,24 +65,26 @@ with st.expander("📋 Aligned Signals — All Dashboard Stocks (Both Models Agr
     h1, h2 = st.columns([5, 2])
     with h1:
         if age is None:
-            st.caption(f"🕐 No scan data yet. Click **Run Scan** to generate signals across {_n_stocks} unique stocks (~3–5 min).")
+            st.caption(f"🕐 No scan data yet — auto-scan runs daily at **9 PM IST** via scheduler. Click **Force Scan** to run now (~3–5 min).")
         elif age == 0:
-            st.caption(f"✅ Scanned today across {_n_stocks} stocks · Results load instantly from DB · For research only.")
+            st.caption(f"✅ Scanned **today** across {_n_stocks} stocks · Auto-refreshes nightly at 9 PM IST · For research only.")
+        elif age <= 2:
+            st.caption(f"✅ Last scanned **{age} day(s) ago** · Auto-refreshes nightly · {_n_stocks} stocks · For research only.")
         else:
-            st.caption(f"⚠️ Last scanned **{age} day(s) ago** · Click **Run Scan** to refresh · {_n_stocks} unique stocks.")
+            st.caption(f"⚠️ Last scanned **{age} day(s) ago** — scheduler may be offline. Click **Force Scan** to refresh manually.")
     with h2:
-        run_scan_btn = st.button("🔄 Run Scan", type="primary", use_container_width=True,
-                                 help=f"Scans {_n_stocks} stocks with XGBoost + EMA trend (~3–5 min). Results saved to DB.")
+        run_scan_btn = st.button("⚡ Force Scan", type="secondary", use_container_width=True,
+                                 help=f"Runs immediately. Normally auto-triggered by scheduler at 9 PM IST. Scans {_n_stocks} stocks (~3–5 min).")
 
     # ── Run scan if button clicked ────────────────────────────────────────────
     if run_scan_btn:
-        from backend.calculations.ai_forecast import run_market_scan
-        prog = st.progress(0, text="Starting scan…")
+        from backend.data_ingestion.ai_scan_pipeline import run_ai_scan_pipeline
         with st.spinner(f"Scanning {_n_stocks} stocks — please wait (~3–5 min)…"):
-            results = run_market_scan(forward_days=5, stock_list=_scan_stock_list)
-        prog.progress(100, text="Saving to database…")
-        store_scan(results)
-        st.success(f"✅ Scan complete — {len(results)} aligned signals found across {_n_stocks} stocks.")
+            summary = run_ai_scan_pipeline(triggered_by="manual")
+        st.success(
+            f"✅ Scan complete — {summary['total']} signals stored "
+            f"({summary['bullish']} bullish · {summary['bearish']} bearish)"
+        )
         st.cache_data.clear()
         st.rerun()
 
@@ -122,7 +124,7 @@ with st.expander("📋 Aligned Signals — All Dashboard Stocks (Both Models Agr
             else:
                 st.info("No bearish aligned signals in last scan.")
     else:
-        st.info(f"No scan data in database yet. Click **🔄 Run Scan** above to generate signals.")
+        st.info(f"No scan data yet — scheduler runs automatically at 9 PM IST. Click **⚡ Force Scan** above to run now.")
 
 st.markdown("---")
 
