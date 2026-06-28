@@ -175,26 +175,31 @@ def run_market_pulse_pipeline(triggered_by: str = "scheduler") -> dict:
     now_utc    = pd.Timestamp.utcnow().isoformat()
     summary    = {}
 
-    # ── Breadth ───────────────────────────────────────────────────────────────
+    # ── Breadth — determines the canonical market/data date ──────────────────
+    # Bhavcopy filename encodes the actual trading day (e.g. Friday 25-Jun even
+    # if the job runs on Sunday 28-Jun). All three tables use this date so that
+    # "trade_date" always means the market date, not the job-run date.
     logger.info("Market Pulse pipeline: fetching Bhavcopy breadth...")
     breadth = _fetch_breadth(today)
     if breadth:
+        market_date = breadth["trade_date"]   # actual trading day from Bhavcopy
         con = _db()
         con.execute("""
             INSERT OR REPLACE INTO market_breadth
             (trade_date, advance, decline, unchanged, ad_ratio, updated_at)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (breadth["trade_date"], breadth["advance"], breadth["decline"],
+        """, (market_date, breadth["advance"], breadth["decline"],
               breadth["unchanged"], breadth["ad_ratio"], now_utc))
         con.commit(); con.close()
-        summary["breadth_date"] = breadth["trade_date"]
-        logger.info(f"Breadth stored for {breadth['trade_date']}")
+        summary["breadth_date"] = market_date
+        logger.info(f"Breadth stored for {market_date}")
     else:
-        logger.warning("Bhavcopy breadth fetch failed — skipping")
+        logger.warning("Bhavcopy breadth fetch failed — using calendar date as fallback")
+        market_date = today.isoformat()
 
     # ── Sector heatmap ────────────────────────────────────────────────────────
     logger.info("Market Pulse pipeline: computing sector returns...")
-    heatmap_rows = _fetch_sector_returns(today)
+    heatmap_rows = _fetch_sector_returns(date.fromisoformat(market_date))
     if heatmap_rows:
         con = _db()
         con.executemany("""
@@ -205,11 +210,11 @@ def run_market_pulse_pipeline(triggered_by: str = "scheduler") -> dict:
         """, heatmap_rows)
         con.commit(); con.close()
         summary["heatmap_sectors"] = len(heatmap_rows)
-        logger.info(f"Heatmap stored: {len(heatmap_rows)} sectors")
+        logger.info(f"Heatmap stored: {len(heatmap_rows)} sectors for {market_date}")
 
     # ── RRG ───────────────────────────────────────────────────────────────────
     logger.info("Market Pulse pipeline: computing RRG...")
-    rrg_rows = _fetch_rrg(today)
+    rrg_rows = _fetch_rrg(date.fromisoformat(market_date))
     if rrg_rows:
         con = _db()
         con.executemany("""
@@ -220,7 +225,7 @@ def run_market_pulse_pipeline(triggered_by: str = "scheduler") -> dict:
         """, rrg_rows)
         con.commit(); con.close()
         summary["rrg_sectors"] = len(rrg_rows)
-        logger.info(f"RRG stored: {len(rrg_rows)} sectors")
+        logger.info(f"RRG stored: {len(rrg_rows)} sectors for {market_date}")
 
     # ── Purge data older than 90 days ────────────────────────────────────────
     cutoff = (date.today() - timedelta(days=90)).isoformat()
