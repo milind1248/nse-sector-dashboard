@@ -93,6 +93,15 @@ PAGE_SEO = {
         "keywords":    "sector breakout monitor NSE, FII flow data India, technical pattern analysis, "
                        "NSE stock technical levels, sector momentum analysis",
     },
+    "AI_Forecast": {
+        "title":       "AI Stock Price Forecast | NSE Prediction | Market Sector Analysis",
+        "description": "AI-powered NSE stock price forecasting using Prophet trend model and XGBoost "
+                       "direction classifier. Walk-forward backtested accuracy on 60+ technical features. "
+                       "For educational and research purposes only. Not investment advice.",
+        "keywords":    "NSE stock price prediction AI, Indian stock forecast machine learning, "
+                       "XGBoost stock direction NSE, Prophet time series India, "
+                       "technical analysis AI NSE, stock prediction model India",
+    },
     "Contact": {
         "title":       "Contact Us | Feedback & Support | Market Sector Analysis",
         "description": "Send feedback, report data issues or request new features for the Market Sector Analysis FII dashboard.",
