@@ -458,19 +458,21 @@ _SCAN_STOCKS = [
 ]
 
 
-def run_market_scan(forward_days: int = 5) -> list[dict]:
+def run_market_scan(forward_days: int = 5, stock_list: list[tuple] | None = None) -> list[dict]:
     """
-    Quick XGBoost scan + EMA trend proxy across curated Nifty stocks.
-    No walk-forward backtest — fast enough for a pre-populated table.
-    Returns only rows where XGBoost direction and EMA trend AGREE.
+    Quick XGBoost scan + EMA trend proxy.
+    Scans all stocks passed in stock_list (defaults to _SCAN_STOCKS curated list).
+    Trend = Bullish if EMA20 slope (5d) > 0 OR EMA50 slope (10d) > 0  (either rising).
+    Returns only rows where XGBoost direction and trend AGREE.
     """
     import yfinance as yf
     from xgboost import XGBClassifier
     from sklearn.preprocessing import RobustScaler
 
+    stocks = stock_list if stock_list else _SCAN_STOCKS
     results = []
 
-    for symbol, sector in _SCAN_STOCKS:
+    for symbol, sector in stocks:
         try:
             raw = yf.download(symbol + ".NS", period="2y", interval="1d",
                               progress=False, auto_adjust=True)
@@ -482,14 +484,16 @@ def run_market_scan(forward_days: int = 5) -> list[dict]:
             if close is None or len(close) < 200:
                 continue
 
-            # ── Trend proxy: EMA50 slope + price vs EMA200 ───────────────────
-            ema50        = close.ewm(span=50, adjust=False).mean()
-            ema200       = close.ewm(span=200, adjust=False).mean()
-            ema50_slope  = (ema50.iloc[-1] - ema50.iloc[-6]) / ema50.iloc[-6] * 100
-            above_ema200 = close.iloc[-1] > ema200.iloc[-1]
-            trend = "Bullish" if (ema50_slope > 0 and above_ema200) else "Bearish"
+            # ── Trend proxy: EMA20 slope (5d) OR EMA50 slope (10d) rising ────
+            # Either EMA rising = trend has bullish lean.
+            # Removed hard EMA200 requirement — too restrictive in down markets.
+            ema20       = close.ewm(span=20,  adjust=False).mean()
+            ema50       = close.ewm(span=50,  adjust=False).mean()
+            ema20_slope = (ema20.iloc[-1] - ema20.iloc[-6])  / ema20.iloc[-6]  * 100
+            ema50_slope = (ema50.iloc[-1] - ema50.iloc[-11]) / ema50.iloc[-11] * 100
+            trend = "Bullish" if (ema20_slope > 0 or ema50_slope > 0) else "Bearish"
 
-            # ── XGBoost quick prediction ──────────────────────────────────────
+            # ── XGBoost quick prediction (no backtest) ────────────────────────
             feat    = _build_features(raw)
             fwd_ret = close.pct_change(forward_days).shift(-forward_days)
             target  = (fwd_ret > 0).astype(int)
@@ -518,22 +522,23 @@ def run_market_scan(forward_days: int = 5) -> list[dict]:
             prob_up  = float(model.predict_proba(last_row)[0][1])
             xgb_dir  = "UP" if prob_up >= 0.5 else "DOWN"
 
-            # Only keep aligned signals
+            # Only keep aligned signals (both agree)
             aligned = (xgb_dir == "UP"   and trend == "Bullish") or \
                       (xgb_dir == "DOWN" and trend == "Bearish")
             if not aligned:
                 continue
 
-            if prob_up >= 0.68:
+            # Label — lowered thresholds so moderate signals show up too
+            if prob_up >= 0.65:
                 sig = "Strong Buy"
-            elif prob_up >= 0.58:
+            elif prob_up >= 0.55:
                 sig = "Buy"
-            elif prob_up <= 0.32:
+            elif prob_up <= 0.35:
                 sig = "Strong Sell"
-            elif prob_up <= 0.42:
+            elif prob_up <= 0.45:
                 sig = "Sell"
             else:
-                continue   # too neutral
+                continue   # genuinely neutral, skip
 
             results.append({
                 "Symbol":    symbol,

@@ -30,15 +30,22 @@ st.caption(
 )
 
 # ── Pre-populated aligned signals scan ───────────────────────────────────────
-@st.cache_data(ttl=86400, show_spinner=False)
-def _load_scan():
-    from backend.calculations.ai_forecast import run_market_scan
-    return run_market_scan(forward_days=5)
+# Build full stock list from all 186 dashboard stocks
+_scan_stock_list: list[tuple[str, str]] = []
+for _sec, _syms in sorted(SECTOR_STOCKS.items()):
+    for _sym in _syms:
+        _scan_stock_list.append((_sym.replace(".NS", ""), _sec))
 
-with st.expander("📋 Aligned Signals — Nifty Stocks (Both Models Agree)", expanded=True):
-    st.caption("XGBoost direction + EMA trend both pointing the same way. Refreshed once daily. For research only.")
-    with st.spinner("Scanning 28 Nifty stocks… (~60s on first load, instant after)"):
-        scan_data = _load_scan()
+@st.cache_data(ttl=86400, show_spinner=False)
+def _load_scan(stock_list):
+    from backend.calculations.ai_forecast import run_market_scan
+    return run_market_scan(forward_days=5, stock_list=stock_list)
+
+_n_stocks = len(_scan_stock_list)
+with st.expander("📋 Aligned Signals — All Dashboard Stocks (Both Models Agree)", expanded=True):
+    st.caption(f"XGBoost direction + EMA trend both pointing the same way across {_n_stocks} stocks. Refreshed once daily. For research only.")
+    with st.spinner(f"Scanning {_n_stocks} stocks… (first load ~3–5 min, instant after)"):
+        scan_data = _load_scan(tuple(_scan_stock_list))
 
     if scan_data:
         scan_df = pd.DataFrame(scan_data)
