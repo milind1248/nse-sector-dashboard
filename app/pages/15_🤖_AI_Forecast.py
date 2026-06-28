@@ -394,7 +394,8 @@ with col_right:
 # ── Methodology note ──────────────────────────────────────────────────────────
 st.markdown("---")
 with st.expander("📖 Model Methodology"):
-    st.markdown(f"""
+    st.markdown(f"""<div style='font-size:12px;line-height:1.6;color:#b0bec5'>
+
 **Prophet (Trend Forecast)**
 - Facebook/Meta time-series model with weekly + yearly seasonality and Indian market holidays
 - Outputs 30-day price path with 80% confidence band
@@ -402,24 +403,22 @@ with st.expander("📖 Model Methodology"):
 
 **XGBoost Direction Classifier**
 - Gradient-boosted trees trained on 60+ features per trading day
-- Features include: lag returns (1–21d), RSI slope, EMA distances, MACD histogram,
-  ADX, ATR, Bollinger Band position, volume spike, candlestick patterns,
-  day-of-week/month seasonality, 52-week position, HH/HL structure
+- Features: lag returns (1–21d), RSI slope, EMA distances, MACD histogram, ADX, ATR,
+  Bollinger Band position, volume spike, candlestick patterns, calendar seasonality, 52w position
 - Target: did close price go UP in the next **{xgb_fwd_days} trading days**?
-- Prediction probability > 58% = bullish lean; < 42% = bearish lean
+- Probability > 58% = bullish lean; < 42% = bearish lean
 
 **Walk-Forward Backtesting**
-- **Training window:** rolling 252 bars (1 year)
-- **Test window:** next 21 bars (1 month)
-- **Slide:** 21 bars — no look-ahead bias
-- Result: ~12 independent test folds → overall directional accuracy shown
+- Training window: rolling 252 bars · Test window: next 21 bars · Slide: 21 bars (no look-ahead bias)
+- ~12 independent test folds → overall directional accuracy shown
 
 **Realistic Expectations**
 - Typical accuracy range on liquid NSE stocks: **55–67%**
 - Accuracy > 50% = model has edge over coin flip
 - Higher accuracy on trending stocks (ADX > 20); lower on sideways markets
 - Past backtest accuracy does not guarantee future results
-""")
+
+</div>""", unsafe_allow_html=True)
 
 from app.utils.disclaimer import show_footer
 show_footer()
