@@ -32,6 +32,38 @@ tab_breakout, tab_ema, tab_hm = st.tabs([
     "🎯 H-M Scanner",
 ])
 
+# Pre-render loading skeletons into tabs 2 and 3 BEFORE any scanner starts.
+# Without this, clicking those tabs during the ~30s breakout scan shows a blank.
+_LOADING_CSS = """
+<style>
+@keyframes _pulse{0%{opacity:1}50%{opacity:.4}100%{opacity:1}}
+._scan-loading{border-radius:8px;padding:28px 24px;margin:12px 0;
+  background:#1e2130;animation:_pulse 1.6s ease-in-out infinite;
+  color:#8899bb;font-size:15px;text-align:center;letter-spacing:.5px;}
+._scan-bar{height:12px;border-radius:6px;background:#2e3350;margin:10px auto;
+  animation:_pulse 1.6s ease-in-out infinite;}
+</style>"""
+
+with tab_ema:
+    _ema_ph = st.empty()
+    _ema_ph.markdown(_LOADING_CSS + """
+<div class="_scan-loading">⏳ <strong>20 EMA Pullback Scanner</strong> is queued —
+Breakout scan running first…<br>
+<small>Loads automatically once ready (~60 s on first visit)</small></div>
+<div class="_scan-bar" style="width:70%"></div>
+<div class="_scan-bar" style="width:50%"></div>
+<div class="_scan-bar" style="width:85%"></div>""", unsafe_allow_html=True)
+
+with tab_hm:
+    _hm_ph = st.empty()
+    _hm_ph.markdown(_LOADING_CSS + """
+<div class="_scan-loading">⏳ <strong>H-M Scanner</strong> is queued —
+other scans loading first…<br>
+<small>Loads automatically once ready (~90 s on first visit)</small></div>
+<div class="_scan-bar" style="width:60%"></div>
+<div class="_scan-bar" style="width:80%"></div>
+<div class="_scan-bar" style="width:45%"></div>""", unsafe_allow_html=True)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — BREAKOUT ALERTS (existing, unchanged)
@@ -168,6 +200,7 @@ with tab_breakout:
 # TAB 2 — 20 EMA PULLBACK SCANNER
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_ema:
+    _ema_ph.empty()
     st.subheader("📈 NSE Swing Trading — 20 EMA Pullback Scanner")
     st.caption(
         "Identifies stocks in a confirmed uptrend pulling back toward the rising 20 EMA — "
@@ -559,10 +592,14 @@ with tab_ema:
             # ── Stock drilldown ────────────────────────────────────────────────
             st.markdown("---")
             st.markdown("**Stock Drilldown**")
-            drill_sym = st.selectbox(
+            _dd1, _dd2 = st.columns([4, 1])
+            drill_sym = _dd1.selectbox(
                 "Select a stock to view price vs 20 EMA:",
                 display["Symbol"].tolist(),
                 key="ema_drill"
+            )
+            ema_chart_type = _dd2.radio(
+                "Chart", ["Line", "Candle"], horizontal=True, key="ema_chart_type"
             )
             if drill_sym:
                 import yfinance as yf
@@ -572,7 +609,7 @@ with tab_ema:
                     dr_close = _get_close(dr_raw)
                     if dr_close is not None and not dr_close.empty:
                         dr_ema20 = dr_close.ewm(span=20, adjust=False).mean()
-                        dr_sma50 = dr_close.rolling(50).mean()
+                        dr_sma50 = dr_close.rolling(50, min_periods=1).mean()
 
                         # ── Detect buy signal bars (bounce off 20 EMA) ────────
                         sig_x, sig_y = [], []
@@ -588,8 +625,24 @@ with tab_ema:
                                 sig_y.append(p * 0.995)  # place circle just below bar
 
                         fig_d = go.Figure()
-                        fig_d.add_trace(go.Scatter(x=dr_close.index, y=dr_close,
-                                                   name="Close", line=dict(color="#90CAF9", width=1.5)))
+                        if ema_chart_type == "Candle":
+                            try:
+                                fig_d.add_trace(go.Candlestick(
+                                    x=list(dr_close.index),
+                                    open=dr_raw["Open"].squeeze(),
+                                    high=dr_raw["High"].squeeze(),
+                                    low=dr_raw["Low"].squeeze(),
+                                    close=dr_raw["Close"].squeeze(),
+                                    name="OHLC",
+                                    increasing_line_color="#00C853",
+                                    decreasing_line_color="#D50000",
+                                ))
+                            except Exception:
+                                fig_d.add_trace(go.Scatter(x=dr_close.index, y=dr_close,
+                                                           name="Close", line=dict(color="#90CAF9", width=1.5)))
+                        else:
+                            fig_d.add_trace(go.Scatter(x=dr_close.index, y=dr_close,
+                                                       name="Close", line=dict(color="#90CAF9", width=1.5)))
                         fig_d.add_trace(go.Scatter(x=dr_ema20.index, y=dr_ema20,
                                                    name="20 EMA", line=dict(color="#FFD600", width=2)))
                         fig_d.add_trace(go.Scatter(x=dr_sma50.index, y=dr_sma50,
@@ -607,6 +660,7 @@ with tab_ema:
                             legend=dict(orientation="h", y=1.05),
                             margin=dict(t=50, b=30),
                             hovermode="x unified",
+                            xaxis_rangeslider_visible=False,
                         )
                         st.plotly_chart(fig_d, use_container_width=True)
                         if sig_x:
@@ -633,6 +687,7 @@ with tab_ema:
 # via Stochastic crossover, MACD histogram turn, and bullish price action.
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_hm:
+    _hm_ph.empty()
     st.subheader("🎯 H-M Scanner — RSI(9) Momentum Reversal")
     st.caption(
         "Scans for stocks in an uptrend where RSI(9) has pulled below 50 and is "
@@ -1053,7 +1108,7 @@ with tab_hm:
                     hd_close = _get_close(hd_raw)
                     if hd_close is not None and not hd_close.empty:
                         hd_ema20  = hd_close.ewm(span=20,  adjust=False).mean()
-                        hd_sma50  = hd_close.rolling(50).mean()
+                        hd_sma50  = hd_close.rolling(50, min_periods=1).mean()
 
                         # RSI(9) series for subplot
                         hd_d9   = hd_close.diff()
