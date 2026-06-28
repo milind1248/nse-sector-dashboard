@@ -59,10 +59,20 @@ def get_breadth():
 
 col_h, col_ref = st.columns([6, 1])
 col_h.title("📡 Market Pulse")
-if col_ref.button("🔄 Refresh", use_container_width=True):
-    get_market_summary.clear()
-    get_breadth.clear()
-    st.rerun()
+from app.utils.auth import is_admin
+if is_admin():
+    if col_ref.button("🔄 Refresh Data", use_container_width=True):
+        from backend.data_ingestion.job_logger import log_start, log_finish
+        rid = log_start("market_pulse_refresh", "Market Pulse Cache Clear", "admin")
+        try:
+            get_market_summary.clear()
+            get_breadth.clear()
+            log_finish(rid, "success")
+        except Exception as _e:
+            log_finish(rid, "failed", error_msg=str(_e))
+        st.rerun()
+else:
+    col_ref.caption("🔒 Admin only.")
 st.caption("Overall market breadth, sector heatmap, and RRG rotation at a glance.")
 
 with st.spinner("Loading market data..."):

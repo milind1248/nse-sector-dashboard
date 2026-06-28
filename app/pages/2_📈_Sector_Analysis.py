@@ -338,7 +338,7 @@ if sector_df is not None and not sector_df.empty:
                     )
 
 else:
-    st.warning(f"No price data available for {sector} index. Check config.py for the correct Yahoo Finance symbol.")
+    st.warning(f"No price data available for {sector} index. Check config.py for the correct market symbol.")
 
 # ── EMA levels table ──────────────────────────────────────────────────────────
 if close and any(v for v in [ema20, ema50, ema200]):

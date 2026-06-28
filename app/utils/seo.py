@@ -76,6 +76,15 @@ PAGE_SEO = {
         "keywords":    "Nifty market breadth, advance decline ratio NSE, RRG relative rotation graph India, "
                        "India VIX chart, market health indicator NSE, Nifty 50 analysis",
     },
+    "FII_Accumulation": {
+        "title":       "FII Accumulation Screener | Quarterly Shareholding Change | Market Sector Analysis",
+        "description": "Screen NSE stocks by FII/FPI quarterly shareholding changes derived from "
+                       "BSE/NSE regulatory filings. Identify stocks where Foreign Institutional Investors "
+                       "have increased holdings over consecutive quarters. For research and educational reference only. Not investment advice.",
+        "keywords":    "FII accumulation screener NSE, FII shareholding increase India, "
+                       "FPI quarterly holding change, institutional accumulation stocks NSE, "
+                       "FII buying stocks quarterly India, shareholding pattern change screener",
+    },
     "Alerts": {
         "title":       "Technical Alerts | Sector Breakout & Reversal Patterns | Market Sector Analysis",
         "description": "Monitor stocks crossing key technical levels across all sectors. "

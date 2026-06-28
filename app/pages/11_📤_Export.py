@@ -32,7 +32,7 @@ st.markdown("""
 | 1_Summary | Dashboard overview — sector counts, FII net, history depth |
 | 2_Sector_Analysis | Daily sector snapshot — RSI, EMA, MACD, momentum score, A/D ratio |
 | 3_Heatmap | % returns (1W / 2W / 1M / 3M / 6M / 1Y) per sector |
-| 4_Sector_Live_Scores | Live sector scores + EMA signals from Yahoo Finance |
+| 4_Sector_Live_Scores | Live sector scores + EMA signals from market price feeds |
 | 5_Index_Stocks | All index constituents — company, symbol, weightage %, market cap |
 | 6_Stock_Snapshot | Individual stock indicators — RSI, EMA, FII/DII holding %, 52W high/low |
 | 7_FII_DII_Daily | FII & DII daily buy/sell/net flow — full accumulated history |

@@ -222,7 +222,7 @@ with tab_analysis:
     if "price_analysis_loaded" not in st.session_state:
         st.info(
             "**📈 Price data not yet loaded.**\n\n"
-            "This tab fetches 1-year price history for 20+ Nifty sector indices from Yahoo Finance. "
+            "This tab fetches 1-year price history for 20+ Nifty sector indices from market price feeds. "
             "It takes **10–20 seconds** on first load, then is cached for 24 hours.\n\n"
             "Click below when you're ready."
         )
@@ -231,11 +231,11 @@ with tab_analysis:
             st.rerun()
         st.stop()
 
-    with st.status("🌐 Fetching sector index prices from Yahoo Finance…", expanded=True) as _syf:
+    with st.status("🌐 Fetching sector index prices…", expanded=True) as _syf:
         st.write("Downloading 1-year OHLCV data for Nifty Bank, IT, Auto, Pharma and 17 more indices.")
         st.write("⏱️ First load: ~10–20 seconds. After that, served from cache for 24 hours.")
         sector_prices, SECTOR_STOCKS, SECTOR_INDICES = load_sector_prices_analysis()
-        _syf.update(label="✅ Sector prices loaded · Source: Yahoo Finance",
+        _syf.update(label="✅ Sector prices loaded · Source: Market price feeds",
                     state="complete", expanded=False)
 
     # Pick fortnight and look-back window

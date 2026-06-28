@@ -141,7 +141,7 @@ who follow FII (Foreign Institutional Investor) sector flows.
 **📊 What we track**
 - Fortnightly FII/FPI sector investment (NSDL)
 - Daily FII + DII buy/sell flow (NSE India)
-- Nifty sector index prices (Yahoo Finance)
+- Nifty sector index prices (exchange price feeds)
 - 5+ years of historical sector data
 
 ---
@@ -153,7 +153,7 @@ Dashboard updates automatically on those dates.
 **🔗 Data Sources**
 - [NSDL FPI Data](https://www.fpi.nsdl.co.in)
 - [NSE India](https://www.nseindia.com)
-- [Yahoo Finance](https://finance.yahoo.com)
+- Exchange price data (publicly available market feeds)
 
 ---
 **⚡ Response Time**

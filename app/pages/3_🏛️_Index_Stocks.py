@@ -77,7 +77,7 @@ st.caption("Select a sector → choose an index → view constituent stocks with
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA SYNC PANEL
 # ══════════════════════════════════════════════════════════════════════════════
-with st.expander("🔄 Data Sync — NSE India + Yahoo Finance", expanded=False):
+with st.expander("🔄 Data Sync — NSE India + Market Price Feeds", expanded=False):
     last = get_last_sync(_DB)
     sc1, sc2, sc3 = st.columns([3, 3, 2])
 
@@ -85,7 +85,7 @@ with st.expander("🔄 Data Sync — NSE India + Yahoo Finance", expanded=False)
         st.markdown("**Data Sources**")
         st.markdown(
             "- 🏛️ **NSE India archives** — live constituent list per index  \n"
-            "- 💹 **Yahoo Finance** — market cap & last price per stock  \n"
+            "- 💹 **Market price feeds** — market cap & last price per stock  \n"
             "- 📐 **Calculated** — weightage % from market cap"
         )
     with sc2:
@@ -101,10 +101,15 @@ with st.expander("🔄 Data Sync — NSE India + Yahoo Finance", expanded=False)
             st.markdown("⚠️ Never synced — data is from Excel seed file")
 
     with sc3:
+        from app.utils.auth import is_admin
         st.markdown("**Actions**")
-        do_sync = st.button("🔄 Sync Now", type="primary", use_container_width=True,
-                            help="Fetch latest constituent list from NSE and market caps from Yahoo Finance")
-        st.caption("Takes ~5–8 min · All 34 indices")
+        if is_admin():
+            do_sync = st.button("🔄 Refresh Data", type="primary", use_container_width=True,
+                                help="Fetch latest constituent list from NSE and market caps from price feeds")
+            st.caption("Takes ~5–8 min · All 34 indices")
+        else:
+            st.caption("🔒 Sync is admin-only.")
+            do_sync = False
 
     if do_sync:
         prog_bar  = st.progress(0.0)
@@ -115,7 +120,9 @@ with st.expander("🔄 Data Sync — NSE India + Yahoo Finance", expanded=False)
             prog_bar.progress(min(pct, 1.0))
             prog_text.markdown(f"⏳ {msg}")
 
-        with st.spinner("Syncing data from NSE India + Yahoo Finance…"):
+        from backend.data_ingestion.job_logger import log_start, log_finish
+        _rid = log_start("index_stocks_sync", "Index Stocks Sync (NSE + Yahoo Finance)", "admin")
+        with st.spinner("Syncing data from NSE India + market price feeds…"):
             try:
                 result = sync_all(str(_DB), progress_cb=_progress)
                 prog_bar.progress(1.0)
@@ -123,6 +130,7 @@ with st.expander("🔄 Data Sync — NSE India + Yahoo Finance", expanded=False)
 
                 ok   = result["indices_ok"]
                 fail = result["indices_failed"]
+                log_finish(_rid, "success", records_done=result.get("stocks_total", 0))
                 result_box.success(
                     f"✅ Sync complete!  \n"
                     f"**{ok}** indices synced · **{result['stocks_total']}** stocks  \n"
@@ -135,6 +143,7 @@ with st.expander("🔄 Data Sync — NSE India + Yahoo Finance", expanded=False)
                 )
             except Exception as e:
                 prog_text.empty()
+                log_finish(_rid, "failed", error_msg=str(e))
                 result_box.error(f"❌ Sync failed: {e}")
 
         # Clear cache so page reloads with fresh data
@@ -525,7 +534,7 @@ with st.spinner(f"Loading {idx_label} price data…"):
     ohlcv = fetch_index_ohlcv(yf_sym, period)
 
 if ohlcv is None or ohlcv.empty:
-    st.info(f"Price data not available for {idx_label} ({yf_sym}). This index may not be on Yahoo Finance.")
+    st.info(f"Price data not available for {idx_label}. This index may not be available from market price feeds.")
 else:
     # Compute EMA 20 & EMA 50
     close_col = next((c for c in ohlcv.columns if c.lower() == "close"), None)
@@ -623,7 +632,7 @@ else:
             f"**{idx_label}** &nbsp;|&nbsp; Last close: "
             f"<span style='color:{color};font-weight:700'>{last_close:,.2f} "
             f"{arrow} {abs(chg_pct):.2f}%</span> &nbsp;|&nbsp; "
-            f"Yahoo Finance symbol: `{yf_sym}` &nbsp;|&nbsp; "
+            f"Index symbol: `{yf_sym}` &nbsp;|&nbsp; "
             f"Data delayed · Not investment advice",
             unsafe_allow_html=True,
         )

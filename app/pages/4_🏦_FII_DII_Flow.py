@@ -30,9 +30,19 @@ def load_nsdl_latest():
 
 col_title, col_refresh = st.columns([6, 1])
 with col_refresh:
-    if st.button("🔄 Refresh", use_container_width=True):
-        load_daily_fii_all.clear()
-        st.rerun()
+    from app.utils.auth import is_admin
+    if is_admin():
+        if st.button("🔄 Refresh Data", use_container_width=True):
+            from backend.data_ingestion.job_logger import log_start, log_finish
+            rid = log_start("sector_snapshot", "Sector Snapshot (FII/DII + Breadth + Prices)", "admin")
+            try:
+                load_daily_fii_all.clear()
+                log_finish(rid, "success")
+            except Exception as _e:
+                log_finish(rid, "failed", error_msg=str(_e))
+            st.rerun()
+    else:
+        st.caption("🔒 Admin only.")
 
 tabs = st.tabs(["📅 Daily Flow", "📊 Fortnightly Sector Breakdown"])
 

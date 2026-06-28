@@ -133,13 +133,24 @@ with st.sidebar:
 <span style="color:#3a5a8a;">⑦</span> 🌏 <b>FPI Sectors</b> <span style="color:#555;">→ Foreign portfolio by sector</span><br>
 <span style="color:#3a5a8a;">⑧</span> 🎯 <b>Stock Screener</b> <span style="color:#555;">→ Stocks in selected sector</span><br>
 <span style="color:#3a5a8a;">⑨</span> 💰 <b>Smart Money</b> <span style="color:#555;">→ Delivery % + Action + FO OI signals</span><br>
-<span style="color:#3a5a8a;">⑩</span> 🔔 <b>Alerts</b> <span style="color:#555;">→ Breakouts & reversals</span><br>
-<span style="color:#3a5a8a;">⑪</span> 📤 <b>Export</b> <span style="color:#555;">→ Download for offline use</span>
+<span style="color:#3a5a8a;">⑩</span> 📊 <b>FII Accumulation</b> <span style="color:#555;">→ Quarterly FII shareholding changes</span><br>
+<span style="color:#3a5a8a;">⑪</span> 🔔 <b>Alerts</b> <span style="color:#555;">→ Breakouts & reversals</span><br>
+<span style="color:#3a5a8a;">⑫</span> 📤 <b>Export</b> <span style="color:#555;">→ Download for offline use</span><br>
+<span style="color:#3a5a8a;">⑬</span> 🔐 <b>Admin</b> <span style="color:#555;">→ Job monitor & pipeline triggers</span>
 </div>
 """, unsafe_allow_html=True)
     st.markdown("---")
-    if st.button("🔄 Refresh Latest Data", use_container_width=True,
-                  help="Fetches today's latest NSDL + price data only. Old historical data stays."):
+    from app.utils.auth import is_admin
+    if is_admin():
+        _do_refresh = st.button("🔄 Refresh Data", use_container_width=True,
+                                help="Fetches today's latest NSDL + price data only. Old historical data stays.")
+    else:
+        st.caption("🔒 Data refresh is admin-only.")
+        _do_refresh = False
+    if _do_refresh:
+        from backend.data_ingestion.job_logger import log_start, log_finish as _lf
+        _home_rid = log_start("sector_snapshot", "Sector Snapshot (FII/DII + Breadth + Prices)", "admin")
+        _home_err = None
         bar = st.progress(0, text="Clearing cache...")
         st.cache_data.clear()
         try:
@@ -156,6 +167,7 @@ with st.sidebar:
             _nsdl_mod.sync_nsdl_to_db(force_refresh_latest=True)
         except Exception as e:
             st.warning(f"NSDL: {e}")
+            _home_err = str(e)
 
         bar.progress(55, text="Fetching latest FII/DII daily flow...")
         try:
@@ -164,6 +176,7 @@ with st.sidebar:
             fetch_market_breadth()
         except Exception as e:
             st.warning(f"FII/DII: {e}")
+            _home_err = str(e)
 
         bar.progress(80, text="Fetching sector index prices...")
         try:
@@ -171,8 +184,10 @@ with st.sidebar:
             fetch_all_sector_prices()
         except Exception as e:
             st.warning(f"Sector prices: {e}")
+            _home_err = str(e)
 
         bar.progress(100, text="Done!")
+        _lf(_home_rid, "failed" if _home_err else "success", error_msg=_home_err)
         st.success("Latest data loaded! Reloading page...")
         st.rerun()
 
