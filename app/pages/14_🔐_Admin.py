@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime, date, timezone, timedelta
 
 _IST = timezone(timedelta(hours=5, minutes=30))
+_DB_PATH = Path(__file__).parent.parent.parent / "data" / "nse_dashboard.db"
 
 def _to_ist(ts: str | None) -> str:
     """Convert a UTC ISO timestamp string to IST display string."""
@@ -275,6 +276,93 @@ if r5c5.button("▶ Run", key="btn_sh", use_container_width=True):
         except Exception as e:
             st.error(f"Pipeline failed: {e}")
     st.rerun()
+
+st.markdown("---")
+
+# ── Data Inventory ────────────────────────────────────────────────────────────
+st.subheader("Data Inventory")
+st.caption("Rows and date range stored per table, ordered by menu sequence.")
+
+def _table_stats(tbl: str, date_col: str) -> dict:
+    try:
+        con = sqlite3.connect(_DB_PATH)
+        row = con.execute(
+            f"SELECT COUNT(DISTINCT {date_col}), MIN({date_col}), MAX({date_col}) FROM {tbl}"
+        ).fetchone()
+        total = con.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+        con.close()
+        days, mn, mx = row
+        return {"days": days or 0, "rows": total, "oldest": mn or "—", "latest": mx or "—"}
+    except Exception:
+        return {"days": 0, "rows": 0, "oldest": "—", "latest": "—"}
+
+def _fmt_date(d: str) -> str:
+    try:
+        return date.fromisoformat(d[:10]).strftime("%d %b %Y")
+    except Exception:
+        return d or "—"
+
+_inventory = [
+    # (Page, Table, date_col, label)
+    ("📡 Market Pulse",       "market_breadth",    "trade_date", "Breadth (advance/decline)"),
+    ("📡 Market Pulse",       "sector_heatmap",    "trade_date", "Sector Heatmap"),
+    ("📡 Market Pulse",       "rrg_snapshot",      "trade_date", "RRG Snapshot"),
+    ("📈 Sector Analysis",    "daily_sector_snapshot", "date",   "Sector Prices & Returns"),
+    ("🏦 FII DII Flow",       "fii_dii_daily",     "date",       "FII/DII Daily Flow"),
+    ("💰 Smart Money",        "daily_stock_snapshot",  "date",   "Stock Delivery & OI"),
+    ("💰 Smart Money",        "smart_money_history",   "trade_date", "Smart Money Signals"),
+    ("📊 FII Accumulation",   "shareholding_pattern",  None,     "Shareholding Pattern"),
+]
+
+inv_rows = []
+for page, tbl, dcol, label in _inventory:
+    if dcol:
+        s = _table_stats(tbl, dcol)
+        inv_rows.append({
+            "Page": page,
+            "Table / Data": label,
+            "Days stored": s["days"] if s["days"] else "—",
+            "Total rows": f"{s['rows']:,}",
+            "Oldest": _fmt_date(s["oldest"]),
+            "Latest": _fmt_date(s["latest"]),
+        })
+    else:
+        try:
+            con = sqlite3.connect(_DB_PATH)
+            total = con.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+            con.close()
+        except Exception:
+            total = 0
+        inv_rows.append({
+            "Page": page,
+            "Table / Data": label,
+            "Days stored": "N/A",
+            "Total rows": f"{total:,}",
+            "Oldest": "—",
+            "Latest": "—",
+        })
+
+inv_df = pd.DataFrame(inv_rows)
+
+def _color_days(val):
+    if val == "—" or val == "N/A":
+        return "color: #888"
+    try:
+        n = int(val)
+        if n == 0:
+            return "color: #EF5350; font-weight:bold"
+        if n < 5:
+            return "color: #FF6D00"
+        return "color: #00C853"
+    except Exception:
+        return ""
+
+st.dataframe(
+    inv_df.style.applymap(_color_days, subset=["Days stored"]),
+    use_container_width=True,
+    hide_index=True,
+    height=38 + len(inv_rows) * 35,
+)
 
 st.markdown("---")
 
