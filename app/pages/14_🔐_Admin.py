@@ -155,13 +155,40 @@ hc4.markdown("**Last Run (IST)**")
 hc5.markdown("**Action**")
 st.divider()
 
-# ── Row 1: Sector Snapshot ────────────────────────────────────────────────────
+# ── Row 1: Market Pulse Snapshot ─────────────────────────────────────────────
 r1c1, r1c2, r1c3, r1c4, r1c5 = st.columns([2, 3, 4, 3, 2])
 r1c1.markdown("1")
-r1c2.markdown("📈 Sector Analysis · 🏦 FII DII Flow · 🏢 FII Sectors · 🏠 Home")
-r1c3.markdown("Sector Snapshot — FII/DII flows, sector prices, breadth data")
-r1c4.markdown(_last_run_for("sector_snapshot"))
-if r1c5.button("▶ Run", key="btn_sector", use_container_width=True):
+r1c2.markdown("📡 Market Pulse")
+r1c3.markdown("Market Pulse Snapshot — Bhavcopy breadth + sector heatmap + RRG → stored in DB (~3–5 min)")
+r1c4.markdown(_last_run_for("market_pulse_snapshot"))
+if r1c5.button("▶ Run", key="btn_mps", use_container_width=True):
+    with st.spinner("Running Market Pulse pipeline…"):
+        try:
+            from backend.data_ingestion.market_pulse_pipeline import run_market_pulse_pipeline
+            from backend.data_ingestion.job_logger import log_start, log_finish
+            rid = log_start("market_pulse_snapshot",
+                            "Market Pulse Snapshot (Breadth + Heatmap + RRG)", "admin")
+            summary = run_market_pulse_pipeline(triggered_by="admin")
+            log_finish(rid, "success", records_done=summary.get("heatmap_sectors", 0))
+            st.cache_data.clear()
+            st.success(
+                f"✅ Market Pulse snapshot complete — "
+                f"Breadth: {summary.get('breadth_date', '—')} · "
+                f"Sectors: {summary.get('heatmap_sectors', 0)} · "
+                f"RRG: {summary.get('rrg_sectors', 0)}"
+            )
+        except Exception as e:
+            log_finish(rid, "failed", error_msg=str(e))
+            st.error(f"Pipeline failed: {e}")
+    st.rerun()
+
+# ── Row 2: Sector Snapshot ────────────────────────────────────────────────────
+r2c1, r2c2, r2c3, r2c4, r2c5 = st.columns([2, 3, 4, 3, 2])
+r2c1.markdown("2")
+r2c2.markdown("📈 Sector Analysis · 🏦 FII DII Flow · 🏢 FII Sectors · 🏠 Home")
+r2c3.markdown("Sector Snapshot — FII/DII flows, sector prices, breadth data")
+r2c4.markdown(_last_run_for("sector_snapshot"))
+if r2c5.button("▶ Run", key="btn_sector", use_container_width=True):
     with st.spinner("Running sector snapshot…"):
         try:
             from backend.data_ingestion.pipeline import (
@@ -182,13 +209,13 @@ if r1c5.button("▶ Run", key="btn_sector", use_container_width=True):
             st.error(f"Pipeline failed: {e}")
     st.rerun()
 
-# ── Row 2: Index Stocks Sync ──────────────────────────────────────────────────
-r2c1, r2c2, r2c3, r2c4, r2c5 = st.columns([2, 3, 4, 3, 2])
-r2c1.markdown("2")
-r2c2.markdown("🏛️ Index Stocks")
-r2c3.markdown("NSE constituent list + market price feeds for market caps (~5–8 min)")
-r2c4.markdown(_last_run_for("index_stocks_sync"))
-if r2c5.button("▶ Run", key="btn_idx", use_container_width=True):
+# ── Row 3: Index Stocks Sync ──────────────────────────────────────────────────
+r3c1, r3c2, r3c3, r3c4, r3c5 = st.columns([2, 3, 4, 3, 2])
+r3c1.markdown("3")
+r3c2.markdown("🏛️ Index Stocks")
+r3c3.markdown("NSE constituent list + market price feeds for market caps (~5–8 min)")
+r3c4.markdown(_last_run_for("index_stocks_sync"))
+if r3c5.button("▶ Run", key="btn_idx", use_container_width=True):
     with st.spinner("Syncing Index Stocks from NSE India + market price feeds…"):
         try:
             from pathlib import Path as _Path
@@ -211,13 +238,13 @@ if r2c5.button("▶ Run", key="btn_idx", use_container_width=True):
             st.error(f"Sync failed: {e}")
     st.rerun()
 
-# ── Row 3: Stock Snapshot ─────────────────────────────────────────────────────
-r3c1, r3c2, r3c3, r3c4, r3c5 = st.columns([2, 3, 4, 3, 2])
-r3c1.markdown("3")
-r3c2.markdown("💰 Smart Money")
-r3c3.markdown("Stock Snapshot — delivery %, OI, smart money signals for all FNO stocks")
-r3c4.markdown(_last_run_for("stock_snapshot"))
-if r3c5.button("▶ Run", key="btn_stock", use_container_width=True):
+# ── Row 4: Stock Snapshot ─────────────────────────────────────────────────────
+r4c1, r4c2, r4c3, r4c4, r4c5 = st.columns([2, 3, 4, 3, 2])
+r4c1.markdown("4")
+r4c2.markdown("💰 Smart Money")
+r4c3.markdown("Stock Snapshot — delivery %, OI, smart money signals for all FNO stocks")
+r4c4.markdown(_last_run_for("stock_snapshot"))
+if r4c5.button("▶ Run", key="btn_stock", use_container_width=True):
     with st.spinner("Running stock snapshot…"):
         try:
             from backend.data_ingestion.pipeline import run_stock_pipeline
@@ -232,13 +259,13 @@ if r3c5.button("▶ Run", key="btn_stock", use_container_width=True):
             st.error(f"Pipeline failed: {e}")
     st.rerun()
 
-# ── Row 4: Shareholding Refresh ───────────────────────────────────────────────
-r4c1, r4c2, r4c3, r4c4, r4c5 = st.columns([2, 3, 4, 3, 2])
-r4c1.markdown("4")
-r4c2.markdown("📊 FII Accumulation")
-r4c3.markdown("Shareholding Refresh — FII/DII/Promoter quarterly data for all sector stocks (~3–5 min)")
-r4c4.markdown(_last_run_for("shareholding_quarterly"))
-if r4c5.button("▶ Run", key="btn_sh", use_container_width=True):
+# ── Row 5: Shareholding Refresh ───────────────────────────────────────────────
+r5c1, r5c2, r5c3, r5c4, r5c5 = st.columns([2, 3, 4, 3, 2])
+r5c1.markdown("5")
+r5c2.markdown("📊 FII Accumulation")
+r5c3.markdown("Shareholding Refresh — FII/DII/Promoter quarterly data for all sector stocks (~3–5 min)")
+r5c4.markdown(_last_run_for("shareholding_quarterly"))
+if r5c5.button("▶ Run", key="btn_sh", use_container_width=True):
     with st.spinner("Running shareholding pipeline…"):
         try:
             from backend.data_ingestion.shareholding_pipeline import run_shareholding_pipeline
@@ -246,33 +273,6 @@ if r4c5.button("▶ Run", key="btn_sh", use_container_width=True):
             st.cache_data.clear()
             st.success("✅ Shareholding pipeline completed.")
         except Exception as e:
-            st.error(f"Pipeline failed: {e}")
-    st.rerun()
-
-# ── Row 5: Market Pulse Snapshot ─────────────────────────────────────────────
-r5c1, r5c2, r5c3, r5c4, r5c5 = st.columns([2, 3, 4, 3, 2])
-r5c1.markdown("5")
-r5c2.markdown("📡 Market Pulse")
-r5c3.markdown("Market Pulse Snapshot — Bhavcopy breadth + sector heatmap + RRG → stored in DB (~3–5 min)")
-r5c4.markdown(_last_run_for("market_pulse_snapshot"))
-if r5c5.button("▶ Run", key="btn_mps", use_container_width=True):
-    with st.spinner("Running Market Pulse pipeline…"):
-        try:
-            from backend.data_ingestion.market_pulse_pipeline import run_market_pulse_pipeline
-            from backend.data_ingestion.job_logger import log_start, log_finish
-            rid = log_start("market_pulse_snapshot",
-                            "Market Pulse Snapshot (Breadth + Heatmap + RRG)", "admin")
-            summary = run_market_pulse_pipeline(triggered_by="admin")
-            log_finish(rid, "success", records_done=summary.get("heatmap_sectors", 0))
-            st.cache_data.clear()
-            st.success(
-                f"✅ Market Pulse snapshot complete — "
-                f"Breadth: {summary.get('breadth_date', '—')} · "
-                f"Sectors: {summary.get('heatmap_sectors', 0)} · "
-                f"RRG: {summary.get('rrg_sectors', 0)}"
-            )
-        except Exception as e:
-            log_finish(rid, "failed", error_msg=str(e))
             st.error(f"Pipeline failed: {e}")
     st.rerun()
 
@@ -318,15 +318,15 @@ def _next_quarterly(month_str: str, day: int) -> str:
 
 schedule_data = {
     "Job": [
+        "Market Pulse Snapshot (Breadth + Heatmap + RRG)",
         "Sector Snapshot (FII/DII + Breadth + Prices)",
         "Stock Snapshot (Delivery + OI)",
-        "Market Pulse Snapshot (Breadth + Heatmap + RRG)",
         "Quarterly Shareholding Refresh",
     ],
     "Pages": [
+        "Market Pulse",
         "Home · Sector Analysis · FII DII Flow · FII Sectors",
         "Smart Money",
-        "Market Pulse",
         "FII Accumulation",
     ],
     "Frequency": [
@@ -336,21 +336,21 @@ schedule_data = {
         "4× per year",
     ],
     "Cron (IST)": [
+        "Mon–Fri 20:00",
         "Mon–Fri 18:00",
         "Mon–Fri 18:30",
-        "Mon–Fri 20:00",
         "27th Jan / Apr / Jul / Oct @ 07:00",
     ],
     "Next Run": [
+        _next_weekday(20, 0),
         _next_weekday(18, 0),
         _next_weekday(18, 30),
-        _next_weekday(20, 0),
         _next_quarterly("1,4,7,10", 27),
     ],
     "Last Run": [
+        _last_run_for("market_pulse_snapshot"),
         _last_run_for("sector_snapshot"),
         _last_run_for("stock_snapshot"),
-        _last_run_for("market_pulse_snapshot"),
         _last_run_for("shareholding_quarterly"),
     ],
 }
