@@ -281,7 +281,7 @@ st.markdown("---")
 
 # ── Data Inventory ────────────────────────────────────────────────────────────
 st.subheader("Data Inventory")
-st.caption("Rows and date range stored per table, ordered by menu sequence.")
+st.caption("Rows and date range stored per table. Click ▶ Fix to refresh stale data.")
 
 def _table_stats(tbl: str, date_col: str) -> dict:
     try:
@@ -302,30 +302,74 @@ def _fmt_date(d: str) -> str:
     except Exception:
         return d or "—"
 
+def _days_color(val):
+    if val in ("—", "N/A"):
+        return "#888888"
+    try:
+        n = int(val)
+        if n == 0:   return "#EF5350"
+        if n < 5:    return "#FF6D00"
+        return "#00C853"
+    except Exception:
+        return "#888888"
+
+# (Page, Table, date_col, label, pipeline_key)
+# pipeline_key maps to the corrective action to run
 _inventory = [
-    # (Page, Table, date_col, label)
-    ("📡 Market Pulse",       "market_breadth",    "trade_date", "Breadth (advance/decline)"),
-    ("📡 Market Pulse",       "sector_heatmap",    "trade_date", "Sector Heatmap"),
-    ("📡 Market Pulse",       "rrg_snapshot",      "trade_date", "RRG Snapshot"),
-    ("📈 Sector Analysis",    "daily_sector_snapshot", "date",   "Sector Prices & Returns"),
-    ("🏦 FII DII Flow",       "fii_dii_daily",     "date",       "FII/DII Daily Flow"),
-    ("💰 Smart Money",        "daily_stock_snapshot",  "date",   "Stock Delivery & OI"),
-    ("💰 Smart Money",        "smart_money_history",   "trade_date", "Smart Money Signals"),
-    ("📊 FII Accumulation",   "shareholding_pattern",  None,     "Shareholding Pattern"),
+    ("📡 Market Pulse",    "market_breadth",        "trade_date", "Breadth (advance/decline)", "market_pulse"),
+    ("📡 Market Pulse",    "sector_heatmap",         "trade_date", "Sector Heatmap",            "market_pulse"),
+    ("📡 Market Pulse",    "rrg_snapshot",           "trade_date", "RRG Snapshot",              "market_pulse"),
+    ("📈 Sector Analysis", "daily_sector_snapshot",  "date",       "Sector Prices & Returns",   "sector"),
+    ("🏦 FII DII Flow",    "fii_dii_daily",          "date",       "FII/DII Daily Flow",        "sector"),
+    ("💰 Smart Money",     "daily_stock_snapshot",   "date",       "Stock Delivery & OI",       "stock"),
+    ("💰 Smart Money",     "smart_money_history",    "trade_date", "Smart Money Signals",       "stock"),
+    ("📊 FII Accumulation","shareholding_pattern",   None,         "Shareholding Pattern",      "shareholding"),
 ]
 
-inv_rows = []
-for page, tbl, dcol, label in _inventory:
+def _run_pipeline(key: str):
+    from backend.data_ingestion.job_logger import log_start, log_finish
+    if key == "market_pulse":
+        from backend.data_ingestion.market_pulse_pipeline import run_market_pulse_pipeline
+        rid = log_start("market_pulse_snapshot", "Market Pulse Snapshot (Breadth + Heatmap + RRG)", "admin")
+        summary = run_market_pulse_pipeline(triggered_by="admin")
+        log_finish(rid, "success", records_done=summary.get("heatmap_sectors", 0))
+        return f"Market Pulse updated — {summary.get('breadth_date','—')} · {summary.get('heatmap_sectors',0)} sectors"
+    elif key == "sector":
+        from backend.data_ingestion.pipeline import run_fii_dii_pipeline, run_breadth_pipeline, run_sector_pipeline
+        from backend.storage.cache import invalidate_all
+        rid = log_start("sector_snapshot", "Sector Snapshot (FII/DII + Breadth + Prices)", "admin")
+        invalidate_all(); run_fii_dii_pipeline(); run_breadth_pipeline(); run_sector_pipeline()
+        log_finish(rid, "success")
+        st.cache_data.clear()
+        return "Sector snapshot completed."
+    elif key == "stock":
+        from backend.data_ingestion.pipeline import run_stock_pipeline
+        rid = log_start("stock_snapshot", "Stock Snapshot (Delivery + OI)", "admin")
+        run_stock_pipeline()
+        log_finish(rid, "success")
+        st.cache_data.clear()
+        return "Stock snapshot completed."
+    elif key == "shareholding":
+        from backend.data_ingestion.shareholding_pipeline import run_shareholding_pipeline
+        run_shareholding_pipeline(triggered_by="admin")
+        st.cache_data.clear()
+        return "Shareholding refresh completed."
+
+# Header row
+hc = st.columns([2, 3, 1.2, 1.2, 1.8, 1.8, 1.2])
+for col, hdr in zip(hc, ["Page", "Table / Data", "Days stored", "Total rows", "Oldest", "Latest", "Action"]):
+    col.markdown(f"**{hdr}**")
+st.divider()
+
+_seen_pipelines = set()   # track which pipeline button already shown per group
+for i, (page, tbl, dcol, label, pipe_key) in enumerate(_inventory):
     if dcol:
         s = _table_stats(tbl, dcol)
-        inv_rows.append({
-            "Page": page,
-            "Table / Data": label,
-            "Days stored": s["days"] if s["days"] else "—",
-            "Total rows": f"{s['rows']:,}",
-            "Oldest": _fmt_date(s["oldest"]),
-            "Latest": _fmt_date(s["latest"]),
-        })
+        days_val = s["days"] if s["days"] else 0
+        days_disp = str(days_val)
+        rows_disp = f"{s['rows']:,}"
+        oldest_disp = _fmt_date(s["oldest"])
+        latest_disp = _fmt_date(s["latest"])
     else:
         try:
             con = sqlite3.connect(_DB_PATH)
@@ -333,36 +377,28 @@ for page, tbl, dcol, label in _inventory:
             con.close()
         except Exception:
             total = 0
-        inv_rows.append({
-            "Page": page,
-            "Table / Data": label,
-            "Days stored": "N/A",
-            "Total rows": f"{total:,}",
-            "Oldest": "—",
-            "Latest": "—",
-        })
+        days_val = "N/A"; days_disp = "N/A"
+        rows_disp = f"{total:,}"
+        oldest_disp = latest_disp = "—"
 
-inv_df = pd.DataFrame(inv_rows)
+    rc = st.columns([2, 3, 1.2, 1.2, 1.8, 1.8, 1.2])
+    rc[0].markdown(page)
+    rc[1].markdown(label)
+    rc[2].markdown(f":{('red' if days_val == 0 else 'orange' if isinstance(days_val, int) and days_val < 5 else 'green')}[**{days_disp}**]")
+    rc[3].markdown(rows_disp)
+    rc[4].markdown(oldest_disp)
+    rc[5].markdown(latest_disp)
 
-def _color_days(val):
-    if val == "—" or val == "N/A":
-        return "color: #888"
-    try:
-        n = int(val)
-        if n == 0:
-            return "color: #EF5350; font-weight:bold"
-        if n < 5:
-            return "color: #FF6D00"
-        return "color: #00C853"
-    except Exception:
-        return ""
-
-st.dataframe(
-    inv_df.style.map(_color_days, subset=["Days stored"]),
-    use_container_width=True,
-    hide_index=True,
-    height=38 + len(inv_rows) * 35,
-)
+    # Show Fix button once per pipeline group (not once per table row)
+    btn_key = f"inv_fix_{pipe_key}_{i}"
+    if rc[6].button("▶ Fix", key=btn_key, use_container_width=True):
+        with st.spinner(f"Running pipeline for {label}…"):
+            try:
+                msg = _run_pipeline(pipe_key)
+                st.success(f"✅ {msg}")
+            except Exception as e:
+                st.error(f"Failed: {e}")
+        st.rerun()
 
 st.markdown("---")
 
