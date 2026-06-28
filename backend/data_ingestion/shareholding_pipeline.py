@@ -156,14 +156,11 @@ def run_shareholding_pipeline(triggered_by: str = "scheduler"):
     """
     Fetch shareholding pattern for all sector stocks and store to DB.
     Called by the quarterly scheduler (27th Jan/Apr/Jul/Oct) or manually by admin.
+    Logging (log_start/log_finish) is the caller's responsibility — do NOT log internally.
     """
-    from backend.data_ingestion.job_logger import log_start, log_finish
-
     _ensure_tables()
     symbols = _all_symbols()
     logger.info(f"Shareholding pipeline started — {len(symbols)} symbols to fetch.")
-
-    row_id = log_start("shareholding_quarterly", "Quarterly Shareholding Refresh", triggered_by)
 
     errors  = []
     success = 0
@@ -202,16 +199,12 @@ def run_shareholding_pipeline(triggered_by: str = "scheduler"):
     con.commit()
     con.close()
 
-    final_status = "success" if not errors else "failed"
-    error_summary = f"{len(errors)} symbols failed: {errors[:5]}" if errors else None
-    log_finish(row_id, final_status, records_done=success, error_msg=error_summary)
-
-    logger.info(
-        f"Shareholding pipeline complete. "
-        f"Success: {success}, Failed: {len(errors)}"
-    )
+    logger.info(f"Shareholding pipeline complete. Success: {success}, Failed: {len(errors)}")
     if errors:
         logger.warning(f"Failed symbols: {errors}")
+
+    if errors:
+        raise RuntimeError(f"{len(errors)} symbols failed: {errors[:5]}")
 
 
 if __name__ == "__main__":

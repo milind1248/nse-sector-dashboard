@@ -273,10 +273,15 @@ if r5c5.button("▶ Run", key="btn_sh", use_container_width=True):
     with st.spinner("Running shareholding pipeline…"):
         try:
             from backend.data_ingestion.shareholding_pipeline import run_shareholding_pipeline
+            from backend.data_ingestion.job_logger import log_start, log_finish
+            rid = log_start("shareholding_quarterly",
+                            "Quarterly Shareholding Refresh (All Sector Stocks)", "admin")
             run_shareholding_pipeline(triggered_by="admin")
+            log_finish(rid, "success")
             st.cache_data.clear()
             st.success("✅ Shareholding pipeline completed.")
         except Exception as e:
+            log_finish(rid, "failed", error_msg=str(e))
             st.error(f"Pipeline failed: {e}")
     st.rerun()
 
@@ -380,7 +385,10 @@ def _run_pipeline(key: str):
         return "Stock snapshot completed."
     elif key == "shareholding":
         from backend.data_ingestion.shareholding_pipeline import run_shareholding_pipeline
+        rid = log_start("shareholding_quarterly",
+                        "Quarterly Shareholding Refresh (All Sector Stocks)", "admin")
         run_shareholding_pipeline(triggered_by="admin")
+        log_finish(rid, "success")
         st.cache_data.clear()
         return "Shareholding refresh completed."
     elif key == "ai_scan":
