@@ -665,6 +665,67 @@ def _check_export():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 11. AI FORECAST
+# ─────────────────────────────────────────────────────────────────────────────
+def _check_ai_forecast():
+    checks = []
+
+    # 11a. Prophet import
+    try:
+        from prophet import Prophet  # noqa: F401
+        checks.append(("Prophet library", "OK", "import OK"))
+    except Exception as e:
+        checks.append(("Prophet library", "FAIL", f"import error: {e}"))
+
+    # 11b. XGBoost import
+    try:
+        import xgboost  # noqa: F401
+        checks.append(("XGBoost library", "OK", f"version {xgboost.__version__}"))
+    except Exception as e:
+        checks.append(("XGBoost library", "FAIL", f"import error: {e}"))
+
+    # 11c. ai_forecast module import
+    try:
+        from backend.calculations.ai_forecast import run_prophet_forecast, run_xgb_direction  # noqa: F401
+        checks.append(("ai_forecast module", "OK", "run_prophet_forecast + run_xgb_direction imported"))
+    except Exception as e:
+        checks.append(("ai_forecast module", "FAIL", f"import error: {e}"))
+
+    # 11d. ai_scan_results table + freshness
+    try:
+        from backend.storage.ai_scan_db import load_latest_scan, scan_age_days
+        rows, scan_date = load_latest_scan()
+        if not rows:
+            checks.append(("AI scan DB", "WARN",
+                            "ai_scan_results table empty — click '🔄 Run Scan' on AI Forecast page"))
+        else:
+            age = scan_age_days()
+            if age is not None and age > 3:
+                checks.append(("AI scan DB", "WARN",
+                                f"{len(rows)} stocks · last scan {scan_date} ({age}d old) — consider refresh"))
+            else:
+                checks.append(("AI scan DB", "OK",
+                                f"{len(rows)} stocks · last scan {scan_date}"))
+    except Exception as e:
+        checks.append(("AI scan DB", "FAIL", str(e)))
+
+    # 11e. yfinance reachable (quick smoke test on RELIANCE.NS — 5d only)
+    try:
+        import yfinance as yf
+        d = yf.download("RELIANCE.NS", period="5d", progress=False, auto_adjust=True)
+        if d is None or len(d) == 0:
+            checks.append(("yfinance smoke test", "WARN",
+                            "RELIANCE.NS returned no data — Yahoo Finance may be temporarily down"))
+        else:
+            checks.append(("yfinance smoke test", "OK",
+                            f"RELIANCE.NS · {len(d)} bars fetched"))
+    except Exception as e:
+        checks.append(("yfinance smoke test", "FAIL", str(e)))
+
+    return checks
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────────────────────────────────────
 _PAGES = [
@@ -677,6 +738,7 @@ _PAGES = [
     ("💰 Smart Money",      _check_smart_money),
     ("📊 FII Accumulation", _check_fii_accumulation),
     ("🔔 Alerts",           _check_alerts),
+    ("🤖 AI Forecast",      _check_ai_forecast),
     ("📤 Export",           _check_export),
 ]
 
