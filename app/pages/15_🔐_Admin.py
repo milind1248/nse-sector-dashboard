@@ -352,6 +352,7 @@ _inventory = [
     ("💰 Smart Money",     "daily_stock_snapshot",   "date",       "Stock Delivery & OI",       "stock"),
     ("💰 Smart Money",     "smart_money_history",    "trade_date", "Smart Money Signals",       "stock"),
     ("📊 FII Accumulation","shareholding_pattern",   None,         "Shareholding Pattern",      "shareholding"),
+    ("🤖 AI Forecast",    "ai_scan_results",         "scan_date",  "AI Scan Signals (XGBoost)", "ai_scan"),
 ]
 
 def _run_pipeline(key: str):
@@ -382,6 +383,13 @@ def _run_pipeline(key: str):
         run_shareholding_pipeline(triggered_by="admin")
         st.cache_data.clear()
         return "Shareholding refresh completed."
+    elif key == "ai_scan":
+        from backend.data_ingestion.ai_scan_pipeline import run_ai_scan_pipeline
+        rid = log_start("ai_scan_daily", "AI Scan — XGBoost Direction (All Dashboard Stocks)", "admin")
+        summary = run_ai_scan_pipeline(triggered_by="admin")
+        log_finish(rid, "success", records_done=summary.get("total", 0))
+        st.cache_data.clear()
+        return f"AI scan complete — {summary.get('total', 0)} signals ({summary.get('bullish', 0)} bullish · {summary.get('bearish', 0)} bearish)"
 
 # Header row
 hc = st.columns([2, 3, 1.2, 1.2, 1.8, 1.8, 1.2])
@@ -470,39 +478,45 @@ def _next_quarterly(month_str: str, day: int) -> str:
 
 schedule_data = {
     "Job": [
-        "Market Pulse Snapshot (Breadth + Heatmap + RRG)",
         "Sector Snapshot (FII/DII + Breadth + Prices)",
         "Stock Snapshot (Delivery + OI)",
+        "Market Pulse Snapshot (Breadth + Heatmap + RRG)",
+        "AI Scan — XGBoost Direction (All Dashboard Stocks)",
         "Quarterly Shareholding Refresh",
     ],
     "Pages": [
-        "Market Pulse",
         "Home · Sector Analysis · FII DII Flow · FII Sectors",
         "Smart Money",
+        "Market Pulse",
+        "AI Forecast",
         "FII Accumulation",
     ],
     "Frequency": [
         "Mon–Fri daily",
         "Mon–Fri daily",
         "Mon–Fri daily",
+        "Mon–Fri daily",
         "4× per year",
     ],
     "Cron (IST)": [
-        "Mon–Fri 20:00",
-        "Mon–Fri 18:00",
-        "Mon–Fri 18:30",
+        "18:00  (6:00 PM)",
+        "18:30  (6:30 PM)",
+        "20:00  (8:00 PM)",
+        "21:00  (9:00 PM)",
         "27th Jan / Apr / Jul / Oct @ 07:00",
     ],
     "Next Run": [
-        _next_weekday(20, 0),
         _next_weekday(18, 0),
         _next_weekday(18, 30),
+        _next_weekday(20, 0),
+        _next_weekday(21, 0),
         _next_quarterly("1,4,7,10", 27),
     ],
     "Last Run": [
-        _last_run_for("market_pulse_snapshot"),
         _last_run_for("sector_snapshot"),
         _last_run_for("stock_snapshot"),
+        _last_run_for("market_pulse_snapshot"),
+        _last_run_for("ai_scan_daily"),
         _last_run_for("shareholding_quarterly"),
     ],
 }

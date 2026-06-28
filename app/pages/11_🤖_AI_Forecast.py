@@ -31,6 +31,7 @@ st.caption(
 
 # ── Pre-populated aligned signals scan (DB-backed, cook-once) ────────────────
 from backend.storage.ai_scan_db import load_latest_scan, store_scan, scan_age_days
+from app.utils.auth import is_admin
 
 # Build deduplicated stock list from all dashboard stocks
 _seen: set = set()
@@ -73,8 +74,12 @@ with st.expander("📋 Aligned Signals — All Dashboard Stocks (Both Models Agr
         else:
             st.caption(f"⚠️ Last scanned **{age} day(s) ago** — scheduler may be offline. Click **Force Scan** to refresh manually.")
     with h2:
-        run_scan_btn = st.button("⚡ Force Scan", type="secondary", use_container_width=True,
-                                 help=f"Runs immediately. Normally auto-triggered by scheduler at 9 PM IST. Scans {_n_stocks} stocks (~3–5 min).")
+        if is_admin():
+            run_scan_btn = st.button("⚡ Force Scan", type="secondary", use_container_width=True,
+                                     help=f"Admin only. Runs immediately. Normally auto-triggered at 9 PM IST. Scans {_n_stocks} stocks (~3–5 min).")
+        else:
+            run_scan_btn = False
+            st.caption("🔒 Admin only")
 
     # ── Run scan if button clicked ────────────────────────────────────────────
     if run_scan_btn:

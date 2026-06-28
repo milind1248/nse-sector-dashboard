@@ -697,7 +697,7 @@ def _check_ai_forecast():
         rows, scan_date = load_latest_scan()
         if not rows:
             checks.append(("AI scan DB", "WARN",
-                            "ai_scan_results table empty — click '🔄 Run Scan' on AI Forecast page"))
+                            "ai_scan_results table empty — scheduler runs at 9 PM IST or trigger via Admin → Row 6"))
         else:
             age = scan_age_days()
             if age is not None and age > 3:
