@@ -37,7 +37,7 @@ SECTOR_INDICES = {
 SECTOR_STOCKS = {
     "Auto": [
         "MARUTI.NS", "TATAMOTORS.NS", "M&M.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS",
-        "HEROMOOCO.NS", "TVSMOTOR.NS", "ASHOKLEY.NS", "BALKRISIND.NS", "MOTHERSON.NS",
+        "HEROMOTOCO.NS", "TVSMOTOR.NS", "ASHOKLEY.NS", "BALKRISIND.NS", "MOTHERSON.NS",
     ],
     "Bank": [
         "HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS",
@@ -45,19 +45,19 @@ SECTOR_STOCKS = {
     ],
     "Capital Goods": [
         "LT.NS", "SIEMENS.NS", "ABB.NS", "BHEL.NS", "THERMAX.NS",
-        "CUMMINSIND.NS", "KEC.NS", "KALPATPOWR.NS", "BEL.NS", "BEML.NS",
+        "CUMMINSIND.NS", "KEC.NS", "KALPATARU.NS", "BEL.NS", "BEML.NS",
     ],
     "Chemicals": [
         "PIDILITIND.NS", "SRF.NS", "DEEPAKNTR.NS", "AAVAS.NS", "ATUL.NS",
         "NAVINFLUOR.NS", "ALKYLAMINE.NS", "FINEORG.NS", "TATACHEM.NS", "CLEAN.NS",
     ],
     "Consumer Durables": [
-        "TITAN.NS", "HAVELLS.NS", "VGUARD.NS", "CROMPTON.NS", "BAJAJELECTR.NS",
-        "WHIRLPOOL.NS", "BLUESTAR.NS", "VOLTAS.NS", "SYMPHONY.NS", "AMBER.NS",
+        "TITAN.NS", "HAVELLS.NS", "VGUARD.NS", "CROMPTON.NS", "BAJAJELEC.NS",
+        "WHIRLPOOL.NS", "BLUESTARCO.NS", "VOLTAS.NS", "SYMPHONY.NS", "AMBER.NS",
     ],
     "Defence": [
         "BEL.NS", "HAL.NS", "BEML.NS", "GRSE.NS", "COCHINSHIP.NS",
-        "MAZAGON.NS", "BHEL.NS", "PARAS.NS", "ZEN.NS", "MTAR.NS",
+        "MAZDOCK.NS", "BHEL.NS", "PARAS.NS", "ZENTEC.NS", "MTARTECH.NS",
     ],
     "Energy": [
         "RELIANCE.NS", "ONGC.NS", "BPCL.NS", "IOC.NS", "NTPC.NS",
