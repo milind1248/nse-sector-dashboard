@@ -25,7 +25,3 @@ def show_logo():
             </style>""",
             unsafe_allow_html=True,
         )
-
-    # Update Admin sidebar icon based on login state (🔐 locked / 🔓 green open)
-    from app.utils.auth import inject_admin_lock_icon
-    inject_admin_lock_icon()
