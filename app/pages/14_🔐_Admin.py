@@ -358,7 +358,7 @@ def _color_days(val):
         return ""
 
 st.dataframe(
-    inv_df.style.applymap(_color_days, subset=["Days stored"]),
+    inv_df.style.map(_color_days, subset=["Days stored"]),
     use_container_width=True,
     hide_index=True,
     height=38 + len(inv_rows) * 35,
