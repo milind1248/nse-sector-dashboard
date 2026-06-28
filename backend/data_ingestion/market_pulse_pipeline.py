@@ -222,5 +222,15 @@ def run_market_pulse_pipeline(triggered_by: str = "scheduler") -> dict:
         summary["rrg_sectors"] = len(rrg_rows)
         logger.info(f"RRG stored: {len(rrg_rows)} sectors")
 
+    # ── Purge data older than 90 days ────────────────────────────────────────
+    cutoff = (date.today() - timedelta(days=90)).isoformat()
+    con = _db()
+    for tbl in ("market_breadth", "sector_heatmap", "rrg_snapshot"):
+        cur = con.execute(f"DELETE FROM {tbl} WHERE trade_date < ?", (cutoff,))
+        if cur.rowcount:
+            logger.info(f"Purged {cur.rowcount} rows from {tbl} older than {cutoff}")
+    con.commit()
+    con.close()
+
     logger.info(f"Market Pulse pipeline complete: {summary}")
     return summary
