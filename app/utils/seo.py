@@ -8,7 +8,7 @@ import streamlit as st
 
 _SITE_NAME  = "Market Sector Analysis"
 _SITE_URL   = "https://marketsector.streamlit.app"
-_SITE_IMAGE = f"{_SITE_URL}/favicon.ico"
+_SITE_IMAGE = "https://raw.githubusercontent.com/milind1248/nse-sector-dashboard/main/app/assets/og_image.png"
 
 # Per-page SEO config  ─ key = page filename stem (without number/emoji prefix)
 PAGE_SEO = {
@@ -153,7 +153,7 @@ def inject_seo(page_key: str) -> None:
     setMeta('og:image',       '{image}',       true);
 
     // Twitter Card
-    setMeta('twitter:card',        'summary');
+    setMeta('twitter:card',        'summary_large_image');
     setMeta('twitter:title',       '{title}');
     setMeta('twitter:description', '{description}');
     setMeta('twitter:image',       '{image}');
