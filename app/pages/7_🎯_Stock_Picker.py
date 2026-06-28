@@ -227,19 +227,43 @@ if chosen:
             import numpy as np
             from plotly.subplots import make_subplots
 
+            # ── Chart type toggle ─────────────────────────────────────────
+            chart_type = st.radio(
+                "Chart type", ["Candle", "Line"], horizontal=True, key="sp_chart_type"
+            )
+
             # ── H-M indicator calc ────────────────────────────────────────
             delta9 = close_s.diff()
             gain9  = delta9.clip(lower=0).rolling(9).mean()
             loss9  = (-delta9.clip(upper=0)).rolling(9).mean()
             rsi9   = 100 - (100 / (1 + gain9 / loss9.replace(0, float("nan"))))
             ema3   = rsi9.ewm(span=3, adjust=False).mean()
+            _w21   = np.arange(1, 22, dtype=float)
             wma21  = rsi9.rolling(21).apply(
-                lambda x: np.average(x, weights=range(1, 22)), raw=True
+                lambda x: float(np.dot(x, _w21) / _w21.sum()), raw=True
             )
-            prev_e = ema3.shift(1); prev_w = wma21.shift(1)
-            buy_cross  = (prev_e <  prev_w) & (ema3 >= wma21)
-            sell_cross = (prev_e >  prev_w) & (ema3 <= wma21)
-            idx = list(df.index)   # shared x-axis for ALL traces — same objects, no mismatch
+            idx = list(df.index)
+
+            # ── NK sir RSI(9) crosses above 50 — buy signal ───────────────
+            rsi9_arr  = rsi9.values
+            ema3_arr  = ema3.values
+            wma21_arr = wma21.values
+            nk_sig_x, nk_sig_y_price = [], []   # price chart circles
+            nk_sig_x2, nk_sig_y_rsi  = [], []   # RSI panel circles
+
+            for i in range(22, len(rsi9)):
+                r      = rsi9_arr[i]
+                r_prev = rsi9_arr[i - 1]
+                if np.isnan(r) or np.isnan(r_prev):
+                    continue
+                # RSI(9) crosses above 50 (confirmed NK sir entry)
+                if r >= 50 and r_prev < 50:
+                    d = rsi9.index[i]
+                    if d in close_s.index:
+                        nk_sig_x.append(d)
+                        nk_sig_y_price.append(float(close_s.loc[d]) * 0.993)
+                        nk_sig_x2.append(d)
+                        nk_sig_y_rsi.append(float(r))
 
             last_e = ema3.dropna().iloc[-1]; last_w = wma21.dropna().iloc[-1]
             sig_color = "#00C853" if last_e > last_w else "#D50000"
@@ -258,71 +282,84 @@ if chosen:
                 vertical_spacing=0.04,
             )
 
-            # Row 1 — Candlestick + EMAs
-            try:
-                fig.add_trace(go.Candlestick(
-                    x=idx,
-                    open=df["Open"].squeeze(), high=df["High"].squeeze(),
-                    low=df["Low"].squeeze(),   close=df["Close"].squeeze(),
-                    name="OHLC",
-                    increasing_line_color="#00C853", decreasing_line_color="#D50000",
-                ), row=1, col=1)
-            except Exception:
-                fig.add_trace(go.Scatter(x=idx, y=close_s, name="Close"), row=1, col=1)
+            # Row 1 — Price chart (Candle or Line) + EMAs
+            if chart_type == "Candle":
+                try:
+                    fig.add_trace(go.Candlestick(
+                        x=idx,
+                        open=df["Open"].squeeze(), high=df["High"].squeeze(),
+                        low=df["Low"].squeeze(),   close=df["Close"].squeeze(),
+                        name="OHLC",
+                        increasing_line_color="#00C853", decreasing_line_color="#D50000",
+                    ), row=1, col=1)
+                except Exception:
+                    fig.add_trace(go.Scatter(x=idx, y=close_s, name="Close",
+                                             line=dict(color="#90CAF9", width=1.5)), row=1, col=1)
+            else:
+                fig.add_trace(go.Scatter(x=idx, y=close_s, name="Close",
+                                         line=dict(color="#90CAF9", width=1.5)), row=1, col=1)
+
             for period, color, lbl in [(20,"#FFD600","EMA20"),(50,"#FF6D00","EMA50"),(200,"#2979FF","EMA200")]:
                 ema_line = close_s.ewm(span=period, adjust=False).mean()
                 fig.add_trace(go.Scatter(x=idx, y=ema_line, name=lbl,
                                          line=dict(color=color, width=1.5)), row=1, col=1)
 
-            # Row 2 — H-M (RSI9 + EMA3 + WMA21 with fills)
-            # Green fill zone
-            ema3_g  = ema3.where(ema3  >= wma21)
-            wma21_g = wma21.where(ema3 >= wma21)
-            fig.add_trace(go.Scatter(x=idx, y=wma21_g.tolist(),
-                                     line=dict(width=0), showlegend=False, hoverinfo="skip"), row=2, col=1)
-            fig.add_trace(go.Scatter(x=idx, y=ema3_g.tolist(),
-                                     fill="tonexty", fillcolor="rgba(0,200,83,0.2)",
-                                     line=dict(width=0), showlegend=False, hoverinfo="skip"), row=2, col=1)
-            # Red fill zone
-            ema3_r  = ema3.where(ema3  < wma21)
-            wma21_r = wma21.where(ema3 < wma21)
-            fig.add_trace(go.Scatter(x=idx, y=ema3_r.tolist(),
-                                     line=dict(width=0), showlegend=False, hoverinfo="skip"), row=2, col=1)
-            fig.add_trace(go.Scatter(x=idx, y=wma21_r.tolist(),
-                                     fill="tonexty", fillcolor="rgba(213,0,0,0.2)",
-                                     line=dict(width=0), showlegend=False, hoverinfo="skip"), row=2, col=1)
+            # NK sir green circles on price chart
+            if nk_sig_x:
+                fig.add_trace(go.Scatter(
+                    x=nk_sig_x, y=nk_sig_y_price, mode="markers",
+                    name="H-M Entry (RSI>50)",
+                    marker=dict(color="lime", size=12, symbol="circle",
+                                line=dict(color="white", width=1.5)),
+                ), row=1, col=1)
 
+            # Row 2 — H-M RSI panel: fill above/below 50 (NK sir style)
+            _rsi_s  = rsi9.reindex(rsi9.index)
+            _mid    = pd.Series(50.0, index=rsi9.index)
+
+            # Green fill above 50
+            _above = _rsi_s.where(_rsi_s >= 50, 50.0)
+            fig.add_trace(go.Scatter(x=idx, y=_mid.tolist(),
+                                     line=dict(width=0), mode="lines",
+                                     showlegend=False, hoverinfo="skip"), row=2, col=1)
+            fig.add_trace(go.Scatter(x=idx, y=_above.tolist(),
+                                     fill="tonexty", fillcolor="rgba(38,166,154,0.35)",
+                                     line=dict(width=0), mode="lines",
+                                     showlegend=False, hoverinfo="skip"), row=2, col=1)
+            # Red fill below 50
+            _below = _rsi_s.where(_rsi_s <= 50, 50.0)
+            fig.add_trace(go.Scatter(x=idx, y=_mid.tolist(),
+                                     line=dict(width=0), mode="lines",
+                                     showlegend=False, hoverinfo="skip"), row=2, col=1)
+            fig.add_trace(go.Scatter(x=idx, y=_below.tolist(),
+                                     fill="tonexty", fillcolor="rgba(239,83,80,0.35)",
+                                     line=dict(width=0), mode="lines",
+                                     showlegend=False, hoverinfo="skip"), row=2, col=1)
+
+            # RSI(9), EMA3, WMA21 lines
             fig.add_trace(go.Scatter(x=idx, y=rsi9.tolist(), name="RSI(9)",
-                                     line=dict(color="#666", width=1), opacity=0.7), row=2, col=1)
+                                     line=dict(color="#90CAF9", width=1.5)), row=2, col=1)
             fig.add_trace(go.Scatter(x=idx, y=ema3.tolist(), name="EMA3",
-                                     line=dict(color="#FFD600", width=1.5)), row=2, col=1)
+                                     line=dict(color="#4CAF50", width=1.5)), row=2, col=1)
             fig.add_trace(go.Scatter(x=idx, y=wma21.tolist(), name="WMA21",
-                                     line=dict(color="#FF6D00", width=1.5)), row=2, col=1)
+                                     line=dict(color="#EF5350", width=1.5)), row=2, col=1)
 
-            # Buy/Sell crossover markers
-            buy_pts  = [(d, ema3.loc[d]) for d, v in zip(df.index, buy_cross)  if v]
-            sell_pts = [(d, ema3.loc[d]) for d, v in zip(df.index, sell_cross) if v]
-            if buy_pts:
+            # NK sir green circles on RSI panel
+            if nk_sig_x2:
                 fig.add_trace(go.Scatter(
-                    x=[p[0] for p in buy_pts], y=[p[1] for p in buy_pts],
-                    mode="markers", name="Positive ▲",
-                    marker=dict(symbol="triangle-up", color="#00C853", size=10,
-                                line=dict(color="#fff", width=1)),
-                    hovertemplate="<b>%{x}</b><br>Positive — EMA3: %{y:.1f}<extra></extra>",
-                ), row=2, col=1)
-            if sell_pts:
-                fig.add_trace(go.Scatter(
-                    x=[p[0] for p in sell_pts], y=[p[1] for p in sell_pts],
-                    mode="markers", name="Negative ▼",
-                    marker=dict(symbol="triangle-down", color="#D50000", size=10,
-                                line=dict(color="#fff", width=1)),
-                    hovertemplate="<b>%{x}</b><br>Negative — EMA3: %{y:.1f}<extra></extra>",
+                    x=nk_sig_x2, y=nk_sig_y_rsi, mode="markers",
+                    name="Entry (RSI panel)",
+                    showlegend=False,
+                    marker=dict(color="lime", size=6, symbol="circle",
+                                line=dict(color="white", width=1)),
                 ), row=2, col=1)
 
-            # Reference lines on H-M pane
-            fig.add_hline(y=70, line_dash="dot",   line_color="#D50000", opacity=0.5, row=2, col=1)
-            fig.add_hline(y=50, line_dash="solid",  line_color="#333333", opacity=1.0, line_width=1.5, row=2, col=1)
-            fig.add_hline(y=30, line_dash="dot",   line_color="#00C853", opacity=0.5, row=2, col=1)
+
+            fig.add_hline(y=70, line_dash="dot",  line_color="#D50000", opacity=0.5, row=2, col=1)
+            fig.add_hline(y=50, line_dash="dash", line_color="#888888", row=2, col=1,
+                          annotation_text="50", annotation_position="right")
+            fig.add_hline(y=30, line_dash="dot",  line_color="#FFD600", opacity=0.8, row=2, col=1,
+                          annotation_text="30", annotation_position="right")
 
             fig.update_layout(
                 template="plotly_dark", height=580,
@@ -331,23 +368,27 @@ if chosen:
                 xaxis_rangeslider_visible=False,
                 xaxis2_rangeslider_visible=False,
                 legend=dict(orientation="h", y=1.04, x=0, font=dict(size=11)),
-                hovermode="x",
+                hovermode="x unified",
             )
-            # Solid vertical crosshair spanning both panes (Zerodha-style)
             fig.update_xaxes(
-                showspikes=True,
-                spikemode="across+toaxis",
-                spikesnap="cursor",
-                spikethickness=1,
-                spikedash="solid",
-                spikecolor="#888888",
+                showspikes=True, spikemode="across+toaxis",
+                spikesnap="cursor", spikethickness=1,
+                spikedash="solid", spikecolor="#888888",
             )
             fig.update_yaxes(range=[0, 100], row=2, col=1)
             st.plotly_chart(fig, use_container_width=True)
-            st.caption(
-                "**H-M:** EMA(3) of RSI(9) crosses above WMA(21) → 🟢 Positive. "
-                "Crosses below → 🔴 Negative. Shading = current bias. For informational purposes only."
-            )
+            if nk_sig_x:
+                st.caption(
+                    f"🟢 {len(nk_sig_x)} H-M entry signal(s) — RSI(9) crossed above 50 (NK sir bottom-catch). "
+                    "**H-M panel:** Green fill = RSI above 50 (momentum). Red fill = RSI below 50 (pullback). "
+                    "▲▼ = EMA(3)/WMA(21) crossovers. For informational purposes only."
+                )
+            else:
+                st.caption(
+                    "**H-M panel:** Green fill = RSI above 50. Red fill = RSI below 50 (pullback zone). "
+                    "▲▼ = EMA(3)/WMA(21) crossovers. 🟢 circles = RSI(9) cross above 50 (entry). "
+                    "For informational purposes only."
+                )
 
         with tab2:
             delta = close_s.diff()
