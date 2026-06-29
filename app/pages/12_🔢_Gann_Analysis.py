@@ -553,11 +553,14 @@ with tab_date:
                 pass
 
     def _rename_proj(rows):
+        def _p(v):
+            try: return round(float(v), 1)
+            except Exception: return v
         return [{
             "Pivot 1":      r.get("Pivot1", ""),
-            "Price 1 (₹)": r.get("Price1", ""),
+            "Price 1 (₹)": _p(r.get("Price1", "")),
             "Pivot 2":      r.get("Pivot2", ""),
-            "Price 2 (₹)": r.get("Price2", ""),
+            "Price 2 (₹)": _p(r.get("Price2", "")),
             "Days Apart":   r.get("DaysApart", ""),
             "Projected":    r.get("Projected", ""),
             "Days Away":    r.get("DaysAway", ""),
