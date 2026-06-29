@@ -726,6 +726,45 @@ def _check_ai_forecast():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 12. GANN ANALYSIS
+# ─────────────────────────────────────────────────────────────────────────────
+def _check_gann():
+    checks = []
+
+    # 12a. gann module import
+    try:
+        from backend.calculations.gann import compute_gann_all  # noqa: F401
+        checks.append(("Gann calc module", "OK", "compute_gann_all imported"))
+    except Exception as e:
+        checks.append(("Gann calc module", "FAIL", f"import error: {e}"))
+
+    # 12b. gann_cache table + symbol coverage + freshness
+    try:
+        from backend.storage.gann_db import load_all_summary, cache_age_days
+        rows = load_all_summary()
+        if not rows:
+            checks.append(("Gann cache DB", "WARN",
+                            "gann_cache table empty — run Gann pipeline via Admin or wait for 9:30 PM IST scheduler"))
+        else:
+            age = cache_age_days()
+            n   = len(rows)
+            latest = rows[0]["scan_date"] if rows else "—"
+            if n < 45:
+                checks.append(("Gann cache DB", "WARN",
+                                f"Only {n} stocks cached (expect ≥45) · last run {latest}"))
+            elif age is not None and age > 3:
+                checks.append(("Gann cache DB", "WARN",
+                                f"{n} stocks · last run {latest} ({age}d old) — consider refresh"))
+            else:
+                checks.append(("Gann cache DB", "OK",
+                                f"{n} stocks cached · last run {latest}"))
+    except Exception as e:
+        checks.append(("Gann cache DB", "FAIL", str(e)))
+
+    return checks
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────────────────────────────────────
 _PAGES = [
@@ -740,6 +779,7 @@ _PAGES = [
     ("🔔 Alerts",           _check_alerts),
     ("🤖 AI Forecast",      _check_ai_forecast),
     ("📤 Export",           _check_export),
+    ("🔢 Gann Analysis",    _check_gann),
 ]
 
 

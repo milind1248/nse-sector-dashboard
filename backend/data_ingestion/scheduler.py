@@ -9,6 +9,7 @@ from backend.data_ingestion.pipeline import (
 from backend.data_ingestion.shareholding_pipeline import run_shareholding_pipeline
 from backend.data_ingestion.ai_scan_pipeline import run_ai_scan_pipeline
 from backend.data_ingestion.market_pulse_pipeline import run_market_pulse_pipeline
+from backend.data_ingestion.gann_pipeline import run_gann_pipeline
 from backend.data_ingestion.job_logger import log_start, log_finish
 from backend.storage.cache import invalidate_all
 from config import SCHEDULE_TZ
@@ -79,6 +80,19 @@ def start_scheduler():
         CronTrigger(hour=21, minute=0, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
         id="ai_scan_daily",
         name="AI scan @ 9 PM IST",
+    )
+
+    # 9:30 PM IST — Gann analysis (all 5 methods for all dashboard stocks)
+    # Runs after AI scan (9 PM) so traffic on Yahoo Finance is staggered
+    scheduler.add_job(
+        _logged(
+            "gann_daily",
+            "Gann Analysis — All 5 Methods (All Dashboard Stocks)",
+            run_gann_pipeline,
+        ),
+        CronTrigger(hour=21, minute=30, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
+        id="gann_daily",
+        name="Gann analysis @ 9:30 PM IST",
     )
 
     # Quarterly shareholding refresh — 27th of Jan, Apr, Jul, Oct at 7:00 AM IST

@@ -314,6 +314,50 @@ if r6c5.button("▶ Run", key="btn_ai", use_container_width=True):
             st.error(f"AI scan failed: {e}")
     st.rerun()
 
+# ── Row 7: Gann Analysis Cache ───────────────────────────────────────────────
+r7c1, r7c2, r7c3, r7c4, r7c5 = st.columns([2, 3, 4, 3, 2])
+r7c1.markdown("7")
+r7c2.markdown("🔢 Gann Analysis")
+from backend.data_ingestion.gann_pipeline import _all_symbols as _gann_symbols
+_gann_total = len(_gann_symbols())
+r7c3.markdown(f"Gann Cache — all 5 methods for all {_gann_total} dashboard stocks · stored to DB (~5–8 min)")
+r7c4.markdown(_last_run_for("gann_daily"))
+if r7c5.button("▶ Run", key="btn_gann", use_container_width=True):
+    _gann_rid = None
+    try:
+        from backend.data_ingestion.gann_pipeline import run_gann_pipeline
+        from backend.data_ingestion.job_logger import log_start, log_finish
+        _gann_rid = log_start("gann_daily",
+                        f"Gann Analysis — All 5 Methods ({_gann_total} Dashboard Stocks)", "admin")
+        _gann_bar = st.progress(0, text=f"Starting Gann pipeline — {_gann_total} stocks to process…")
+        _gann_status = st.empty()
+
+        def _gann_progress(done, total, sym):
+            pct = int(done / total * 100)
+            _gann_bar.progress(pct, text=f"Processing {done} / {total} stocks ({pct}%)…")
+            _gann_status.caption(f"Last completed: **{sym}**  ·  {total - done} remaining")
+
+        summary = run_gann_pipeline(triggered_by="admin",
+                                     progress_callback=_gann_progress)
+        log_finish(_gann_rid, "success", records_done=summary.get("success", 0))
+        _gann_bar.progress(100, text=f"Done! All {_gann_total} stocks processed.")
+        _gann_status.empty()
+        st.cache_data.clear()
+        st.success(
+            f"✅ Gann pipeline complete — "
+            f"{summary.get('success', 0)} cached · {summary.get('failed', 0)} failed "
+            f"· {summary.get('elapsed_sec', 0):.0f}s"
+        )
+        st.rerun()
+    except Exception as e:
+        if _gann_rid:
+            try:
+                log_finish(_gann_rid, "failed", error_msg=str(e))
+            except Exception:
+                pass
+        st.error(f"❌ Gann pipeline error: {e}")
+        st.exception(e)
+
 st.markdown("---")
 
 # ── Data Inventory ────────────────────────────────────────────────────────────

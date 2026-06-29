@@ -102,6 +102,14 @@ PAGE_SEO = {
                        "XGBoost stock direction NSE, Prophet time series India, "
                        "technical analysis AI NSE, stock prediction model India",
     },
+    "Gann_Analysis": {
+        "title":       "Gann Analysis | Dhawal Method | NSE Stock Analysis",
+        "description": "Gann analysis for NSE stocks: ATR range completion, Square of Nine degree levels "
+                       "from swing pivots, Top-to-Top date projection, Price-Time squaring, "
+                       "and Gann natural dates. Educational and research purposes only.",
+        "keywords":    "Gann analysis NSE, Square of Nine India, Dhawal Gann method, "
+                       "ATR range completion NSE, price time squaring India, Gann degree levels",
+    },
     "Contact": {
         "title":       "Contact Us | Feedback & Support | Market Sector Analysis",
         "description": "Send feedback, report data issues or request new features for the Market Sector Analysis FII dashboard.",

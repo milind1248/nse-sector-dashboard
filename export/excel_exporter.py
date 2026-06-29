@@ -245,7 +245,32 @@ def generate_excel_report() -> bytes:
         _write_sheet(wb, "11_Smart_Money_History", sm_history,
                      pct_cols=["pct_price_chg", "dlv_pct", "pct_oi_chg"])
 
-    # ── 11. AI Forecast Signals (Prophet + XGBoost for all stocks) ───────────
+    # ── 11. Gann Analysis Cache (ATR + Degree + Date + PTS + Natural Dates) ────
+    gann_df = _db("""
+        SELECT symbol       AS "Symbol",
+               scan_date    AS "Scan Date",
+               JSON_EXTRACT(atr_json,  '$.atr34')        AS "ATR34",
+               JSON_EXTRACT(atr_json,  '$.today_range')  AS "Today Range",
+               JSON_EXTRACT(atr_json,  '$.consumed_pct') AS "ATR Consumed %",
+               JSON_EXTRACT(atr_json,  '$.cmp')          AS "CMP",
+               JSON_EXTRACT(pts_json,  '$.from_high.days')     AS "PTS Days (High)",
+               JSON_EXTRACT(pts_json,  '$.from_high.best_v')   AS "PTS Variance% (High)",
+               JSON_EXTRACT(pts_json,  '$.from_high.squared')  AS "PTS Squared (High)",
+               JSON_EXTRACT(pts_json,  '$.from_low.days')      AS "PTS Days (Low)",
+               JSON_EXTRACT(pts_json,  '$.from_low.best_v')    AS "PTS Variance% (Low)",
+               JSON_EXTRACT(pts_json,  '$.from_low.squared')   AS "PTS Squared (Low)",
+               JSON_EXTRACT(dates_json,'$.hit_rate_pct')       AS "Natural Date Hit%",
+               JSON_EXTRACT(dates_json,'$.total_dates')        AS "Natural Dates Count",
+               updated_at   AS "Updated At"
+        FROM gann_cache
+        WHERE scan_date = (SELECT MAX(scan_date) FROM gann_cache)
+        ORDER BY symbol
+    """)
+    if not gann_df.empty:
+        _write_sheet(wb, "12_Gann_Analysis", gann_df,
+                     pct_cols=["ATR Consumed %", "Natural Date Hit%"])
+
+    # ── 12. AI Forecast Signals (Prophet + XGBoost for all stocks) ───────────
     ai_df = _db("""
         SELECT symbol            AS "Symbol",
                sector            AS "Sector",
@@ -263,7 +288,7 @@ def generate_excel_report() -> bytes:
         ORDER BY xgb_prob DESC
     """)
     if not ai_df.empty:
-        _write_sheet(wb, "12_AI_Forecast_Signals", ai_df,
+        _write_sheet(wb, "13_AI_Forecast_Signals", ai_df,
                      pct_cols=["XGB Probability %", "Backtest Accuracy %", "Prophet % Change (30d)", "ARIMA % Change (30d)"])
 
     buf = io.BytesIO()

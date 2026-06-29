@@ -139,8 +139,9 @@ with st.sidebar:
 <span style="color:#3a5a8a;">⑩</span> 📊 <b>FII Accumulation</b> <span style="color:#555;">→ Quarterly FII shareholding changes</span><br>
 <span style="color:#3a5a8a;">⑪</span> 🔔 <b>Alerts</b> <span style="color:#555;">→ Breakouts & reversals</span><br>
 <span style="color:#3a5a8a;">⑫</span> 🤖 <b>AI Forecast</b> <span style="color:#555;">→ Prophet + XGBoost price prediction</span><br>
-<span style="color:#3a5a8a;">⑬</span> 📤 <b>Export</b> <span style="color:#555;">→ Download for offline use</span><br>
-<span style="color:#3a5a8a;">⑭</span> 🔐 <b>Admin</b> <span style="color:#555;">→ Job monitor & pipeline triggers</span>
+<span style="color:#3a5a8a;">⑬</span> 🔢 <b>Gann Analysis</b> <span style="color:#555;">→ ATR · Degree levels · Date projection · Price-Time square</span><br>
+<span style="color:#3a5a8a;">⑭</span> 📤 <b>Export</b> <span style="color:#555;">→ Download for offline use</span><br>
+<span style="color:#3a5a8a;">⑮</span> 🔐 <b>Admin</b> <span style="color:#555;">→ Job monitor & pipeline triggers</span>
 </div>
 """, unsafe_allow_html=True)
     st.markdown("---")

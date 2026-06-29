@@ -28,7 +28,7 @@ st.title("\U0001f4e5 Export Dashboard Data")
 st.caption("Download full sector intelligence report as Excel.")
 
 st.markdown("""
-**12 sheets included:**
+**13 sheets included:**
 | Sheet | Contents |
 |-------|----------|
 | 1_Summary | Dashboard overview — sector counts, FII net, history depth |
@@ -42,7 +42,8 @@ st.markdown("""
 | 9_Market_Breadth | Advance/Decline, VIX, 52W highs/lows, EMA breadth metrics |
 | 10_Smart_Money_Screener | FNO stocks with active "Buying" signal on last trading day |
 | 11_Smart_Money_History | 90-day Delivery % + Action + OI history for all FNO stocks |
-| 12_AI_Forecast_Signals | Prophet trend + XGBoost direction for all dashboard stocks |
+| 12_Gann_Analysis | Gann cache — ATR consumed %, degree levels, Price-Time square, natural date hit rate per stock |
+| 13_AI_Forecast_Signals | Prophet trend + XGBoost direction for all dashboard stocks |
 """)
 
 st.markdown("---")
