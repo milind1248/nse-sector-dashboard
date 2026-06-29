@@ -154,6 +154,145 @@ def _last_run_for(job_id: str) -> str:
     except Exception:
         return "—"
 
+
+def _call_pipeline(job_id: str, detail_ph) -> None:
+    """Dispatch a single pipeline by job_id. Raises on failure."""
+    _db_path = str(Path(__file__).resolve().parent.parent.parent / "data" / "nse_dashboard.db")
+    if job_id == "market_pulse_snapshot":
+        from backend.data_ingestion.market_pulse_pipeline import run_market_pulse_pipeline
+        run_market_pulse_pipeline(triggered_by="admin")
+
+    elif job_id == "sector_snapshot":
+        from backend.data_ingestion.pipeline import (
+            run_fii_dii_pipeline, run_breadth_pipeline, run_sector_pipeline)
+        from backend.storage.cache import invalidate_all
+        invalidate_all()
+        run_fii_dii_pipeline()
+        run_breadth_pipeline()
+        run_sector_pipeline()
+
+    elif job_id == "index_stocks_sync":
+        from backend.data_ingestion.sector_sync import sync_all
+        sync_all(_db_path)
+
+    elif job_id == "stock_snapshot":
+        from backend.data_ingestion.pipeline import run_stock_pipeline
+        run_stock_pipeline()
+
+    elif job_id == "shareholding_quarterly":
+        from backend.data_ingestion.shareholding_pipeline import run_shareholding_pipeline
+        run_shareholding_pipeline(triggered_by="admin")
+
+    elif job_id == "ai_scan_daily":
+        from backend.data_ingestion.ai_scan_pipeline import run_ai_scan_pipeline
+        run_ai_scan_pipeline(triggered_by="admin")
+
+    elif job_id == "gann_daily":
+        from backend.data_ingestion.gann_pipeline import run_gann_pipeline, _all_symbols
+        _total = len(_all_symbols())
+
+        def _cb(done, tot, sym):
+            pct = int(done / tot * 100)
+            detail_ph.caption(f"Gann: {done}/{tot} stocks ({pct}%) — last: **{sym}**")
+
+        run_gann_pipeline(triggered_by="admin", progress_callback=_cb)
+
+
+def _run_master_job() -> None:
+    """Run all 7 pipelines sequentially with live status table."""
+    from backend.data_ingestion.job_logger import log_start, log_finish
+
+    MASTER_JOBS = [
+        {"id": "market_pulse_snapshot", "name": "Market Pulse Snapshot",
+         "job_name": "Market Pulse Snapshot (Breadth + Heatmap + RRG)"},
+        {"id": "sector_snapshot",       "name": "Sector Snapshot",
+         "job_name": "Sector Snapshot (FII/DII + Breadth + Prices)"},
+        {"id": "index_stocks_sync",     "name": "Index Stocks Sync",
+         "job_name": "Index Stocks Sync (NSE + Yahoo Finance)"},
+        {"id": "stock_snapshot",        "name": "Stock Snapshot",
+         "job_name": "Stock Snapshot (Delivery + OI)"},
+        {"id": "shareholding_quarterly","name": "Shareholding Refresh",
+         "job_name": "Quarterly Shareholding Refresh (All Sector Stocks)"},
+        {"id": "ai_scan_daily",         "name": "AI Scan",
+         "job_name": "AI Scan — XGBoost Direction (All Dashboard Stocks)"},
+        {"id": "gann_daily",            "name": "Gann Cache",
+         "job_name": "Gann Analysis — All 5 Methods (All Dashboard Stocks)"},
+    ]
+    n = len(MASTER_JOBS)
+
+    overall_bar  = st.progress(0, text="Starting Master Job…")
+    status_table = st.empty()
+    job_detail   = st.empty()
+
+    results = [{"status": "⏳ Pending", "duration": "—"} for _ in MASTER_JOBS]
+
+    def _render_table():
+        rows = ["| # | Job | Status | Duration |", "|---|---|---|---|"]
+        for i, job in enumerate(MASTER_JOBS):
+            rows.append(
+                f"| {i+1} | {job['name']} | {results[i]['status']} | {results[i]['duration']} |"
+            )
+        status_table.markdown("\n".join(rows))
+
+    _render_table()
+
+    for idx, job in enumerate(MASTER_JOBS):
+        pct_start = int(idx / n * 100)
+        overall_bar.progress(pct_start, text=f"Job {idx+1}/{n} — {job['name']}…")
+        results[idx]["status"] = "🔄 Running…"
+        _render_table()
+
+        t0 = time.time()
+        _rid = None
+        try:
+            _rid = log_start(job["id"], job["job_name"], triggered_by="admin")
+            _call_pipeline(job["id"], job_detail)
+            elapsed = round(time.time() - t0)
+            log_finish(_rid, "success")
+            results[idx]["status"]   = "✅ Done"
+            results[idx]["duration"] = f"{elapsed // 60}m {elapsed % 60}s"
+        except Exception as e:
+            elapsed = round(time.time() - t0)
+            if _rid:
+                try:
+                    log_finish(_rid, "failed", error_msg=str(e))
+                except Exception:
+                    pass
+            results[idx]["status"]   = "❌ Failed"
+            results[idx]["duration"] = f"{elapsed // 60}m {elapsed % 60}s"
+            st.warning(f"⚠️ **{job['name']}** failed: {e} — continuing with next job.")
+        finally:
+            job_detail.empty()
+            _render_table()
+
+    overall_bar.progress(100, text=f"✅ Master Job complete — all {n} jobs finished.")
+    st.cache_data.clear()
+    st.success("All pipelines refreshed successfully. Page will reload now.")
+    st.rerun()
+
+
+# ── Master Job ─────────────────────────────────────────────────────────────────
+with st.expander("🚀 Master Job — Refresh All Data", expanded=False):
+    st.caption(
+        "Runs all 7 pipelines sequentially. Each job starts only after the previous one finishes. "
+        "Use when the site is out of sync after downtime. Estimated runtime: 40–66 minutes."
+    )
+    st.markdown(
+        "| # | Pipeline | Est. Time |\n"
+        "|---|---|---|\n"
+        "| 1 | Market Pulse Snapshot | 3–5 min |\n"
+        "| 2 | Sector Snapshot | 2–3 min |\n"
+        "| 3 | Index Stocks Sync | 5–8 min |\n"
+        "| 4 | Stock Snapshot | 2–3 min |\n"
+        "| 5 | Shareholding Refresh | 3–5 min |\n"
+        "| 6 | AI Scan | 15–27 min |\n"
+        "| 7 | Gann Cache | 10–15 min |"
+    )
+    if st.button("▶ Run Master Job", type="primary", key="master_job_btn"):
+        _run_master_job()
+
+st.markdown("---")
+
 # Table header
 hc1, hc2, hc3, hc4, hc5 = st.columns([2, 3, 4, 3, 2])
 hc1.markdown("**#**")
