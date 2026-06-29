@@ -187,7 +187,7 @@ def run_shareholding_pipeline(triggered_by: str = "scheduler"):
             except Exception as e:
                 errors.append(sym)
                 logger.error(f"Error fetching {sym}: {e}")
-            time.sleep(0.4)  # polite rate-limiting
+            time.sleep(1.5)  # polite rate-limiting — avoid triggering Screener.in rate limits
 
     # Record last successful run timestamp
     ts = datetime.utcnow().isoformat()
@@ -203,8 +203,8 @@ def run_shareholding_pipeline(triggered_by: str = "scheduler"):
     if errors:
         logger.warning(f"Failed symbols: {errors}")
 
-    if errors:
-        raise RuntimeError(f"{len(errors)} symbols failed: {errors[:5]}")
+    if errors and success == 0:
+        raise RuntimeError(f"All {len(errors)} symbols failed — Screener.in may be unavailable or blocking requests")
 
 
 if __name__ == "__main__":
