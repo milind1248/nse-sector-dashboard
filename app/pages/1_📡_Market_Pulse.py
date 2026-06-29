@@ -165,7 +165,7 @@ if is_admin():
                     f"Sectors: {summary.get('heatmap_sectors', 0)} · "
                     f"RRG: {summary.get('rrg_sectors', 0)}"
                 )
-                get_market_summary.clear() if hasattr(get_market_summary, "clear") else None
+                st.cache_data.clear()
                 st.rerun()
             except Exception as e:
                 log_finish(rid, "failed", error_msg=str(e))
