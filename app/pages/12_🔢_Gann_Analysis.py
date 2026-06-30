@@ -383,7 +383,7 @@ def _show_top_stocks_table(acc_col: str, sig_col: str, method_label: str, thresh
 # TAB 1 — ATR RANGE COMPLETION
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_atr:
-    st.subheader("📏 ATR Range Completion")
+    st.subheader(f"📏 ATR Range Completion — {sel}")
     st.caption(
         "**Rule:** ATR = mean(High−Low) of last **34 trading days**. "
         "When today's range ≥ ATR the expected move is complete — "
@@ -407,7 +407,7 @@ with tab_atr:
         m4.success(f"✅ {consumed}% — open")
 
     st.markdown("---")
-    st.markdown("#### 📊 Backtest — Range-Complete Signals")
+    st.markdown(f"#### 📊 Backtest — Range-Complete Signals | {sel}")
     st.markdown(_BT_LABEL, unsafe_allow_html=True)
     st.caption(
         "Each signal day: range consumed ≥ 100%. "
@@ -515,7 +515,7 @@ with tab_atr:
 # TAB 2 — DEGREE LEVELS
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_deg:
-    st.subheader("📐 Degree Levels — Square of Nine")
+    st.subheader(f"📐 Degree Levels — Square of Nine | {sel}")
     st.caption(
         "**Formula:** (√Price ± factor)² | "
         "90° → ±0.5 · 120° → ±0.667 · 180° → ±1.0 · "
@@ -582,7 +582,7 @@ with tab_deg:
 
         # Degree backtest from cache
         st.markdown("---")
-        st.markdown("#### 📊 Backtest — Degree Level Touches")
+        st.markdown(f"#### 📊 Backtest — Degree Level Touches | {sel}")
         st.markdown(_BT_LABEL, unsafe_allow_html=True)
         st.caption(
             "Using current degree levels (from selected pivot), scan full price history "
@@ -630,7 +630,7 @@ with tab_deg:
 # TAB 3 — DATE PROJECTION
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_date:
-    st.subheader("📅 Top-to-Top / Bottom-to-Bottom Date Projection")
+    st.subheader(f"📅 Top-to-Top / Bottom-to-Bottom Date Projection — {sel}")
     st.caption(
         "**Rule:** Count **calendar days** between the last two swing highs (or lows). "
         "Projected next date = most recent pivot + that same number of days. "
@@ -672,7 +672,7 @@ with tab_date:
 
     def _rename_proj(rows):
         def _p(v):
-            try: return round(float(v), 1)
+            try: return f"{float(v):,.1f}"
             except Exception: return v
         return [{
             "Pivot 1":      r.get("Pivot1", ""),
@@ -718,7 +718,7 @@ with tab_date:
             st.info("Need ≥ 2 swing lows. Reduce the pivot window.")
 
     st.markdown("---")
-    st.markdown("#### 📊 Backtest — Projection Accuracy (Walk-Forward)")
+    st.markdown(f"#### 📊 Backtest — Projection Accuracy (Walk-Forward) | {sel}")
     st.markdown(_BT_LABEL, unsafe_allow_html=True)
     st.caption(
         "For each consecutive triplet of swing highs [H1, H2, H3]: "
@@ -779,7 +779,7 @@ with tab_date:
 # TAB 4 — PRICE-TIME SQUARING
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_pts:
-    st.subheader("⚖️ Price-Time Squaring")
+    st.subheader(f"⚖️ Price-Time Squaring — {sel}")
     st.caption(
         "**Gann principle:** when price (in points) ≈ number of calendar days elapsed from a major pivot, "
         "a reversal is likely. Tested at three scales: Price, Price÷10, Price÷100 "
@@ -841,7 +841,7 @@ with tab_pts:
     else:    pc2.info("No swing low found.")
 
     st.markdown("---")
-    st.markdown("#### 📊 Backtest — Squaring Events vs Baseline")
+    st.markdown(f"#### 📊 Backtest — Squaring Events vs Baseline | {sel}")
     st.markdown(_BT_LABEL, unsafe_allow_html=True)
     st.caption(
         "For each historical bar: find the most recent prior swing H and L, "
@@ -895,7 +895,7 @@ with tab_pts:
 # TAB 5 — NATURAL DATES
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_gnn:
-    st.subheader("🗓️ Gann Natural Dates")
+    st.subheader(f"🗓️ Gann Natural Dates — {sel}")
     st.caption(
         "Seasonal dates where trend change probability is historically higher. "
         "**Pattern:** first month of each quarter has no dates (Jan, Apr, Jul, Oct). "
@@ -948,7 +948,7 @@ with tab_gnn:
         st.info("No Gann natural dates in the next 90 days.")
 
     st.markdown("---")
-    st.markdown("#### 📊 Backtest — Natural Date Hit Rate")
+    st.markdown(f"#### 📊 Backtest — Natural Date Hit Rate | {sel}")
     st.markdown(_BT_LABEL, unsafe_allow_html=True)
     st.caption(
         "For each Gann date falling within the full data window: "
