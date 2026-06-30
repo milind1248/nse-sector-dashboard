@@ -82,6 +82,11 @@ def store_gann(symbol: str, result: dict, scan_date: str | None = None,
     """
     today = scan_date or date.today().isoformat()
     acc = accuracy or {}
+
+    def _slim(d: dict, drop_keys=("bt_rows",)) -> dict:
+        """Remove large backtest arrays before storing — summary stats already in accuracy cols."""
+        return {k: v for k, v in d.items() if k not in drop_keys}
+
     con = _conn()
     con.execute("""
         INSERT OR REPLACE INTO gann_cache (
@@ -94,11 +99,11 @@ def store_gann(symbol: str, result: dict, scan_date: str | None = None,
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         symbol, today,
-        _json_dumps(result.get("atr") or {}),
-        _json_dumps(result.get("deg") or {}),
-        _json_dumps(result.get("proj") or {}),
-        _json_dumps(result.get("pts") or {}),
-        _json_dumps(result.get("dates") or {}),
+        _json_dumps(_slim(result.get("atr") or {})),
+        _json_dumps(_slim(result.get("deg") or {})),
+        _json_dumps(_slim(result.get("proj") or {})),
+        _json_dumps(_slim(result.get("pts") or {})),
+        _json_dumps(_slim(result.get("dates") or {})),
         result.get("updated_at", today),
         acc.get("atr_accuracy_pct"), acc.get("atr_signals", 0),
         acc.get("deg_accuracy_pct"), acc.get("deg_signals", 0),
