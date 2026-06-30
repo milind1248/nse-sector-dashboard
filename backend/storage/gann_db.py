@@ -83,9 +83,10 @@ def store_gann(symbol: str, result: dict, scan_date: str | None = None,
     today = scan_date or date.today().isoformat()
     acc = accuracy or {}
 
-    def _slim(d: dict, drop_keys=("bt_rows",)) -> dict:
-        """Remove large backtest arrays before storing — summary stats already in accuracy cols."""
-        return {k: v for k, v in d.items() if k not in drop_keys}
+    def _slim(d: dict) -> dict:
+        """Strip all backtest row arrays — page recomputes them from price data; never read from cache."""
+        _drop = {"bt_rows", "bt_highs", "bt_lows", "bt_high", "bt_low", "hist_rows"}
+        return {k: v for k, v in d.items() if k not in _drop}
 
     con = _conn()
     con.execute("""

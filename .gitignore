@@ -11,6 +11,14 @@ venv/
 dist/
 build/
 
-# Local documentation and Claude context â€” stay on local machine only
+# Local documentation and Claude context — stay on local machine only
 docs/
 CLAUDE.md
+
+# Temp profiling / test scripts (local only)
+backtest_new_methods.py
+report*.py
+res*.parquet
+res*.json
+tmp*.parquet
+start_app.bat
