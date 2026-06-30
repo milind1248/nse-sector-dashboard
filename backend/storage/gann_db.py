@@ -36,17 +36,38 @@ def ensure_table():
     con = _conn()
     con.execute("""
         CREATE TABLE IF NOT EXISTS gann_cache (
-            symbol      TEXT NOT NULL,
-            scan_date   TEXT NOT NULL,
-            atr_json    TEXT,
-            deg_json    TEXT,
-            proj_json   TEXT,
-            pts_json    TEXT,
-            dates_json  TEXT,
-            updated_at  TEXT,
+            symbol            TEXT NOT NULL,
+            scan_date         TEXT NOT NULL,
+            atr_json          TEXT,
+            deg_json          TEXT,
+            proj_json         TEXT,
+            pts_json          TEXT,
+            dates_json        TEXT,
+            updated_at        TEXT,
+            atr_accuracy_pct  REAL,
+            atr_signals       INTEGER,
+            deg_accuracy_pct  REAL,
+            deg_signals       INTEGER,
+            proj_accuracy_pct REAL,
+            proj_signals      INTEGER,
+            pts_accuracy_pct  REAL,
+            pts_signals       INTEGER,
+            nat_accuracy_pct  REAL,
+            nat_signals       INTEGER,
             PRIMARY KEY (symbol, scan_date)
         )
     """)
+    # Migrate existing tables that pre-date accuracy columns
+    existing = {row[1] for row in con.execute("PRAGMA table_info(gann_cache)").fetchall()}
+    for col, typ in [
+        ("atr_accuracy_pct", "REAL"), ("atr_signals", "INTEGER"),
+        ("deg_accuracy_pct", "REAL"), ("deg_signals", "INTEGER"),
+        ("proj_accuracy_pct", "REAL"), ("proj_signals", "INTEGER"),
+        ("pts_accuracy_pct", "REAL"), ("pts_signals", "INTEGER"),
+        ("nat_accuracy_pct", "REAL"), ("nat_signals", "INTEGER"),
+    ]:
+        if col not in existing:
+            con.execute(f"ALTER TABLE gann_cache ADD COLUMN {col} {typ}")
     con.commit()
     con.close()
 
@@ -54,14 +75,23 @@ def ensure_table():
 ensure_table()
 
 
-def store_gann(symbol: str, result: dict, scan_date: str | None = None) -> None:
-    """Upsert Gann analysis for one stock for today (or given date)."""
+def store_gann(symbol: str, result: dict, scan_date: str | None = None,
+               accuracy: dict | None = None) -> None:
+    """Upsert Gann analysis for one stock for today (or given date).
+    accuracy: optional dict from compute_accuracy() — pre-aggregated per-method metrics.
+    """
     today = scan_date or date.today().isoformat()
+    acc = accuracy or {}
     con = _conn()
     con.execute("""
-        INSERT OR REPLACE INTO gann_cache
-            (symbol, scan_date, atr_json, deg_json, proj_json, pts_json, dates_json, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO gann_cache (
+            symbol, scan_date, atr_json, deg_json, proj_json, pts_json, dates_json, updated_at,
+            atr_accuracy_pct, atr_signals,
+            deg_accuracy_pct, deg_signals,
+            proj_accuracy_pct, proj_signals,
+            pts_accuracy_pct, pts_signals,
+            nat_accuracy_pct, nat_signals
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         symbol, today,
         _json_dumps(result.get("atr") or {}),
@@ -70,6 +100,11 @@ def store_gann(symbol: str, result: dict, scan_date: str | None = None) -> None:
         _json_dumps(result.get("pts") or {}),
         _json_dumps(result.get("dates") or {}),
         result.get("updated_at", today),
+        acc.get("atr_accuracy_pct"), acc.get("atr_signals", 0),
+        acc.get("deg_accuracy_pct"), acc.get("deg_signals", 0),
+        acc.get("proj_accuracy_pct"), acc.get("proj_signals", 0),
+        acc.get("pts_accuracy_pct"), acc.get("pts_signals", 0),
+        acc.get("nat_accuracy_pct"), acc.get("nat_signals", 0),
     ))
     con.commit()
     con.close()
@@ -115,6 +150,45 @@ def load_all_summary() -> list[dict]:
             WHERE scan_date = ?
         """, (latest,)).fetchall()
         return [{"symbol": r[0], "scan_date": r[1], "updated_at": r[2]} for r in rows]
+    finally:
+        con.close()
+
+
+def load_all_accuracy() -> "pd.DataFrame":
+    """
+    Return a DataFrame of all symbols at the latest scan_date with pre-computed
+    accuracy columns. Used by the Gann Analysis page to show cross-stock tables
+    without re-parsing any JSON.
+    Returns empty DataFrame if accuracy columns have not been populated yet
+    (i.e., pipeline ran before this feature was deployed).
+    """
+    import pandas as pd
+    con = _conn()
+    try:
+        latest = con.execute("SELECT MAX(scan_date) FROM gann_cache").fetchone()[0]
+        if not latest:
+            return pd.DataFrame()
+        rows = con.execute("""
+            SELECT symbol,
+                   atr_accuracy_pct,  atr_signals,
+                   deg_accuracy_pct,  deg_signals,
+                   proj_accuracy_pct, proj_signals,
+                   pts_accuracy_pct,  pts_signals,
+                   nat_accuracy_pct,  nat_signals
+            FROM gann_cache
+            WHERE scan_date = ?
+            ORDER BY symbol
+        """, (latest,)).fetchall()
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame(rows, columns=[
+            "symbol",
+            "atr_accuracy_pct", "atr_signals",
+            "deg_accuracy_pct", "deg_signals",
+            "proj_accuracy_pct", "proj_signals",
+            "pts_accuracy_pct", "pts_signals",
+            "nat_accuracy_pct", "nat_signals",
+        ])
     finally:
         con.close()
 

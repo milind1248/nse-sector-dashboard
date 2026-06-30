@@ -13,7 +13,7 @@ import yfinance as yf
 import pandas as pd
 
 from config import SECTOR_STOCKS
-from backend.calculations.gann import compute_gann_all
+from backend.calculations.gann import compute_gann_all, compute_accuracy
 from backend.storage.gann_db import store_gann, purge_old
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,8 @@ def _process_one(ticker: str) -> tuple[str, bool]:
         result = compute_gann_all(symbol, df, _PIVOT_WINDOW)
         if not result:
             return symbol, False
-        store_gann(symbol, result)
+        accuracy = compute_accuracy(result)
+        store_gann(symbol, result, accuracy=accuracy)
         return symbol, True
     except Exception as e:
         logger.error(f"Gann pipeline error for {symbol}: {e}")

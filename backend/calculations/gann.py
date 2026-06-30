@@ -383,6 +383,72 @@ def compute_natural_dates(df: pd.DataFrame, pivot_window: int = 10) -> dict[str,
     }
 
 
+# ── Accuracy aggregation ──────────────────────────────────────────────────────
+
+def compute_accuracy(result: dict) -> dict[str, Any]:
+    """
+    Derive pre-aggregated accuracy metrics from a compute_gann_all() result.
+    Returns a flat dict of 10 fields (5 accuracy %, 5 signal counts).
+    Safe to call even when result keys are missing.
+    """
+    acc: dict[str, Any] = {}
+
+    # ATR Range: % of signal bars where price reversed next day
+    atr_rows = result.get("atr", {}).get("bt_rows", [])
+    if atr_rows:
+        acc["atr_accuracy_pct"] = round(
+            sum(1 for r in atr_rows if r.get("Reversed")) / len(atr_rows) * 100, 1
+        )
+        acc["atr_signals"] = len(atr_rows)
+    else:
+        acc["atr_accuracy_pct"] = None
+        acc["atr_signals"] = 0
+
+    # Degree Levels: weighted-average BounceRate (weight = Touches per level)
+    deg = result.get("deg", {})
+    all_lvls = deg.get("bt_high", []) + deg.get("bt_low", [])
+    total_w = sum(x.get("Touches", 0) for x in all_lvls)
+    if total_w:
+        acc["deg_accuracy_pct"] = round(
+            sum(x.get("BounceRate", 0) * x.get("Touches", 0) for x in all_lvls) / total_w, 1
+        )
+        acc["deg_signals"] = total_w
+    else:
+        acc["deg_accuracy_pct"] = None
+        acc["deg_signals"] = 0
+
+    # Date Projection: % pivot triplets where projected date landed Within3d
+    proj = result.get("proj", {})
+    all_bt = proj.get("bt_highs", []) + proj.get("bt_lows", [])
+    if all_bt:
+        acc["proj_accuracy_pct"] = round(
+            sum(1 for r in all_bt if r.get("Within3d")) / len(all_bt) * 100, 1
+        )
+        acc["proj_signals"] = len(all_bt)
+    else:
+        acc["proj_accuracy_pct"] = None
+        acc["proj_signals"] = 0
+
+    # Price-Time Square: % valid bars (BestVar < 999) that were Squared
+    pts_rows = result.get("pts", {}).get("bt_rows", [])
+    valid = [r for r in pts_rows if r.get("BestVar", 999) < 999]
+    if valid:
+        acc["pts_accuracy_pct"] = round(
+            sum(1 for r in valid if r.get("Squared")) / len(valid) * 100, 1
+        )
+        acc["pts_signals"] = len(valid)
+    else:
+        acc["pts_accuracy_pct"] = None
+        acc["pts_signals"] = 0
+
+    # Natural Dates: hit_rate_pct already computed in compute_natural_dates()
+    dates = result.get("dates", {})
+    acc["nat_accuracy_pct"] = dates.get("hit_rate_pct")
+    acc["nat_signals"] = dates.get("total_dates", 0)
+
+    return acc
+
+
 # ── Master function ───────────────────────────────────────────────────────────
 
 def compute_gann_all(symbol: str, df: pd.DataFrame, pivot_window: int = 10) -> dict[str, Any]:

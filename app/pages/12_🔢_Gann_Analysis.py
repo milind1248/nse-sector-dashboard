@@ -249,8 +249,13 @@ with sb:
 
 # ── Data load: DB first, live fallback ─────────────────────────────────────────
 
-from backend.storage.gann_db import load_gann
+from backend.storage.gann_db import load_gann, load_all_accuracy as _db_load_all_accuracy
 from backend.calculations.gann import compute_gann_all
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_all_accuracy() -> pd.DataFrame:
+    return _db_load_all_accuracy()
 
 cached, scan_date = load_gann(sel)
 
@@ -313,6 +318,67 @@ tab_atr, tab_deg, tab_date, tab_pts, tab_gnn = st.tabs([
     "🗓️ Natural Dates",
 ])
 
+# ── Cross-stock accuracy data (loaded once, shared across all tabs) ─────────
+
+_all_acc = _load_all_accuracy()
+_acc_ready = not _all_acc.empty and "atr_accuracy_pct" in _all_acc.columns and \
+             _all_acc["atr_accuracy_pct"].notna().any()
+
+
+def _acc_for(symbol: str, col: str):
+    """Return pre-computed accuracy value for the current stock from DB."""
+    if _all_acc.empty or col not in _all_acc.columns:
+        return None
+    row = _all_acc[_all_acc["symbol"] == symbol]
+    if row.empty:
+        return None
+    v = row.iloc[0][col]
+    return None if (v is None or (isinstance(v, float) and v != v)) else v
+
+
+def _show_accuracy_card(method_label: str, accuracy: float | None, signals: int | None):
+    """Render a small accuracy metric card coloured by performance tier."""
+    if accuracy is None:
+        st.caption("Backtest accuracy: — (run Gann pipeline from Admin to populate)")
+        return
+    color = "#26a69a" if accuracy >= 55 else ("#FFD700" if accuracy >= 50 else "#ef5350")
+    tier  = "Strong" if accuracy >= 55 else ("Moderate" if accuracy >= 50 else "Below 50%")
+    sig_txt = f" &nbsp;·&nbsp; {signals:,} signals" if signals else ""
+    st.markdown(
+        f'<div style="background:#1a1a2e;border-left:4px solid {color};'
+        f'padding:8px 14px;border-radius:4px;margin-bottom:8px">'
+        f'<span style="color:#aaa;font-size:0.8rem">{method_label} Backtest Accuracy'
+        f'{sig_txt}</span><br>'
+        f'<span style="color:{color};font-size:1.6rem;font-weight:700">{accuracy:.1f}%</span>'
+        f'&nbsp;<span style="color:{color};font-size:0.85rem">— {tier}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _show_top_stocks_table(acc_col: str, sig_col: str, method_label: str, threshold: float = 50.0):
+    """Expander showing all stocks >threshold% accuracy on this method."""
+    label = f"📋 Top stocks on {method_label} — >{int(threshold)}% accuracy (30-year backtest)"
+    with st.expander(label, expanded=False):
+        if not _acc_ready:
+            st.caption("No accuracy data yet. Run the Gann pipeline from Admin → Gann Cache.")
+            return
+        subset = _all_acc[_all_acc[acc_col].notna() & (_all_acc[acc_col] > threshold)].copy()
+        if subset.empty:
+            st.caption(f"No stocks exceed {threshold}% accuracy on this method.")
+            return
+        subset = subset.sort_values(acc_col, ascending=False).reset_index(drop=True)
+        subset.index += 1
+        display = subset[["symbol", acc_col, sig_col]].rename(columns={
+            "symbol": "Stock",
+            acc_col: "Accuracy",
+            sig_col: "Signals",
+        })
+        display["Accuracy"] = display["Accuracy"].apply(lambda x: f"{x:.1f}%")
+        st.dataframe(display, use_container_width=True)
+        st.caption(f"{len(subset)} of {len(_all_acc)} stocks exceed {threshold}% accuracy")
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — ATR RANGE COMPLETION
 # ══════════════════════════════════════════════════════════════════════════════
@@ -349,6 +415,10 @@ with tab_atr:
         "if bearish expect an up close. "
         "Reversal = next-day close moved opposite to signal-day direction."
     )
+
+    _atr_acc_val = _acc_for(sel, "atr_accuracy_pct")
+    _atr_sig_val = _acc_for(sel, "atr_signals")
+    _show_accuracy_card("ATR Range", _atr_acc_val, _atr_sig_val)
 
     bt_rows = _bt_atr(df)
 
@@ -402,6 +472,45 @@ with tab_atr:
             st.dataframe(display_bdf, use_container_width=True, hide_index=True)
     else:
         st.info("No range-complete signals found in the 2-year history for this stock.")
+
+    st.markdown("---")
+    _show_top_stocks_table("atr_accuracy_pct", "atr_signals", "ATR Range")
+
+    # High Conviction — stocks exceeding 50% in 3+ methods
+    with st.expander("🏆 High Conviction Stocks — >50% accuracy in 3+ Gann methods", expanded=False):
+        if not _acc_ready:
+            st.caption("No accuracy data yet. Run the Gann pipeline from Admin → Gann Cache.")
+        else:
+            _methods = [
+                ("atr_accuracy_pct",  "ATR Range"),
+                ("deg_accuracy_pct",  "Degree Levels"),
+                ("proj_accuracy_pct", "Date Projection"),
+                ("pts_accuracy_pct",  "Price-Time Sq"),
+                ("nat_accuracy_pct",  "Natural Dates"),
+            ]
+            _hc = _all_acc.copy()
+            _hc["methods_passed"] = sum(
+                (_hc[col].notna() & (_hc[col] > 50)).astype(int)
+                for col, _ in _methods
+            )
+            _hc = _hc[_hc["methods_passed"] >= 3].sort_values(
+                "methods_passed", ascending=False
+            ).reset_index(drop=True)
+            if _hc.empty:
+                st.caption("No stocks have >50% accuracy in 3+ methods yet.")
+            else:
+                disp_cols = {"symbol": "Stock"}
+                for col, lbl in _methods:
+                    _hc[lbl] = _hc[col].apply(
+                        lambda x: f"{x:.1f}%" if (x is not None and x == x) else "—"
+                    )
+                    disp_cols[lbl] = lbl
+                _hc["Methods Passed"] = _hc["methods_passed"].apply(lambda x: f"{x}/5")
+                show_hc = _hc[["symbol"] + [lbl for _, lbl in _methods] + ["Methods Passed"]].rename(
+                    columns={"symbol": "Stock"}
+                )
+                st.dataframe(show_hc, use_container_width=True, hide_index=True)
+                st.caption(f"{len(_hc)} high-conviction stocks (>50% in 3+ of 5 Gann methods)")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — DEGREE LEVELS
@@ -482,6 +591,10 @@ with tab_deg:
             "Outcome: did price move **≥ 0.5%** away from that level within the next **3 bars**?"
         )
 
+        _deg_acc_val = _acc_for(sel, "deg_accuracy_pct")
+        _deg_sig_val = _acc_for(sel, "deg_signals")
+        _show_accuracy_card("Degree Levels", _deg_acc_val, _deg_sig_val)
+
         deg_rows = _bt_degree(df, lvls)
 
         if deg_rows:
@@ -507,6 +620,9 @@ with tab_deg:
             st.plotly_chart(fig_dacc, use_container_width=True)
         else:
             st.info("No price touches found for these levels in 2-year history.")
+
+        st.markdown("---")
+        _show_top_stocks_table("deg_accuracy_pct", "deg_signals", "Degree Levels")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — DATE PROJECTION
@@ -608,6 +724,10 @@ with tab_date:
         "Same for lows. Shows mean absolute error (days) and hit rate within ±3 / ±7 days."
     )
 
+    _proj_acc_val = _acc_for(sel, "proj_accuracy_pct")
+    _proj_sig_val = _acc_for(sel, "proj_signals")
+    _show_accuracy_card("Date Projection", _proj_acc_val, _proj_sig_val)
+
     bt_h, bt_l = _bt_date_proj(ph_list, pl_list)
 
     combined_rows = bt_h + bt_l
@@ -650,6 +770,9 @@ with tab_date:
             st.dataframe(display_bt, use_container_width=True, hide_index=True)
     else:
         st.info("Need ≥ 3 swing highs or lows for walk-forward backtest. Reduce the pivot window.")
+
+    st.markdown("---")
+    _show_top_stocks_table("proj_accuracy_pct", "proj_signals", "Date Projection")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — PRICE-TIME SQUARING
@@ -726,6 +849,10 @@ with tab_pts:
         "**Outcome:** 5-day forward return magnitude vs non-signal days baseline."
     )
 
+    _pts_acc_val = _acc_for(sel, "pts_accuracy_pct")
+    _pts_sig_val = _acc_for(sel, "pts_signals")
+    _show_accuracy_card("Price-Time Square", _pts_acc_val, _pts_sig_val)
+
     sq_rows = _bt_pts(df, ph_list, pl_list, pw)
 
     if sq_rows:
@@ -758,6 +885,9 @@ with tab_pts:
         st.plotly_chart(fig_sq, use_container_width=True)
     else:
         st.info("Not enough pivot history to run price-time backtest.")
+
+    st.markdown("---")
+    _show_top_stocks_table("pts_accuracy_pct", "pts_signals", "Price-Time Square")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 5 — NATURAL DATES
