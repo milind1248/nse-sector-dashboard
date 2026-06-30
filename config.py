@@ -1,8 +1,26 @@
+import os
+import shutil
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
-DB_PATH = BASE_DIR / "data" / "nse_dashboard.db"
-DB_PATH.parent.mkdir(exist_ok=True)
+_REPO_DB  = BASE_DIR / "data" / "nse_dashboard.db"
+_TMP_DB   = Path("/tmp/nse_dashboard.db")
+
+def _resolve_db_path() -> Path:
+    """
+    On Streamlit Cloud the repo is mounted read-only.
+    Copy seed DB to /tmp on first access so pipelines can write.
+    Locally the repo DB is writable — use it directly.
+    """
+    _REPO_DB.parent.mkdir(exist_ok=True)
+    if os.access(_REPO_DB, os.W_OK):
+        return _REPO_DB          # local dev — writable, use directly
+    # Read-only mount (Streamlit Cloud): work from /tmp copy
+    if not _TMP_DB.exists() and _REPO_DB.exists():
+        shutil.copy2(_REPO_DB, _TMP_DB)
+    return _TMP_DB
+
+DB_PATH = _resolve_db_path()
 
 CACHE_TTL_SECONDS = 21600  # 6 hours
 
