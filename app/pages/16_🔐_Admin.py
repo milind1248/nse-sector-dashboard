@@ -14,9 +14,9 @@ _ensure_ai_scan_table()
 _IST = timezone(timedelta(hours=5, minutes=30))
 _DB_PATH = Path(__file__).parent.parent.parent / "data" / "nse_dashboard.db"
 
-def _to_ist(ts: str | None) -> str:
+def _to_ist(ts) -> str:
     """Convert a UTC ISO timestamp string to IST display string."""
-    if not ts:
+    if not ts or not isinstance(ts, str):
         return "—"
     try:
         dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
@@ -406,6 +406,32 @@ if r4c5.button("▶ Run", key="btn_stock", use_container_width=True):
             st.error(f"Pipeline failed: {e}")
     st.rerun()
 
+# ── Row 4b: Smart Money Signals ───────────────────────────────────────────────
+r4bc1, r4bc2, r4bc3, r4bc4, r4bc5 = st.columns([2, 3, 4, 3, 2])
+r4bc1.markdown("4b")
+r4bc2.markdown("💰 Smart Money")
+r4bc3.markdown("Smart Money Signals — F&O delivery %, futures OI for all F&O symbols (90-day rolling)")
+r4bc4.markdown(_last_run_for("smart_money_signals"))
+if r4bc5.button("▶ Run", key="btn_sm_signals", use_container_width=True):
+    with st.spinner("Running Smart Money Signals pipeline (~3–5 min)…"):
+        rid = None
+        try:
+            from backend.data_ingestion.smart_money_pipeline import run_smart_money_pipeline
+            from backend.data_ingestion.job_logger import log_start, log_finish
+            rid = log_start("smart_money_signals", "Smart Money Signals (F&O Delivery + OI)", "admin")
+            summary = run_smart_money_pipeline(triggered_by="admin")
+            log_finish(rid, "success", records_done=summary.get("rows_added", 0))
+            st.cache_data.clear()
+            st.success(
+                f"✅ Smart Money updated — {summary.get('total', 0)} symbols · "
+                f"{summary.get('rows_added', 0)} new rows in {summary.get('elapsed_sec', 0)}s"
+            )
+        except Exception as e:
+            if rid:
+                log_finish(rid, "failed", error_msg=str(e))
+            st.error(f"Pipeline failed: {e}")
+    st.rerun()
+
 # ── Row 5: Shareholding Refresh ───────────────────────────────────────────────
 r5c1, r5c2, r5c3, r5c4, r5c5 = st.columns([2, 3, 4, 3, 2])
 r5c1.markdown("5")
@@ -542,7 +568,7 @@ _inventory = [
     ("📈 Sector Analysis", "daily_sector_snapshot",  "date",       "Sector Prices & Returns",   "sector"),
     ("🏦 FII DII Flow",    "fii_dii_daily",          "date",       "FII/DII Daily Flow",        "sector"),
     ("💰 Smart Money",     "daily_stock_snapshot",   "date",       "Stock Delivery & OI",       "stock"),
-    ("💰 Smart Money",     "smart_money_history",    "trade_date", "Smart Money Signals",       "stock"),
+    ("💰 Smart Money",     "smart_money_history",    "trade_date", "Smart Money Signals",       "smart_money"),
     ("📊 FII Accumulation","shareholding_pattern",   None,         "Shareholding Pattern",      "shareholding"),
     ("🤖 AI Forecast",    "ai_scan_results",         "scan_date",  "AI Scan Signals (XGBoost)", "ai_scan"),
 ]
@@ -578,6 +604,14 @@ def _run_pipeline(key: str):
         log_finish(rid, "success")
         st.cache_data.clear()
         return "Shareholding refresh completed."
+    elif key == "smart_money":
+        from backend.data_ingestion.smart_money_pipeline import run_smart_money_pipeline
+        rid = log_start("smart_money_signals", "Smart Money Signals (F&O Delivery + OI)", "admin")
+        summary = run_smart_money_pipeline(triggered_by="admin")
+        log_finish(rid, "success", records_done=summary.get("rows_added", 0))
+        st.cache_data.clear()
+        return (f"Smart Money updated — {summary.get('total', 0)} symbols · "
+                f"{summary.get('rows_added', 0)} new rows · {summary.get('elapsed_sec', 0)}s")
     elif key == "ai_scan":
         from backend.data_ingestion.ai_scan_pipeline import run_ai_scan_pipeline
         rid = log_start("ai_scan_daily", "AI Scan — XGBoost Direction (All Dashboard Stocks)", "admin")

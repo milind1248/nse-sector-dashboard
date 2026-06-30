@@ -339,7 +339,11 @@ def sync_nsdl_to_db(force_refresh_latest: bool = False) -> dict[date, pd.DataFra
     """
     reports   = discover_reports()           # {date: url}
     in_db     = _dates_in_db()
-    to_fetch  = {d: url for d, url in reports.items() if d not in in_db}
+    # NSDL HTML reports before 2019 are consistently empty (old format / not archived).
+    # Skip them to avoid hundreds of wasted HTTP calls on first-run full sync.
+    _CUTOFF = date(2021, 1, 1)
+    to_fetch  = {d: url for d, url in reports.items()
+                 if d not in in_db and d >= _CUTOFF}
 
     if force_refresh_latest and reports:
         latest = max(reports)

@@ -36,7 +36,7 @@ SECTOR_INDICES = {
 # Top stocks per sector (Yahoo Finance .NS suffix)
 SECTOR_STOCKS = {
     "Auto": [
-        "MARUTI.NS", "TATAMOTORS.NS", "M&M.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS",
+        "MARUTI.NS", "TMCV.NS", "M&M.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS",
         "HEROMOTOCO.NS", "TVSMOTOR.NS", "ASHOKLEY.NS", "BALKRISIND.NS", "MOTHERSON.NS",
     ],
     "Bank": [

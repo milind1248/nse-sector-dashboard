@@ -1,4 +1,4 @@
-﻿"""
+"""
 FPI Sectors — Full analysis inspired by fpidata.in
 Tabs: Overview | Sector Trend | Cumulative Flow Tracker | Heat Map | AUC Holdings
 """
@@ -186,7 +186,7 @@ with tab_ov:
                 xaxis_title="₹ Crore", margin=dict(l=240, r=140, t=50, b=20),
                 xaxis_zeroline=True, xaxis_zerolinecolor="rgba(255,255,255,0.3)",
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         else:
             # Multi-period cumulative
             cum = _cum_for_dates(sel_dates)
@@ -204,7 +204,7 @@ with tab_ov:
                 title=f"Cumulative FPI Investment — {from_lbl_ov} to {to_lbl_ov}{half_tag} ({n_f} fortnights)",
                 xaxis_title="₹ Crore", margin=dict(l=240, r=140, t=50, b=20),
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         # ── Top Buyers / Sellers cards ─────────────────────────────────────────
         st.markdown("---")
@@ -395,7 +395,7 @@ with tab_net:
             ),
             bargap=0.25,
         )
-        st.plotly_chart(fig_net, use_container_width=True)
+        st.plotly_chart(fig_net, width='stretch')
 
         # ── Quick stats below chart ───────────────────────────────────────────
         total_in  = sum(v for v in bar_vals if v > 0)
@@ -484,7 +484,7 @@ with tab_trend:
             legend=dict(orientation="h", y=-0.3),
             hovermode="x unified",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     else:
         st.info("Select at least one sector to plot.")
 
@@ -575,7 +575,7 @@ with tab_cum:
             xaxis_tickangle=-45,
         )
         fig3.add_hline(y=0, line_dash="dot", line_color="rgba(255,255,255,0.2)")
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig3, width='stretch')
 
         # Full ranking table
         st.dataframe(
@@ -650,7 +650,7 @@ with tab_hm:
             xaxis=dict(tickangle=-40, tickfont=dict(size=9), side="top", title="← Latest"),
             yaxis=dict(tickfont=dict(size=9), autorange="reversed"),
         )
-        st.plotly_chart(fig4, use_container_width=True)
+        st.plotly_chart(fig4, width='stretch')
         if not show_text:
             st.caption("💡 Values hidden for readability — hover on cells to see ₹ Cr values. Select '6 Months' range to see labels.")
 
@@ -683,7 +683,7 @@ with tab_auc:
         title=f"AUC by Sector — {latest_date.strftime('%d %b %Y')} vs Previous (₹ Crore)",
         margin=dict(t=50, b=150, l=10, r=10), xaxis_tickangle=-45,
     )
-    st.plotly_chart(fig_auc, use_container_width=True)
+    st.plotly_chart(fig_auc, width='stretch')
 
     # Table
     st.dataframe(

@@ -983,7 +983,7 @@ with tab_stock:
                     title=f"{symbol} — Close Price (🟢 = Smart Money Buying)",
                     margin=dict(t=40, b=20),
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
             with col_ch2:
                 ch2 = hist.sort_values("trade_date")
@@ -1012,7 +1012,7 @@ with tab_stock:
                     title=f"{symbol} — Delivery % (yellow = 90d avg, 🟢 = Buying)",
                     margin=dict(t=40, b=20),
                 )
-                st.plotly_chart(fig2, use_container_width=True)
+                st.plotly_chart(fig2, width='stretch')
 
             # ── 90-day table ─────────────────────────────────────────────────
             st.subheader(f"📅 {len(hist)} Trading Days — {symbol}")
@@ -1124,7 +1124,7 @@ with tab_stock:
                     legend=dict(orientation="h", y=-0.2),
                     margin=dict(t=50, b=60),
                 )
-                st.plotly_chart(fig_sh, use_container_width=True)
+                st.plotly_chart(fig_sh, width='stretch')
 
                 # ── Table (latest quarter on top) ─────────────────────────────
                 sh_display = sh_table[["quarter","promoter","fii","dii","government","public_retail"]].copy()

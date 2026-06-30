@@ -1,4 +1,4 @@
-﻿"""Detailed FII/DII daily + fortnightly flow charts."""
+"""Detailed FII/DII daily + fortnightly flow charts."""
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -109,7 +109,7 @@ with tabs[0]:
                     fillcolor="rgba(41,121,255,0.08)", line_width=0,
                     annotation_text=period, annotation_position="top left",
                 )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         with col2:
             colors_dii = ["#00BCD4" if v >= 0 else "#FF6D00" for v in chart_df["dii_net"]]
@@ -122,7 +122,7 @@ with tabs[0]:
                 title=f"DII Net Flow — Last {len(chart_df)} days (₹ Cr)",
                 height=320, margin=dict(t=40, b=20),
             )
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width='stretch')
 
         # Cumulative line chart for full available data
         df_cum = df_all.copy()
@@ -142,7 +142,7 @@ with tabs[0]:
             title="Cumulative FII + DII Net Flow (₹ Cr) — Full history loaded",
             margin=dict(t=40, b=20), hovermode="x unified",
         )
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig3, width='stretch')
 
         with st.expander("📋 Raw daily data"):
             def _c(v):
@@ -190,7 +190,7 @@ with tabs[1]:
             title=f"FII Equity Net by Sector — {cd_str} (₹ Cr)",
             margin=dict(t=50, b=20, l=220, r=120), xaxis_title="₹ Crore",
         )
-        st.plotly_chart(fig4, use_container_width=True)
+        st.plotly_chart(fig4, width='stretch')
 
         if prev_df is not None:
             merged = curr_df[["nsdl_sector", "net_curr_eq"]].merge(
@@ -213,7 +213,7 @@ with tabs[1]:
                 title="Current vs Previous Fortnight FII Equity Flow",
                 margin=dict(t=50, b=100, l=20, r=20), xaxis_tickangle=-45,
             )
-            st.plotly_chart(fig5, use_container_width=True)
+            st.plotly_chart(fig5, width='stretch')
 
         st.subheader("FII Total Holdings (AUC) by Sector")
         auc_df = curr_df[["nsdl_sector", "auc_prev_eq", "auc_curr_eq", "auc_change", "auc_pct_change"]].copy()

@@ -239,7 +239,7 @@ if not hm.empty:
         margin=dict(t=20, b=20, l=140, r=20),
         coloraxis_colorbar=dict(title="%"),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 else:
     st.info("No heatmap data yet. Run the Market Pulse pipeline (Admin → Market Pulse Snapshot).")
 
@@ -294,7 +294,7 @@ if rrg_data:
         yaxis_title="RS-Momentum (trend of RS)",
         margin=dict(t=30, b=30, l=50, r=20),
     )
-    st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig2, width='stretch')
 
     quad_cols = st.columns(4)
     for col, quad in zip(quad_cols, ["Leading", "Improving", "Weakening", "Lagging"]):

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Step 3: Screen stocks in the selected sector by momentum indicators.
 Sorted by momentum score. For research purposes only.
 """
@@ -378,7 +378,7 @@ if chosen:
                 spikedash="solid", spikecolor="#888888",
             )
             fig.update_yaxes(range=[0, 100], row=2, col=1)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
             if nk_sig_x:
                 st.caption(
                     f"🟢 {len(nk_sig_x)} H-M entry signal(s) — RSI(9) crossed above 50 (NK sir bottom-catch). "
@@ -406,7 +406,7 @@ if chosen:
                             annotation_text="Ideal entry 45-65", annotation_position="top right")
             fig2.update_layout(template="plotly_dark", height=280, yaxis=dict(range=[0,100]),
                                 margin=dict(t=30,b=20))
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width='stretch')
 
 st.markdown("---")
 c1, c2, c3 = st.columns(3)

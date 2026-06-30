@@ -460,7 +460,7 @@ with tab_atr:
             ),
             yaxis=dict(title="%"), margin=dict(l=10, r=10, t=42, b=60),
         )
-        st.plotly_chart(fig_atr, use_container_width=True)
+        st.plotly_chart(fig_atr, width='stretch')
 
         # Table: latest date at top
         display_bdf = bdf.iloc[::-1].reset_index(drop=True).rename(columns={
@@ -578,7 +578,7 @@ with tab_deg:
                 annotation_text=pivot_choice[6:7],
                 annotation_font_color="#FFD700",
             )
-        st.plotly_chart(fig_deg, use_container_width=True)
+        st.plotly_chart(fig_deg, width='stretch')
 
         # Degree backtest from cache
         st.markdown("---")
@@ -619,7 +619,7 @@ with tab_deg:
                 font=dict(color="#FAFAFA"), yaxis=dict(title="%", range=[0, 110]),
                 margin=dict(l=10, r=10, t=38, b=10),
             )
-            st.plotly_chart(fig_dacc, use_container_width=True)
+            st.plotly_chart(fig_dacc, width='stretch')
         else:
             st.info("No price touches found for these levels in 2-year history.")
 
@@ -762,7 +762,7 @@ with tab_date:
             font=dict(color="#FAFAFA"), xaxis=dict(title="Signal #"),
             yaxis=dict(title="Error (days)"), margin=dict(l=10, r=10, t=38, b=10),
         )
-        st.plotly_chart(fig_err, use_container_width=True)
+        st.plotly_chart(fig_err, width='stretch')
 
         display_bt = combined.sort_values("Pivot2", ascending=False).rename(columns={
             "ErrDays": "Error (days)", "Within3d": "Within ±3d", "Within7d": "Within ±7d",
@@ -884,7 +884,7 @@ with tab_pts:
             font=dict(color="#FAFAFA"), yaxis=dict(title="%"),
             margin=dict(l=10, r=10, t=38, b=10),
         )
-        st.plotly_chart(fig_sq, use_container_width=True)
+        st.plotly_chart(fig_sq, width='stretch')
     else:
         st.info("Not enough pivot history to run price-time backtest.")
 
@@ -958,6 +958,11 @@ with tab_gnn:
 
     hist_rows, total, hits, hit_pct = _bt_natural_dates(df, ph_list, pl_list, GANN_DATES)
 
+    # Accuracy card — DB value preferred, live hit_pct as fallback
+    _nat_acc_val = _acc_for(sel, "nat_accuracy_pct") or (hit_pct if hist_rows else None)
+    _nat_sig_val = _acc_for(sel, "nat_signals") or (total if hist_rows else None)
+    _show_accuracy_card("Natural Dates Hit Rate", _nat_acc_val, _nat_sig_val)
+
     if hist_rows:
         gdf = pd.DataFrame(hist_rows)
         g1, g2, g3 = st.columns(3)
@@ -996,6 +1001,9 @@ with tab_gnn:
             paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#FAFAFA"),
             margin=dict(l=10, r=10, t=38, b=10),
         )
-        st.plotly_chart(fig_gnn, use_container_width=True)
+        st.plotly_chart(fig_gnn, width='stretch')
     else:
         st.info("No historical Gann dates found in the 2-year data window.")
+
+    st.markdown("---")
+    _show_top_stocks_table("nat_accuracy_pct", "nat_signals", "Natural Dates")

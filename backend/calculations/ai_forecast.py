@@ -8,11 +8,15 @@ run_xgb_direction(df_ohlcv)         → dict  (5-day direction probability + bac
 """
 from __future__ import annotations
 
+import logging
 import warnings
 import numpy as np
 import pandas as pd
 
 warnings.filterwarnings("ignore")
+# Suppress cmdstanpy chain-level INFO noise (Prophet uses Stan under the hood)
+logging.getLogger("cmdstanpy").setLevel(logging.WARNING)
+logging.getLogger("prophet").setLevel(logging.WARNING)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -215,9 +219,11 @@ def run_prophet_forecast(close_series: pd.Series, horizon_days: int = 30) -> dic
             daily_seasonality=False,
             weekly_seasonality=True,
             yearly_seasonality=True,
-            changepoint_prior_scale=0.15,       # moderate flexibility
+            changepoint_prior_scale=0.15,
             seasonality_prior_scale=10,
             interval_width=0.80,
+            mcmc_samples=0,          # MAP optimisation — no MCMC chains, 10x faster
+            uncertainty_samples=0,   # skip posterior sampling (intervals not shown in UI)
         )
         # Indian market: no Saturday/Sunday trading
         m.add_country_holidays(country_name="IN")

@@ -475,7 +475,7 @@ if prophet_ok:
         hovermode="x unified",
         xaxis_rangeslider_visible=False,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 else:
     st.warning(f"Prophet model error: {(prophet_res or {}).get('error')}")
 
@@ -538,7 +538,7 @@ if arima_ok:
         hovermode="x unified",
         xaxis_rangeslider_visible=False,
     )
-    st.plotly_chart(fig_a, use_container_width=True)
+    st.plotly_chart(fig_a, width='stretch')
     st.caption("ARIMA fits on daily log-returns using auto-selected order (p,d,q). Confidence bands are 95% prediction intervals converted back to price levels.")
 else:
     st.info("ARIMA model not available for this stock.")
@@ -584,7 +584,7 @@ with col_left:
             paper_bgcolor="#0d1117",
             font=dict(color="#ccc"),
         )
-        st.plotly_chart(fig_g, use_container_width=True)
+        st.plotly_chart(fig_g, width='stretch')
 
         # Signal label
         sig_bg = {"🟢": "#0d2515", "🟡": "#2d2a10", "🔴": "#2d1010",
@@ -620,7 +620,7 @@ with col_left:
                 yaxis=dict(autorange="reversed"),
                 xaxis=dict(title="Importance (%)"),
             )
-            st.plotly_chart(fig_fi, use_container_width=True)
+            st.plotly_chart(fig_fi, width='stretch')
     else:
         st.warning(f"XGBoost error: {(xgb_res or {}).get('error')}")
 
@@ -663,7 +663,7 @@ with col_right:
             margin=dict(t=40, b=40),
             xaxis_tickangle=-30,
         )
-        st.plotly_chart(fig_bt, use_container_width=True)
+        st.plotly_chart(fig_bt, width='stretch')
 
         # Monthly table — latest month first
         display_bt = bt_df[["month", "accuracy", "correct", "n_bars"]].iloc[::-1].reset_index(drop=True).copy()

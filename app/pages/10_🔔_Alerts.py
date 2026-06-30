@@ -183,7 +183,7 @@ with tab_breakout:
         fig = px.bar(sector_counts, x="Sector", y="Count", color="Count",
                      color_continuous_scale="YlOrRd", template="plotly_dark")
         fig.update_layout(height=300, margin=dict(t=20, b=60), xaxis_tickangle=-30)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
         alert_sectors = df_alerts["Sector"].unique().tolist()
         sel = st.selectbox("Jump to sector analysis:", alert_sectors)
@@ -575,7 +575,7 @@ with tab_ema:
                     template="plotly_dark",
                 )
                 fig_hist.update_layout(height=250, margin=dict(t=10, b=30))
-                st.plotly_chart(fig_hist, use_container_width=True)
+                st.plotly_chart(fig_hist, width='stretch')
 
             with cc2:
                 st.markdown("**Top Setups by Sector**")
@@ -587,7 +587,7 @@ with tab_ema:
                                  template="plotly_dark")
                 fig_bar.update_layout(height=250, margin=dict(t=10, b=60),
                                       xaxis_tickangle=-30)
-                st.plotly_chart(fig_bar, use_container_width=True)
+                st.plotly_chart(fig_bar, width='stretch')
 
             # ── Stock drilldown ────────────────────────────────────────────────
             st.markdown("---")
@@ -662,7 +662,7 @@ with tab_ema:
                             hovermode="x unified",
                             xaxis_rangeslider_visible=False,
                         )
-                        st.plotly_chart(fig_d, use_container_width=True)
+                        st.plotly_chart(fig_d, width='stretch')
                         if sig_x:
                             st.caption(f"🟢 {len(sig_x)} buy signal(s) detected — price bounced from 20 EMA zone.")
                         else:
@@ -1078,7 +1078,7 @@ with tab_hm:
                 fig_rsi.add_vline(x=30, line_dash="dash", line_color="#FFD600",
                                   annotation_text="Oversold 30")
                 fig_rsi.update_layout(height=250, margin=dict(t=10, b=30))
-                st.plotly_chart(fig_rsi, use_container_width=True)
+                st.plotly_chart(fig_rsi, width='stretch')
 
             with ch2:
                 st.markdown("**H-M Score by Sector**")
@@ -1090,7 +1090,7 @@ with tab_hm:
                                  template="plotly_dark")
                 fig_sec.update_layout(height=250, margin=dict(t=10, b=60),
                                       xaxis_tickangle=-30)
-                st.plotly_chart(fig_sec, use_container_width=True)
+                st.plotly_chart(fig_sec, width='stretch')
 
             # ── Drilldown chart with green buy-signal circles ─────────────────
             st.markdown("---")
@@ -1284,7 +1284,7 @@ with tab_hm:
                             xaxis_rangeslider_visible=False,
                             xaxis2_rangeslider_visible=False,
                         )
-                        st.plotly_chart(fig_hm, use_container_width=True)
+                        st.plotly_chart(fig_hm, width='stretch')
                         if sig_x2:
                             st.caption(f"🟢 {len(sig_x2)} H-M entry signal(s) — RSI(9) crossed above 50 from below (bottom catch).")
                         else:

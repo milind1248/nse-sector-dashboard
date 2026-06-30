@@ -1,4 +1,4 @@
-﻿"""
+"""
 FII Invest Sector — Full historical fortnightly matrix + FII-Price-Stock analysis.
 Dates: 15th and last day of every month (matches NSDL publication schedule).
 """
@@ -174,7 +174,7 @@ with tab_matrix:
         xaxis=dict(tickangle=-35, tickfont=dict(size=9), side="top"),
         yaxis=dict(tickfont=dict(size=9), autorange="reversed"),
     )
-    st.plotly_chart(fig_hm, use_container_width=True)
+    st.plotly_chart(fig_hm, width='stretch')
 
     # Data table below heatmap — latest on left
     with st.expander("📋 View raw data table (latest on left)"):
@@ -199,7 +199,7 @@ with tab_matrix:
     fig_c.update_layout(template="plotly_dark", height=max(350, len(cumul)*28+80),
                          margin=dict(t=20, b=20, l=230, r=120),
                          xaxis_title="₹ Crore (cumulative)")
-    st.plotly_chart(fig_c, use_container_width=True)
+    st.plotly_chart(fig_c, width='stretch')
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — FII → Price → Stock Analysis
@@ -471,7 +471,7 @@ with tab_analysis:
                 yaxis_title=f"Sector Index Return % ({fwd_days}d)",
                 margin=dict(t=50,b=40,l=60,r=20),
             )
-            st.plotly_chart(fig_sc, use_container_width=True)
+            st.plotly_chart(fig_sc, width='stretch')
             st.caption(
                 "Top-right quadrant = FII bought + price rose (Confirmed) — best signals. "
                 "Bottom-right = FII bought but price fell (Diverged) — possible lag or wrong call."

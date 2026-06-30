@@ -359,7 +359,7 @@ with col_ch:
             annotations=[dict(text=selected_index, x=0.5, y=0.5,
                               font=dict(size=9,color="white"), showarrow=False)],
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     with tab_tree:
         fig = px.treemap(
@@ -371,7 +371,7 @@ with col_ch:
         fig.update_traces(texttemplate="<b>%{label}</b><br>%{value:.1f}%", textfont_size=10)
         fig.update_layout(template="plotly_dark", height=300,
                           margin=dict(t=5,b=5,l=5,r=5), coloraxis_showscale=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     with tab_bar:
         top15 = valid.head(15).sort_values("weightage_pct")
@@ -384,7 +384,7 @@ with col_ch:
         ))
         fig.update_layout(template="plotly_dark", height=300,
                           margin=dict(t=5,b=5,l=10,r=50), xaxis_title="Weightage (%)")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
 # ── Analytics ─────────────────────────────────────────────────────────────────
 st.markdown("---")
@@ -407,7 +407,7 @@ with a1:
     fig.update_layout(template="plotly_dark", height=250,
                       xaxis_title="No. of Stocks", yaxis_title="Cumulative Weight (%)",
                       margin=dict(t=10,b=40,l=40,r=20))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 with a2:
     st.markdown("**Weight Tiers**")
@@ -454,7 +454,7 @@ fig = go.Figure(go.Bar(
 fig.update_layout(template="plotly_dark", height=270,
                   margin=dict(t=20,b=80,l=10,r=10),
                   xaxis_tickangle=-35, yaxis_title="Total Weight (%)")
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width='stretch')
 
 # ── All sectors overview ──────────────────────────────────────────────────────
 st.markdown("---")
@@ -626,7 +626,7 @@ else:
     fig_idx.update_yaxes(tickfont=dict(size=10), gridcolor="#1e2130")
     fig_idx.update_xaxes(tickfont=dict(size=10), gridcolor="#1e2130")
 
-    st.plotly_chart(fig_idx, use_container_width=True)
+    st.plotly_chart(fig_idx, width='stretch')
     if last_close and chg_pct is not None:
         color = "#00C853" if chg_pct >= 0 else "#D50000"
         arrow = "▲" if chg_pct >= 0 else "▼"

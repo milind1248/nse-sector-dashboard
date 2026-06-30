@@ -1,4 +1,4 @@
-﻿"""
+"""
 Step 2 in investor flow: "Is price confirming FII buying?"
 Shows sector index chart, technicals, and breadth.
 """
@@ -165,7 +165,7 @@ if sector_df is not None and not sector_df.empty:
                            xaxis_rangeslider_visible=False,
                            title=f"{sector} Index — Last 1 Year",
                            margin=dict(t=50,b=20,l=10,r=10))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     with tab2:
         close_s = _get_close(sector_df)
@@ -185,7 +185,7 @@ if sector_df is not None and not sector_df.empty:
         fig2.update_layout(template="plotly_dark", height=300,
                             yaxis=dict(range=[0,100]),
                             margin=dict(t=20,b=20,l=10,r=10))
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width='stretch')
 
     with tab3:
         # Relative strength vs Nifty
@@ -205,7 +205,7 @@ if sector_df is not None and not sector_df.empty:
             fig3.update_layout(template="plotly_dark", height=350,
                                 title="Relative Performance vs Nifty50 (rebased to 100)",
                                 margin=dict(t=50,b=20))
-            st.plotly_chart(fig3, use_container_width=True)
+            st.plotly_chart(fig3, width='stretch')
 
             rs_val = float(rs.iloc[-1])
             if rs_val > 0:
@@ -304,7 +304,7 @@ if sector_df is not None and not sector_df.empty:
                     legend=dict(orientation="v", x=1.01, y=1, font=dict(size=10)),
                     hovermode="x unified",
                 )
-                st.plotly_chart(fig4, use_container_width=True)
+                st.plotly_chart(fig4, width='stretch')
 
                 # RS summary table
                 if rs_rows:

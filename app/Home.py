@@ -1,4 +1,4 @@
-﻿"""
+"""
 NSE Sector Intelligence Dashboard
 Entry point: FII Fortnightly Sector Watch — investor decision flow starts here.
 All data is live: NSDL for fortnightly FPI data, yfinance for prices.
@@ -98,26 +98,25 @@ _ticker_rows, _ticker_lbl = _get_ticker_data()
 if _ticker_rows:
     _render_ticker(_ticker_rows, _ticker_lbl)
 
-# ── Cold-start DB sync (Streamlit Cloud resets filesystem on restart) ─────────
+# ── Cold-start DB sync (runs in background thread so Home page renders instantly)
 @st.cache_resource(show_spinner=False)
 def _cold_start_sync():
-    """
-    Runs once per server process.
-    • If DB is empty → full historical sync (first-ever deployment).
-    • If today is a fortnightly publish date AND we don't have it yet → sync latest only.
-    • Otherwise → no network call; just load from DB.
-    """
-    try:
-        from backend.data_ingestion.nsdl_fetcher import (
-            _dates_in_db, sync_nsdl_to_db, should_sync_today
-        )
-        n = len(_dates_in_db())
-        if n < 5:
-            sync_nsdl_to_db(force_refresh_latest=False)   # first-run full load
-        elif should_sync_today():
-            sync_nsdl_to_db(force_refresh_latest=True)    # auto-fetch new fortnight
-    except Exception:
-        pass
+    """Spawns a daemon thread so the page is never blocked by NSDL HTTP calls."""
+    import threading
+    def _do_sync():
+        try:
+            from backend.data_ingestion.nsdl_fetcher import (
+                _dates_in_db, sync_nsdl_to_db, should_sync_today
+            )
+            n = len(_dates_in_db())
+            if n < 5:
+                sync_nsdl_to_db(force_refresh_latest=False)
+            elif should_sync_today():
+                sync_nsdl_to_db(force_refresh_latest=True)
+        except Exception:
+            pass
+    t = threading.Thread(target=_do_sync, daemon=True)
+    t.start()
 
 _cold_start_sync()
 
@@ -392,7 +391,7 @@ with tab_curr:
         xaxis_title="₹ Crore", xaxis_zeroline=True,
         xaxis_zerolinecolor="rgba(255,255,255,0.3)", xaxis_zerolinewidth=1.5,
     )
-    st.plotly_chart(fig_bar, use_container_width=True)
+    st.plotly_chart(fig_bar, width='stretch')
 
     # Sector table
     rows = []
@@ -609,14 +608,22 @@ with tab_trend:
 
         fig_trend.add_hline(y=0, line_dash="dot", line_color="rgba(255,255,255,0.25)", line_width=1)
         fig_trend.update_layout(
-            template="plotly_dark", height=460,
+            template="plotly_dark", height=500,
             title=f"FII Equity Net Investment — {'% change' if view.startswith('%') else '₹ Crore'}",
             yaxis_title="% Change" if view.startswith("%") else "₹ Crore",
-            margin=dict(t=50, b=70, l=10, r=10),
-            legend=dict(orientation="h", y=-0.25),
+            margin=dict(t=50, b=110, l=10, r=10),
+            xaxis=dict(tickangle=-45, tickfont=dict(size=10)),
+            legend=dict(
+                orientation="h",
+                y=-0.28,
+                x=0,
+                xanchor="left",
+                font=dict(size=11),
+                itemwidth=80,
+            ),
             hovermode="x unified",
         )
-        st.plotly_chart(fig_trend, use_container_width=True)
+        st.plotly_chart(fig_trend, width='stretch')
 
     st.caption(f"{len(all_periods)} fortnights loaded. Refresh to add the latest fortnight when NSDL publishes it.")
 

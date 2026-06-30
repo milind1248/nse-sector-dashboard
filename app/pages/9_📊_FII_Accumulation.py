@@ -631,7 +631,7 @@ if sel_sym:
 
     fig = _trend_chart(sym_full)
     if fig:
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     else:
         st.info("Quarterly trend data not available for this stock yet.")
 
