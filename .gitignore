@@ -1,9 +1,8 @@
-__pycache__/
+﻿__pycache__/
 *.pyc
 *.pyo
 .env
 .streamlit/secrets.toml
-# data/nse_dashboard.db  ← intentionally tracked; cloud needs pre-seeded data
 nsdl_sync*.log
 inspect_*.py
 *.egg-info/
@@ -12,7 +11,6 @@ venv/
 dist/
 build/
 
-# Local documentation and Claude context — stay on local machine only
+# Local documentation and Claude context â€” stay on local machine only
 docs/
 CLAUDE.md
-data/nse_dashboard.db
