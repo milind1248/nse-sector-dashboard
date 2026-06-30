@@ -217,8 +217,8 @@ def _run_master_job() -> None:
          "job_name": "Index Stocks Sync (NSE + Yahoo Finance)"},
         {"id": "stock_snapshot",        "name": "Stock Snapshot",
          "job_name": "Stock Snapshot (Delivery + OI)"},
-        {"id": "shareholding_quarterly","name": "Shareholding Refresh",
-         "job_name": "Quarterly Shareholding Refresh (All Sector Stocks)"},
+        {"id": "smart_money",           "name": "Smart Money Signals",
+         "job_name": "Smart Money Signals (F&O Delivery + OI)"},
         {"id": "ai_scan_daily",         "name": "AI Scan",
          "job_name": "AI Scan — XGBoost Direction (All Dashboard Stocks)"},
         {"id": "gann_daily",            "name": "Gann Cache",
@@ -233,10 +233,21 @@ def _run_master_job() -> None:
     results = [{"status": "⏳ Pending", "duration": "—"} for _ in MASTER_JOBS]
 
     def _render_table():
-        rows = ["| # | Job | Status | Duration |", "|---|---|---|---|"]
+        rows = ["| # | Job | Frequency | Scheduled At | Status | Duration |",
+                "|---|---|---|---|---|---|"]
+        meta = [
+            ("Daily (Mon–Fri)", "8:00 PM"),
+            ("Daily (Mon–Fri)", "6:00 PM"),
+            ("Manual only",     "—"),
+            ("Daily (Mon–Fri)", "6:30 PM"),
+            ("Daily (Mon–Fri)", "Manual trigger"),
+            ("Daily (Mon–Fri)", "9:00 PM"),
+            ("Daily (Mon–Fri)", "9:30 PM"),
+        ]
         for i, job in enumerate(MASTER_JOBS):
+            freq, sched = meta[i]
             rows.append(
-                f"| {i+1} | {job['name']} | {results[i]['status']} | {results[i]['duration']} |"
+                f"| {i+1} | {job['name']} | {freq} | {sched} | {results[i]['status']} | {results[i]['duration']} |"
             )
         status_table.markdown("\n".join(rows))
 
@@ -281,18 +292,18 @@ def _run_master_job() -> None:
 with st.expander("🚀 Master Job — Refresh All Data", expanded=False):
     st.caption(
         "Runs all 7 pipelines sequentially. Each job starts only after the previous one finishes. "
-        "Use when the site is out of sync after downtime. Estimated runtime: 40–66 minutes."
+        "Use when the site is out of sync after downtime. Estimated runtime: 40–60 minutes."
     )
     st.markdown(
-        "| # | Pipeline | Est. Time |\n"
-        "|---|---|---|\n"
-        "| 1 | Market Pulse Snapshot | 3–5 min |\n"
-        "| 2 | Sector Snapshot | 2–3 min |\n"
-        "| 3 | Index Stocks Sync | 5–8 min |\n"
-        "| 4 | Stock Snapshot | 2–3 min |\n"
-        "| 5 | Shareholding Refresh | 3–5 min |\n"
-        "| 6 | AI Scan | 15–27 min |\n"
-        "| 7 | Gann Cache | 10–15 min |"
+        "| # | Pipeline | Frequency | Scheduled At (IST) | Est. Time |\n"
+        "|---|---|---|---|---|\n"
+        "| 1 | Market Pulse Snapshot | Daily (Mon–Fri) | 8:00 PM | 3–5 min |\n"
+        "| 2 | Sector Snapshot | Daily (Mon–Fri) | 6:00 PM | 2–3 min |\n"
+        "| 3 | Index Stocks Sync | Manual only | — | 5–8 min |\n"
+        "| 4 | Stock Snapshot | Daily (Mon–Fri) | 6:30 PM | 2–3 min |\n"
+        "| 5 | Smart Money Signals | Daily (Mon–Fri) | Manual trigger | 5–10 min |\n"
+        "| 6 | AI Scan | Daily (Mon–Fri) | 9:00 PM | 15–27 min |\n"
+        "| 7 | Gann Cache | Daily (Mon–Fri) | 9:30 PM | 10–15 min |"
     )
     if st.button("▶ Run Master Job", type="primary", key="master_job_btn"):
         _run_master_job()
