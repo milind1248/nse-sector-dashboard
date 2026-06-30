@@ -33,6 +33,16 @@ def ensure_table():
     con.close()
 
 
+def purge_old_logs(days: int = 7):
+    """Delete job_run_log rows older than `days` days."""
+    from datetime import timedelta
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    con = _db()
+    con.execute("DELETE FROM job_run_log WHERE started_at < ?", (cutoff,))
+    con.commit()
+    con.close()
+
+
 ensure_table()
 
 

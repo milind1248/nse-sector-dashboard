@@ -84,6 +84,12 @@ def _load_job_log() -> pd.DataFrame:
     except Exception:
         return pd.DataFrame()
 
+try:
+    from backend.data_ingestion.job_logger import purge_old_logs
+    purge_old_logs(days=7)
+except Exception:
+    pass
+
 job_df = _load_job_log()
 
 if job_df.empty:
