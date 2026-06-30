@@ -416,10 +416,6 @@ with tab_atr:
         "Reversal = next-day close moved opposite to signal-day direction."
     )
 
-    _atr_acc_val = _acc_for(sel, "atr_accuracy_pct")
-    _atr_sig_val = _acc_for(sel, "atr_signals")
-    _show_accuracy_card("ATR Range", _atr_acc_val, _atr_sig_val)
-
     bt_rows = _bt_atr(df)
 
     if bt_rows:
@@ -427,6 +423,9 @@ with tab_atr:
         n_sig = len(bdf)
         acc   = round(bdf["Reversed"].mean() * 100, 1)
         avg1d = round(bdf["Next1d%"].mean(), 2)
+        _atr_acc_val = _acc_for(sel, "atr_accuracy_pct") or acc
+        _atr_sig_val = _acc_for(sel, "atr_signals") or n_sig
+        _show_accuracy_card("ATR Range", _atr_acc_val, _atr_sig_val)
         avg3d = round(bdf["Next3d%"].mean(), 2)
 
         ba, bb, bc, bd = st.columns(4)
@@ -591,14 +590,17 @@ with tab_deg:
             "Outcome: did price move **≥ 0.5%** away from that level within the next **3 bars**?"
         )
 
-        _deg_acc_val = _acc_for(sel, "deg_accuracy_pct")
-        _deg_sig_val = _acc_for(sel, "deg_signals")
-        _show_accuracy_card("Degree Levels", _deg_acc_val, _deg_sig_val)
-
         deg_rows = _bt_degree(df, lvls)
 
         if deg_rows:
             deg_bt_df = pd.DataFrame(deg_rows)
+            _total_w  = sum(r.get("Touches", 0) for r in deg_rows)
+            _live_deg = round(
+                sum(r.get("BounceRate", 0) * r.get("Touches", 0) for r in deg_rows) / _total_w, 1
+            ) if _total_w else None
+            _deg_acc_val = _acc_for(sel, "deg_accuracy_pct") or _live_deg
+            _deg_sig_val = _acc_for(sel, "deg_signals") or _total_w
+            _show_accuracy_card("Degree Levels", _deg_acc_val, _deg_sig_val)
             display_deg = deg_bt_df.rename(columns={
                 "Price": "Price (₹)", "BounceRate": "Bounce Rate %", "Avg3dRet": "Avg 3d Ret%",
             })
@@ -724,10 +726,6 @@ with tab_date:
         "Same for lows. Shows mean absolute error (days) and hit rate within ±3 / ±7 days."
     )
 
-    _proj_acc_val = _acc_for(sel, "proj_accuracy_pct")
-    _proj_sig_val = _acc_for(sel, "proj_signals")
-    _show_accuracy_card("Date Projection", _proj_acc_val, _proj_sig_val)
-
     bt_h, bt_l = _bt_date_proj(ph_list, pl_list)
 
     combined_rows = bt_h + bt_l
@@ -735,6 +733,9 @@ with tab_date:
         combined = pd.DataFrame(combined_rows)
         mae  = round(combined["ErrDays"].mean(), 1)
         p3   = round(combined["Within3d"].mean() * 100, 1)
+        _proj_acc_val = _acc_for(sel, "proj_accuracy_pct") or p3
+        _proj_sig_val = _acc_for(sel, "proj_signals") or len(combined_rows)
+        _show_accuracy_card("Date Projection (Within ±3 Days)", _proj_acc_val, _proj_sig_val)
         p7   = round(combined["Within7d"].mean() * 100, 1)
         n_bt = len(combined)
 
@@ -849,10 +850,6 @@ with tab_pts:
         "**Outcome:** 5-day forward return magnitude vs non-signal days baseline."
     )
 
-    _pts_acc_val = _acc_for(sel, "pts_accuracy_pct")
-    _pts_sig_val = _acc_for(sel, "pts_signals")
-    _show_accuracy_card("Price-Time Square", _pts_acc_val, _pts_sig_val)
-
     sq_rows = _bt_pts(df, ph_list, pl_list, pw)
 
     if sq_rows:
@@ -861,6 +858,11 @@ with tab_pts:
         sq_nosig  = sq_df[~sq_df["Squared"]]
         avg_sig   = round(sq_sig["Ret5d"].mean(), 2)   if len(sq_sig)   else 0
         avg_nosig = round(sq_nosig["Ret5d"].mean(), 2) if len(sq_nosig) else 0
+        _valid_pts   = sq_df[sq_df["BestVar"] < 999]
+        _live_pts    = round(len(sq_sig) / len(_valid_pts) * 100, 1) if len(_valid_pts) else None
+        _pts_acc_val = _acc_for(sel, "pts_accuracy_pct") or _live_pts
+        _pts_sig_val = _acc_for(sel, "pts_signals") or len(_valid_pts)
+        _show_accuracy_card("Price-Time Square", _pts_acc_val, _pts_sig_val)
 
         s1, s2, s3 = st.columns(3)
         s1.metric("Squaring Events", len(sq_sig))
