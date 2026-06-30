@@ -341,17 +341,17 @@ else:
 
 if prophet_ok:
     t_dir   = prophet_res["trend_direction"]
-    t_pct   = prophet_res["trend_pct"]
+    t_pct   = float(prophet_res["trend_pct"] or 0)
     t_color = "#00C853" if t_dir == "Bullish" else ("#D50000" if t_dir == "Bearish" else "#FFD600")
 else:
-    t_dir = "—"; t_pct = 0; t_color = "#888"
+    t_dir = "—"; t_pct = 0.0; t_color = "#888"
 
 if arima_ok:
     a_dir   = arima_res["direction"]
-    a_pct   = arima_res["trend_pct"]
+    a_pct   = float(arima_res["trend_pct"] or 0)
     a_color = "#00C853" if a_dir == "Bullish" else ("#D50000" if a_dir == "Bearish" else "#FFD600")
 else:
-    a_dir = "—"; a_pct = 0; a_color = "#888"
+    a_dir = "—"; a_pct = 0.0; a_color = "#888"
 
 m1.markdown(f"""
 <div style='background:#1a2236;border-radius:10px;padding:18px 16px;text-align:center;border-left:4px solid {dir_color}'>
