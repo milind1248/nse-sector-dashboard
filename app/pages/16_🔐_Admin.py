@@ -763,23 +763,23 @@ st.markdown("---")
 # ── Data coverage summary ──────────────────────────────────────────────────────
 st.subheader("Data Coverage")
 
-try:
-    con = _db()
-    sh_count   = con.execute("SELECT COUNT(DISTINCT symbol) FROM shareholding_pattern").fetchone()[0]
-    sh_last    = con.execute(
-        "SELECT value FROM shareholding_refresh_meta WHERE key='last_full_refresh'"
-    ).fetchone()
-    fno_count  = con.execute("SELECT COUNT(*) FROM fno_symbols").fetchone()[0]
-    sm_count   = con.execute("SELECT COUNT(DISTINCT symbol) FROM smart_money_history").fetchone()[0]
-    con.close()
+def _safe_query(sql, default=0):
+    try:
+        con = _db(); r = con.execute(sql).fetchone(); con.close()
+        return r[0] if r else default
+    except Exception:
+        return default
 
-    d1, d2, d3, d4 = st.columns(4)
-    d1.metric("Stocks with Shareholding Data", sh_count)
-    d2.metric("Last Shareholding Refresh", sh_last[0][:10] if sh_last else "Never")
-    d3.metric("F&O Symbols Tracked", fno_count)
-    d4.metric("Smart Money History Stocks", sm_count)
-except Exception as e:
-    st.warning(f"Could not load coverage data: {e}")
+sh_count  = _safe_query("SELECT COUNT(DISTINCT symbol) FROM shareholding_pattern")
+sh_last   = _safe_query("SELECT value FROM shareholding_refresh_meta WHERE key='last_full_refresh'", None)
+fno_count = _safe_query("SELECT COUNT(*) FROM fno_symbols")
+sm_count  = _safe_query("SELECT COUNT(DISTINCT symbol) FROM smart_money_history")
+
+d1, d2, d3, d4 = st.columns(4)
+d1.metric("Stocks with Shareholding Data", sh_count or "—")
+d2.metric("Last Shareholding Refresh", sh_last[:10] if sh_last else "Never")
+d3.metric("F&O Symbols Tracked", fno_count or "—")
+d4.metric("Smart Money History Stocks", sm_count or "—")
 
 st.markdown("---")
 
