@@ -40,13 +40,26 @@ DEG = {
 # ── Core helpers ───────────────────────────────────────────────────────────────
 
 def _find_pivots(df: pd.DataFrame, window: int) -> dict:
-    highs, lows = [], []
-    for i in range(window, len(df) - window):
-        sl = slice(i - window, i + window + 1)
-        if df["High"].iloc[i] == df["High"].iloc[sl].max():
-            highs.append((str(df.index[i].date()), float(df["High"].iloc[i])))
-        if df["Low"].iloc[i] == df["Low"].iloc[sl].min():
-            lows.append((str(df.index[i].date()), float(df["Low"].iloc[i])))
+    """Vectorised swing pivot detection using rolling max/min."""
+    high_v = df["High"].values
+    low_v  = df["Low"].values
+    n      = len(high_v)
+
+    roll_max = pd.Series(high_v).rolling(2 * window + 1, center=True).max().values
+    roll_min = pd.Series(low_v ).rolling(2 * window + 1, center=True).min().values
+
+    dates = [str(df.index[i].date()) for i in range(n)]
+
+    highs = [
+        (dates[i], float(high_v[i]))
+        for i in range(window, n - window)
+        if high_v[i] == roll_max[i]
+    ]
+    lows = [
+        (dates[i], float(low_v[i]))
+        for i in range(window, n - window)
+        if low_v[i] == roll_min[i]
+    ]
     return {"highs": highs, "lows": lows}
 
 
@@ -63,64 +76,81 @@ def _sq9_levels(price: float) -> dict[str, dict]:
 def compute_atr(df: pd.DataFrame) -> dict[str, Any]:
     """
     Returns current ATR signal + backtest rows.
-    Result keys:
-      atr34, today_range, consumed_pct,
-      bt_rows: list of dicts (Date, Signal, Consumed%, Next1d%, Next3d%, Reversed)
+    Fully vectorised — no Python loops over bars.
     """
-    daily_rng = df["High"] - df["Low"]
-    atr34       = float(daily_rng.tail(34).mean()) if len(df) >= 34 else 0.0
-    today_range = float(daily_rng.iloc[-1])
+    daily_rng = (df["High"] - df["Low"]).values
+    close_v   = df["Close"].values
+    open_v    = df["Open"].values
+    n         = len(df)
+
+    atr_rolling = np.array([
+        daily_rng[i - 34:i].mean() if i >= 34 else np.nan
+        for i in range(n)
+    ])  # only 7k iterations of a simple slice — fast
+
+    atr34       = float(daily_rng[-34:].mean()) if n >= 34 else 0.0
+    today_range = float(daily_rng[-1])
     consumed    = round(today_range / atr34 * 100, 1) if atr34 else 0.0
 
-    bt_rows = []
-    for i in range(34, len(df) - 1):
-        atr_i = float(daily_rng.iloc[i - 34:i].mean())
-        rng_i = float(daily_rng.iloc[i])
-        if atr_i and rng_i / atr_i >= 1.0:
-            bull    = df["Close"].iloc[i] > df["Open"].iloc[i]
-            r1d     = (df["Close"].iloc[i + 1] - df["Close"].iloc[i]) / df["Close"].iloc[i] * 100
-            r3d_idx = min(i + 3, len(df) - 1)
-            r3d     = (df["Close"].iloc[r3d_idx] - df["Close"].iloc[i]) / df["Close"].iloc[i] * 100
-            rev     = (bull and r1d < 0) or (not bull and r1d > 0)
-            bt_rows.append({
-                "Date":        str(df.index[i].date()),
-                "Signal":      "Bull" if bull else "Bear",
-                "Consumed%":   round(rng_i / atr_i * 100, 1),
-                "Next1d%":     round(r1d, 2),
-                "Next3d%":     round(r3d, 2),
-                "Reversed":    rev,
-            })
+    # Signal days: range >= ATR and not within 1 bar of end
+    valid = (atr_rolling > 0) & (daily_rng >= atr_rolling)
+    sig_idx = np.where(valid)[0]
+    sig_idx = sig_idx[sig_idx < n - 1]  # need next-day bar
+
+    if len(sig_idx) == 0:
+        bt_rows = []
+    else:
+        bull   = close_v[sig_idx] > open_v[sig_idx]
+        atr_at = atr_rolling[sig_idx]
+        rng_at = daily_rng[sig_idx]
+        r1d    = (close_v[sig_idx + 1] - close_v[sig_idx]) / close_v[sig_idx] * 100
+        r3d_idx = np.minimum(sig_idx + 3, n - 1)
+        r3d    = (close_v[r3d_idx] - close_v[sig_idx]) / close_v[sig_idx] * 100
+        rev    = (bull & (r1d < 0)) | (~bull & (r1d > 0))
+        dates  = [str(df.index[i].date()) for i in sig_idx]
+
+        bt_rows = [
+            {
+                "Date":      dates[k],
+                "Signal":    "Bull" if bull[k] else "Bear",
+                "Consumed%": round(float(rng_at[k] / atr_at[k] * 100), 1),
+                "Next1d%":   round(float(r1d[k]), 2),
+                "Next3d%":   round(float(r3d[k]), 2),
+                "Reversed":  bool(rev[k]),
+            }
+            for k in range(len(sig_idx))
+        ]
 
     return {
-        "atr34":       round(atr34, 2),
-        "today_range": round(today_range, 2),
+        "atr34":        round(atr34, 2),
+        "today_range":  round(today_range, 2),
         "consumed_pct": consumed,
-        "cmp":         round(float(df["Close"].iloc[-1]), 2),
-        "last_date":   str(df.index[-1].date()),
-        "bt_rows":     bt_rows,
+        "cmp":          round(float(close_v[-1]), 2),
+        "last_date":    str(df.index[-1].date()),
+        "bt_rows":      bt_rows,
     }
 
 
 # ── Method 2: Degree Levels ───────────────────────────────────────────────────
 
-def compute_degree_levels(df: pd.DataFrame, pivot_window: int = 10) -> dict[str, Any]:
+def compute_degree_levels(df: pd.DataFrame, pivot_window: int = 10,
+                          pivots: dict | None = None) -> dict[str, Any]:
     """
     Returns degree levels from last swing high and low + per-level backtest.
-    Result keys:
-      ph: (date_str, price) or None
-      pl: (date_str, price) or None
-      levels_from_high: {deg: {up, dn}} or {}
-      levels_from_low:  {deg: {up, dn}} or {}
-      bt_high: list of {Level, Price, Touches, BounceRate, Avg3dRet} or []
-      bt_low:  same
+    pass pivots= to avoid recomputing _find_pivots for every method.
     """
-    pivots  = _find_pivots(df, pivot_window)
+    pivots  = pivots or _find_pivots(df, pivot_window)
     ph_list = pivots["highs"]
     pl_list = pivots["lows"]
     ph      = ph_list[-1] if ph_list else None
     pl      = pl_list[-1] if pl_list else None
 
     def _bt_levels(lvls: dict) -> list[dict]:
+        # Vectorised: no Python loop over bars
+        high_v  = df["High"].values
+        low_v   = df["Low"].values
+        close_v = df["Close"].values
+        n = len(close_v)
         rows = []
         for deg, lr in lvls.items():
             for side, lvl_price, is_res in [
@@ -129,27 +159,25 @@ def compute_degree_levels(df: pd.DataFrame, pivot_window: int = 10) -> dict[str,
             ]:
                 if lvl_price <= 0:
                     continue
-                touches = []
-                for i in range(len(df) - 3):
-                    h = float(df["High"].iloc[i])
-                    l = float(df["Low"].iloc[i])
-                    if (abs(h - lvl_price) / lvl_price <= 0.005 or
-                            abs(l - lvl_price) / lvl_price <= 0.005):
-                        fwd3 = float(df["Close"].iloc[i + 3])
-                        cl   = float(df["Close"].iloc[i])
-                        bounce = (fwd3 < cl) if is_res else (fwd3 > cl)
-                        ret3d  = round((fwd3 - cl) / cl * 100, 2)
-                        touches.append({"ret3d": ret3d, "bounce": bounce})
-                if touches:
-                    acc = round(sum(1 for t in touches if t["bounce"]) / len(touches) * 100, 1)
-                    avg = round(sum(t["ret3d"] for t in touches) / len(touches), 2)
-                    rows.append({
-                        "Level":       side,
-                        "Price":       lvl_price,
-                        "Touches":     len(touches),
-                        "BounceRate":  acc,
-                        "Avg3dRet":    avg,
-                    })
+                touch_mask = (
+                    (np.abs(high_v  - lvl_price) / lvl_price <= 0.005) |
+                    (np.abs(low_v   - lvl_price) / lvl_price <= 0.005)
+                )
+                touch_mask[n - 3:] = False   # need 3 forward bars
+                idx = np.where(touch_mask)[0]
+                if len(idx) == 0:
+                    continue
+                cl   = close_v[idx]
+                fwd3 = close_v[idx + 3]
+                bounce = (fwd3 < cl) if is_res else (fwd3 > cl)
+                ret3d  = (fwd3 - cl) / cl * 100
+                rows.append({
+                    "Level":      side,
+                    "Price":      lvl_price,
+                    "Touches":    int(len(idx)),
+                    "BounceRate": round(float(bounce.mean() * 100), 1),
+                    "Avg3dRet":   round(float(ret3d.mean()), 2),
+                })
         return rows
 
     lvls_h = _sq9_levels(ph[1]) if ph else {}
@@ -168,16 +196,13 @@ def compute_degree_levels(df: pd.DataFrame, pivot_window: int = 10) -> dict[str,
 
 # ── Method 3: Date Projection ─────────────────────────────────────────────────
 
-def compute_date_projection(df: pd.DataFrame, pivot_window: int = 10) -> dict[str, Any]:
+def compute_date_projection(df: pd.DataFrame, pivot_window: int = 10,
+                            pivots: dict | None = None) -> dict[str, Any]:
     """
     Top-to-Top / Bottom-to-Bottom projections + backtest.
-    Result keys:
-      top_proj: list of projection dicts
-      bot_proj: list of projection dicts
-      bt_highs: list of backtest dicts
-      bt_lows:  list of backtest dicts
+    pass pivots= to avoid recomputing _find_pivots for every method.
     """
-    pivots  = _find_pivots(df, pivot_window)
+    pivots  = pivots or _find_pivots(df, pivot_window)
     ph_list = pivots["highs"]
     pl_list = pivots["lows"]
     today   = datetime.date.today()
@@ -233,15 +258,13 @@ def compute_date_projection(df: pd.DataFrame, pivot_window: int = 10) -> dict[st
 
 # ── Method 4: Price-Time Square Out ──────────────────────────────────────────
 
-def compute_price_time_square(df: pd.DataFrame, pivot_window: int = 10) -> dict[str, Any]:
+def compute_price_time_square(df: pd.DataFrame, pivot_window: int = 10,
+                              pivots: dict | None = None) -> dict[str, Any]:
     """
     Price-Time squaring: alert when best-scale variance < 5%.
-    Result keys:
-      from_high: {label, pivot_date, days, cmp, pivot_price, scales, best_k, best_v, squared}
-      from_low:  same
-      bt_rows:   list of {Date, Squared, BestVar, Ret5d}
+    pass pivots= to avoid recomputing _find_pivots for every method.
     """
-    pivots  = _find_pivots(df, pivot_window)
+    pivots  = pivots or _find_pivots(df, pivot_window)
     ph_list = pivots["highs"]
     pl_list = pivots["lows"]
     ph      = ph_list[-1] if ph_list else None
@@ -277,36 +300,43 @@ def compute_price_time_square(df: pd.DataFrame, pivot_window: int = 10) -> dict[
             "squared":      best_v < 5.0,
         }
 
-    # Backtest
+    # Backtest — vectorised per-bar price-time variance
+    close_v   = df["Close"].values
+    bar_dates = np.array([d.date() for d in df.index])
+    n         = len(close_v)
+
+    # Convert pivot date strings to date objects once
+    h_dates = np.array([datetime.date.fromisoformat(t) for t, _ in ph_list])
+    h_prices = np.array([p for _, p in ph_list])
+    l_dates  = np.array([datetime.date.fromisoformat(t) for t, _ in pl_list])
+    l_prices = np.array([p for _, p in pl_list])
+
     bt_rows = []
-    for i in range(pivot_window + 1, len(df) - 5):
-        bar_date  = df.index[i].date()
-        bar_close = float(df["Close"].iloc[i])
+    for i in range(pivot_window + 1, n - 5):
+        bar_date  = bar_dates[i]
+        bar_close = close_v[i]
+        best_var  = 999.0
 
-        prior_hs = [(t, p) for t, p in ph_list if datetime.date.fromisoformat(t) < bar_date]
-        prior_ls = [(t, p) for t, p in pl_list if datetime.date.fromisoformat(t) < bar_date]
-        if not prior_hs and not prior_ls:
-            continue
-
-        best_var = 999.0
-        for pivs in [prior_hs[-1:], prior_ls[-1:]]:
-            if not pivs:
+        for pivot_ds, pivot_ps in [(h_dates, h_prices), (l_dates, l_prices)]:
+            prior = pivot_ds < bar_date
+            if not prior.any():
                 continue
-            pt, pp = pivs[0]
-            days   = (bar_date - datetime.date.fromisoformat(pt)).days
+            last_idx = np.where(prior)[0][-1]
+            days = (bar_date - pivot_ds[last_idx]).days
             if days <= 0:
                 continue
-            for scale_div in [1, 10, 100]:
-                v = abs(bar_close / scale_div - days) / max(days, 0.01) * 100
-                best_var = min(best_var, v)
+            for sd in (1, 10, 100):
+                v = abs(bar_close / sd - days) / days * 100
+                if v < best_var:
+                    best_var = v
 
-        fwd5 = float(df["Close"].iloc[i + 5])
+        fwd5 = close_v[i + 5]
         ret5 = abs((fwd5 - bar_close) / bar_close * 100)
         bt_rows.append({
             "Date":    str(bar_date),
             "Squared": best_var < 5.0,
             "BestVar": round(best_var, 1),
-            "Ret5d":   round(ret5, 2),
+            "Ret5d":   round(float(ret5), 2),
         })
 
     return {
@@ -318,15 +348,13 @@ def compute_price_time_square(df: pd.DataFrame, pivot_window: int = 10) -> dict[
 
 # ── Method 5: Gann Natural Dates ─────────────────────────────────────────────
 
-def compute_natural_dates(df: pd.DataFrame, pivot_window: int = 10) -> dict[str, Any]:
+def compute_natural_dates(df: pd.DataFrame, pivot_window: int = 10,
+                          pivots: dict | None = None) -> dict[str, Any]:
     """
-    Upcoming Gann natural dates + hit-rate backtest over the full df window.
-    Result keys:
-      upcoming: list of {Date, Period, DaysAway}
-      hist_rows: list of {GannDate, Period, HitPivot}
-      hit_rate_pct: float
+    Upcoming Gann natural dates + hit-rate backtest.
+    pass pivots= to avoid recomputing _find_pivots for every method.
     """
-    pivots  = _find_pivots(df, pivot_window)
+    pivots  = pivots or _find_pivots(df, pivot_window)
     ph_list = pivots["highs"]
     pl_list = pivots["lows"]
     today   = datetime.date.today()
@@ -349,9 +377,12 @@ def compute_natural_dates(df: pd.DataFrame, pivot_window: int = 10) -> dict[str,
 
     data_start = df.index[0].date()
     data_end   = df.index[-1].date()
+
+    # Build pivot date set with ±3-day offsets pre-expanded for fast O(1) lookup
     pivot_dates_all = set(
-        datetime.date.fromisoformat(t)
+        datetime.date.fromisoformat(t) + datetime.timedelta(days=k)
         for t, _ in ph_list + pl_list
+        for k in range(-3, 4)
     )
 
     hist_rows = []
@@ -360,12 +391,10 @@ def compute_natural_dates(df: pd.DataFrame, pivot_window: int = 10) -> dict[str,
             try:
                 gd = datetime.date(year, m, d)
                 if data_start <= gd <= data_end:
-                    window3 = {gd + datetime.timedelta(days=k) for k in range(-3, 4)}
-                    hit     = bool(window3 & pivot_dates_all)
                     hist_rows.append({
                         "GannDate": str(gd),
                         "Period":   gd.strftime("%B %d"),
-                        "HitPivot": hit,
+                        "HitPivot": gd in pivot_dates_all,
                     })
             except ValueError:
                 pass
@@ -460,11 +489,14 @@ def compute_gann_all(symbol: str, df: pd.DataFrame, pivot_window: int = 10) -> d
     if df is None or len(df) < 60:
         return {}
 
+    # Compute pivots once — shared by all 4 methods that need them
+    pivots = _find_pivots(df, pivot_window)
+
     return {
         "atr":        compute_atr(df),
-        "deg":        compute_degree_levels(df, pivot_window),
-        "proj":       compute_date_projection(df, pivot_window),
-        "pts":        compute_price_time_square(df, pivot_window),
-        "dates":      compute_natural_dates(df, pivot_window),
+        "deg":        compute_degree_levels(df, pivot_window, pivots=pivots),
+        "proj":       compute_date_projection(df, pivot_window, pivots=pivots),
+        "pts":        compute_price_time_square(df, pivot_window, pivots=pivots),
+        "dates":      compute_natural_dates(df, pivot_window, pivots=pivots),
         "updated_at": datetime.date.today().isoformat(),
     }
