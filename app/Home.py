@@ -22,21 +22,14 @@ st.set_page_config(
 )
 
 # ── Scheduler — starts once per process at application launch ─────────────────
-# Streamlit calls Home.py directly (local & Streamlit Cloud) — this is the boot hook.
-# @st.cache_resource ensures exactly one scheduler instance even on multi-user loads.
-@st.cache_resource
-def _start_scheduler():
+# Home.py is the Streamlit entry point (local + Streamlit Cloud).
+# get_scheduler() is a module-level singleton — safe to call multiple times.
+try:
+    from backend.data_ingestion.scheduler import get_scheduler
+    get_scheduler()
+except Exception as e:
     import logging
-    try:
-        from backend.data_ingestion.scheduler import get_scheduler
-        sched = get_scheduler()
-        logging.getLogger(__name__).info("Scheduler started at application boot.")
-        return sched
-    except Exception as e:
-        logging.getLogger(__name__).error(f"Scheduler failed to start: {e}")
-        return None
-
-_start_scheduler()
+    logging.getLogger(__name__).error(f"Scheduler failed to start: {e}")
 
 from app.utils.guard import enforce_deployment_gate
 enforce_deployment_gate()

@@ -150,15 +150,17 @@ def start_scheduler_background():
     return scheduler
 
 
+# Module-level singleton — guarantees exactly one scheduler per Python process.
+# No Streamlit dependency — backend modules must not import st.
+_scheduler_instance = None
+
+
 def get_scheduler():
-    """Return the live BackgroundScheduler instance (cached per Streamlit process)."""
-    import streamlit as st
-
-    @st.cache_resource
-    def _cached():
-        return start_scheduler_background()
-
-    return _cached()
+    """Return the singleton BackgroundScheduler, starting it if not yet running."""
+    global _scheduler_instance
+    if _scheduler_instance is None or not _scheduler_instance.running:
+        _scheduler_instance = start_scheduler_background()
+    return _scheduler_instance
 
 
 def reschedule_job(job_id: str, hour: int, minute: int):

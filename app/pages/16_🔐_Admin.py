@@ -132,6 +132,35 @@ else:
 
 st.markdown("---")
 
+# ── Scheduler Status ───────────────────────────────────────────────────────────
+st.subheader("🕐 Scheduler Status")
+
+try:
+    from backend.data_ingestion.scheduler import get_scheduler
+    from datetime import timezone, timedelta
+    _sched = get_scheduler()
+    _IST_TZ = timezone(timedelta(hours=5, minutes=30))
+
+    if _sched and _sched.running:
+        st.success("🟢 Scheduler is **Running** — jobs will fire at configured IST times.")
+        _jobs = _sched.get_jobs()
+        if _jobs:
+            _job_rows = []
+            for j in _jobs:
+                nrt = j.next_run_time
+                if nrt:
+                    nrt_ist = nrt.astimezone(_IST_TZ).strftime("%d %b %Y %H:%M IST")
+                else:
+                    nrt_ist = "—"
+                _job_rows.append({"Job": j.name, "Next Fire (IST)": nrt_ist})
+            st.dataframe(pd.DataFrame(_job_rows), use_container_width=True, hide_index=True)
+    else:
+        st.error("🔴 Scheduler is **Not Running** — no jobs will fire automatically. Restart the app.")
+except Exception as e:
+    st.error(f"🔴 Scheduler is **Not Running** — could not connect: {e}")
+
+st.markdown("---")
+
 # ── Job Run Log ────────────────────────────────────────────────────────────────
 st.subheader("Job Run History")
 
