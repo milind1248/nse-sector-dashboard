@@ -448,6 +448,96 @@ with st.expander("🚀 Master Job — Refresh All Data", expanded=False):
 
 st.markdown("---")
 
+# ── Page Test Runner ────────────────────────────────────────────────────────────
+_ROOT = Path(__file__).parent.parent.parent
+
+
+def _render_test_report(results: list[dict]) -> None:
+    """Render a page-wise test report table inside the Page Test Runner expander."""
+    if not results:
+        return
+
+    ok_n   = sum(1 for r in results if r["status"] == "OK")
+    warn_n = sum(1 for r in results if r["status"] == "WARN")
+    fail_n = sum(1 for r in results if r["status"] == "FAIL")
+    total_tabs = sum(r.get("tabs", 0) for r in results)
+    total_secs = sum(r.get("elapsed") or 0 for r in results)
+    tested_at  = results[0].get("tested_at", "") if results else ""
+
+    sc1, sc2, sc3, sc4 = st.columns(4)
+    sc1.metric("✅ OK",    ok_n)
+    sc2.metric("⚠️ WARN", warn_n)
+    sc3.metric("❌ FAIL",  fail_n)
+    sc4.metric("Tabs Covered", total_tabs)
+
+    mins, secs = divmod(int(total_secs), 60)
+    st.caption(
+        f"{len(results)} pages tested · {total_tabs} tabs covered · "
+        f"Total time: {mins}m {secs}s" +
+        (f" · Tested at: {_to_ist(tested_at)}" if tested_at else "")
+    )
+
+    # Per-page table
+    rows = ["| Page | Status | Load (s) | Tabs | Errors |",
+            "|------|--------|----------|------|--------|"]
+    for r in results:
+        icon = "✅" if r["status"] == "OK" else ("⚠️" if r["status"] == "WARN" else "❌")
+        err_count = len(r.get("errors", []))
+        err_cell  = str(err_count) if err_count else "—"
+        rows.append(
+            f"| {r['page']} | {icon} {r['status']} | {r.get('elapsed', '—')} "
+            f"| {r.get('tabs', 0)} | {err_cell} |"
+        )
+    st.markdown("\n".join(rows))
+
+    # Expandable error details for failed/warn pages
+    for r in results:
+        if r.get("errors"):
+            with st.expander(f"{'❌' if r['status']=='FAIL' else '⚠️'} {r['page']} — error details"):
+                for err in r["errors"]:
+                    st.error(f"**{err['type']}:** {err['message']}")
+
+
+def _load_latest_test_run() -> list[dict]:
+    try:
+        from app.utils.page_test_db import load_latest_run
+        return load_latest_run()
+    except Exception:
+        return []
+
+
+with st.expander("🧪 Page Test Runner", expanded=False):
+    st.caption(
+        "Loads all 16 pages using Streamlit's AppTest — catches rendering errors and tab failures. "
+        "All tab content is exercised in a single run per page. Add new pages to `backend/page_tester.py`."
+    )
+
+    # Show previous run results if available
+    _prior_results = st.session_state.get("_page_test_results") or _load_latest_test_run()
+    if _prior_results:
+        st.markdown("**Last Run Results:**")
+        _render_test_report(_prior_results)
+        st.markdown("---")
+
+    if st.button("▶ Run Page Tests", type="primary", key="btn_page_tests"):
+        from backend.data_ingestion.job_logger import log_start, log_finish
+        _pt_rid = log_start("page_test", "Page Test Runner (All Pages)", triggered_by="admin")
+        try:
+            from backend.page_tester import run_page_tests
+            from app.utils.page_test_db import store_test_results
+            with st.spinner("Testing all pages — this takes 5–15 minutes…"):
+                _pt_results = run_page_tests(str(_ROOT))
+            store_test_results(run_id=_pt_rid, results=_pt_results)
+            _fail_n = sum(1 for r in _pt_results if r["status"] == "FAIL")
+            log_finish(_pt_rid, "success", records_done=len(_pt_results))
+            st.session_state["_page_test_results"] = _pt_results
+            st.rerun()
+        except Exception as _pt_e:
+            log_finish(_pt_rid, "failed", error_msg=str(_pt_e))
+            st.error(f"Page test runner failed: {_pt_e}")
+
+st.markdown("---")
+
 # Table header
 hc1, hc2, hc3, hc4, hc5 = st.columns([2, 3, 4, 3, 2])
 hc1.markdown("**#**")

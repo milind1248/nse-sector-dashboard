@@ -6,6 +6,7 @@ Even with a forged key they are blocked by the host check.
 """
 import hmac
 import hashlib
+import os
 import streamlit as st
 
 _ALLOWED_HOSTS = {"marketsector.streamlit.app", "localhost", "127.0.0.1"}
@@ -21,6 +22,10 @@ def _expected_license() -> str:
 
 
 def enforce_deployment_gate():
+    # Bypass during automated page tests (set by backend/page_tester.py)
+    if os.environ.get("NSE_TESTING") == "1":
+        return
+
     host    = st.context.headers.get("host", "").lower().split(":")[0]
     ok_host = host in _ALLOWED_HOSTS
 
