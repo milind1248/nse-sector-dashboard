@@ -7,7 +7,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import sqlite3
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 st.set_page_config(
@@ -504,7 +504,9 @@ def _get_shareholding(symbol: str) -> pd.DataFrame:
     if not needs_refresh and not df.empty:
         try:
             fetched = datetime.fromisoformat(df["fetched_at"].iloc[0])
-            needs_refresh = (datetime.utcnow() - fetched) > timedelta(days=7)
+            if fetched.tzinfo is None:
+                fetched = fetched.replace(tzinfo=timezone.utc)
+            needs_refresh = (datetime.now(timezone.utc) - fetched) > timedelta(days=7)
         except Exception:
             needs_refresh = True
     if needs_refresh:
