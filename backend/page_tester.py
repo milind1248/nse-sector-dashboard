@@ -33,7 +33,7 @@ PAGE_REGISTRY: list[dict] = [
     {"name": "Stock Picker",     "file": "app/pages/7_🎯_Stock_Picker.py",     "tabs": 2,  "timeout": 30},
     {"name": "Smart Money",      "file": "app/pages/8_💰_Smart_Money.py",      "tabs": 3,  "timeout": 40},
     {"name": "FII Accumulation", "file": "app/pages/9_📊_FII_Accumulation.py", "tabs": 0,  "timeout": 30},
-    {"name": "Alerts",           "file": "app/pages/10_🔔_Alerts.py",          "tabs": 3,  "timeout": 60},
+    {"name": "Alerts",           "file": "app/pages/10_🔔_Alerts.py",          "tabs": 3,  "timeout": 180},
     {"name": "AI Forecast",      "file": "app/pages/11_🤖_AI_Forecast.py",     "tabs": 0,  "timeout": 30},
     {"name": "Gann Analysis",    "file": "app/pages/12_🔢_Gann_Analysis.py",   "tabs": 0,  "timeout": 20},
     {"name": "Export",           "file": "app/pages/13_📤_Export.py",          "tabs": 0,  "timeout": 20},
