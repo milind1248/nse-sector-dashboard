@@ -53,6 +53,16 @@ def _build_features(df: pd.DataFrame) -> pd.DataFrame:
     if close is None:
         raise ValueError("No Close column found")
 
+    # Align all series to close's index (close may be shorter after dropna)
+    if high is not None:
+        high = high.reindex(close.index)
+    if low is not None:
+        low = low.reindex(close.index)
+    if open_ is not None:
+        open_ = open_.reindex(close.index)
+    if vol is not None:
+        vol = vol.reindex(close.index)
+
     feat = pd.DataFrame(index=close.index)
     feat["close"] = close.values
 
