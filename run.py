@@ -12,9 +12,27 @@ from pathlib import Path
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+# ── Logging — terminal + rotating file ───────────────────────────────────────
+from logging.handlers import RotatingFileHandler
+
+_LOG_DIR = ROOT / "logs"
+_LOG_DIR.mkdir(exist_ok=True)
+_LOG_FILE = _LOG_DIR / "app.log"
+
+_fmt = logging.Formatter("%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+                         datefmt="%Y-%m-%d %H:%M:%S")
+
+_file_handler = RotatingFileHandler(
+    _LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8"
+)
+_file_handler.setFormatter(_fmt)
+
+_console_handler = logging.StreamHandler()
+_console_handler.setFormatter(_fmt)
+
+logging.basicConfig(level=logging.INFO, handlers=[_file_handler, _console_handler])
 logger = logging.getLogger(__name__)
+logger.info("Logging to %s", _LOG_FILE)
 
 
 def launch_dashboard():
