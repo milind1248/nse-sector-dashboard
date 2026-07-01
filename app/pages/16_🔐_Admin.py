@@ -824,6 +824,13 @@ st.markdown("---")
 st.subheader("⏰ Schedule Configuration")
 st.caption("Set the daily trigger time (IST) for each scheduled job. Save → changes reflect in the calendar below. Restart the scheduler process to apply new times to the live runner.")
 
+_sch_msg = st.session_state.pop("_sch_saved_msg", None)
+if _sch_msg:
+    if _sch_msg[0] == "ok":
+        st.success(_sch_msg[1])
+    else:
+        st.warning(_sch_msg[1])
+
 _sch_cfg = _read_schedule_config()
 
 _SCH_JOBS = [
@@ -862,7 +869,6 @@ with st.form("schedule_config_form"):
 
     if st.form_submit_button("💾 Save Schedule", type="primary"):
         _write_schedule_config(new_cfg)
-        # Apply new times to the live running scheduler immediately — no restart needed
         try:
             from backend.data_ingestion.scheduler import reschedule_job
             failed = []
@@ -871,11 +877,11 @@ with st.form("schedule_config_form"):
                 if not ok:
                     failed.append(job_id)
             if failed:
-                st.warning(f"✅ Saved to config. Could not reschedule live: {', '.join(failed)} — restart app to apply.")
+                st.session_state["_sch_saved_msg"] = ("warn", f"✅ Saved to config. Could not reschedule live: {', '.join(failed)} — restart app to apply.")
             else:
-                st.success("✅ Schedule saved and applied to live scheduler instantly. No restart needed.")
+                st.session_state["_sch_saved_msg"] = ("ok", "✅ Schedule saved and applied to live scheduler instantly. No restart needed.")
         except Exception as e:
-            st.warning(f"✅ Saved to config. Live reschedule failed ({e}) — restart app to apply.")
+            st.session_state["_sch_saved_msg"] = ("warn", f"✅ Saved to config. Live reschedule failed ({e}) — restart app to apply.")
         st.rerun()
 
 st.markdown("---")
