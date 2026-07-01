@@ -147,19 +147,22 @@ def load_forecast(symbol: str) -> tuple[dict | None, str | None]:
         ema       = json.loads(row[14] or "{}")
         af        = json.loads(row[17] or "{}")
 
-        # Reconstruct prophet_res in same shape as run_prophet_forecast()
-        prophet_res = {
-            "error":           None,
-            "history_dates":   pf.get("history_dates", []),
-            "history_prices":  pf.get("history_prices", []),
-            "forecast_dates":  pf.get("forecast_dates", []),
-            "yhat":            pf.get("yhat", []),
-            "yhat_lower":      pf.get("yhat_lower", []),
-            "yhat_upper":      pf.get("yhat_upper", []),
-            "trend_direction": row[10],
-            "trend_pct":       row[11],
-            "last_price":      row[1],
-        }
+        # Reconstruct prophet_res — None if no forecast was stored (pipeline failure)
+        if pf and pf.get("forecast_dates"):
+            prophet_res = {
+                "error":           None,
+                "history_dates":   pf.get("history_dates", []),
+                "history_prices":  pf.get("history_prices", []),
+                "forecast_dates":  pf.get("forecast_dates", []),
+                "yhat":            pf.get("yhat", []),
+                "yhat_lower":      pf.get("yhat_lower", pf.get("yhat", [])),
+                "yhat_upper":      pf.get("yhat_upper", pf.get("yhat", [])),
+                "trend_direction": row[10],
+                "trend_pct":       row[11],
+                "last_price":      row[1],
+            }
+        else:
+            prophet_res = None
 
         # Reconstruct xgb_res in same shape as run_xgb_direction()
         xgb_res = {

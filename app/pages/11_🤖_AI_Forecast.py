@@ -479,7 +479,11 @@ if prophet_ok:
     )
     st.plotly_chart(fig, width='stretch')
 else:
-    st.warning(f"Prophet model error: {(prophet_res or {}).get('error')}")
+    _p_err = (prophet_res or {}).get("error")
+    if _p_err:
+        st.warning(f"Prophet model error: {_p_err}")
+    else:
+        st.info("📊 Prophet trend not yet available — will appear after tonight's nightly scan.")
 
 # ── ARIMA chart ───────────────────────────────────────────────────────────────
 st.markdown("---")
