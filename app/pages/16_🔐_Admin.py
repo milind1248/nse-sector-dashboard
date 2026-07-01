@@ -843,7 +843,7 @@ _SCH_JOBS = [
 ]
 
 _hour_options   = list(range(0, 24))
-_minute_options = [0, 15, 30, 45]
+_minute_options = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]
 
 with st.form("schedule_config_form"):
     new_cfg = {}
