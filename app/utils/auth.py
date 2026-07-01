@@ -76,7 +76,7 @@ def login_form() -> bool:
         st.markdown("### 🔐 Admin Login")
         with st.form("_admin_login_form", clear_on_submit=True):
             pwd       = st.text_input("Password", type="password", placeholder="Enter admin password")
-            submitted = st.form_submit_button("Login", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("Login", width='stretch', type="primary")
         if submitted:
             if verify_password(pwd):
                 ts = time.time()

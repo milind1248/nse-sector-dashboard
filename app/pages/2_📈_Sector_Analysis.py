@@ -331,7 +331,7 @@ if sector_df is not None and not sector_df.empty:
                                 vs_sec_col:    lambda v: f"{v:+.1f}" if isinstance(v, (int, float)) else "–",
                                 vs_nif_col:    lambda v: f"{v:+.1f}" if isinstance(v, (int, float)) else "–",
                             }, na_rep="–"),
-                        use_container_width=True, hide_index=True,
+                        width='stretch', hide_index=True,
                     )
                     st.caption(
                         "RS = rebased index points difference at end of period. "
@@ -355,14 +355,14 @@ if close and any(v for v in [ema20, ema50, ema200]):
         {"Level": "EMA 200", "Value": f"₹{ema200:,.2f}" if ema200 else "–",
          "Above/Below": "✅ Above" if close > (ema200 or 0) else "⚠️ Below"},
     ])
-    st.dataframe(lvl_df, use_container_width=True, hide_index=True)
+    st.dataframe(lvl_df, width='stretch', hide_index=True)
 
 # ── CTA ───────────────────────────────────────────────────────────────────────
 st.markdown("---")
 c1, c2 = st.columns(2)
-if c1.button("🔍 Screen Stocks in This Sector →", use_container_width=True, type="primary"):
+if c1.button("🔍 Screen Stocks in This Sector →", width='stretch', type="primary"):
     st.switch_page("pages/7_🎯_Stock_Picker.py")
-if c2.button("← Back to FII Sector Watch", use_container_width=True):
+if c2.button("← Back to FII Sector Watch", width='stretch'):
     st.switch_page("Home.py")
 from app.utils.disclaimer import show_footer
 show_footer()

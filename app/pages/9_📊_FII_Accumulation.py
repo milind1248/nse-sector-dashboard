@@ -456,7 +456,7 @@ with col_info:
 with col_btn:
     if is_admin():
         refresh = st.button(
-            "🔄 Refresh Data", type="primary", use_container_width=True,
+            "🔄 Refresh Data", type="primary", width='stretch',
             help="Fetches all shareholding data from public quarterly filings. Takes 3–5 min. Auto-runs 4× per year.",
         )
     else:
@@ -573,7 +573,7 @@ styled = (
     }, na_rep="–")
 )
 
-st.dataframe(styled, use_container_width=True, height=420, hide_index=True)
+st.dataframe(styled, width='stretch', height=420, hide_index=True)
 
 st.caption(
     "QoQ Δ = FII shareholding % change vs prior quarter. "
@@ -609,7 +609,7 @@ else:
             "DII Δ": lambda v: f"+{v:.2f}%" if (v is not None and not pd.isna(v) and v > 0) else (f"{v:.2f}%" if (v is not None and not pd.isna(v)) else "–"),
         }, na_rep="–")
     )
-    st.dataframe(div_styled, use_container_width=True, height=300, hide_index=True)
+    st.dataframe(div_styled, width='stretch', height=300, hide_index=True)
 
 # ── Stock drilldown ────────────────────────────────────────────────────────────
 st.markdown("---")

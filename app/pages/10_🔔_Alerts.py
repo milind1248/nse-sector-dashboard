@@ -162,7 +162,7 @@ with tab_breakout:
             st.dataframe(
                 high_df.style.map(_color_alert, subset=["Alert"]).format(
                     {"Price": "₹{:,.2f}", "RSI": lambda v: f"{v:.1f}" if isinstance(v, (int, float)) else "–"}),
-                use_container_width=True, hide_index=True
+                width='stretch', hide_index=True
             )
         else:
             st.info("No high-priority alerts today.")
@@ -172,7 +172,7 @@ with tab_breakout:
             st.dataframe(
                 med_df.style.map(_color_alert, subset=["Alert"]).format(
                     {"Price": "₹{:,.2f}", "RSI": lambda v: f"{v:.1f}" if isinstance(v, (int, float)) else "–"}),
-                use_container_width=True, hide_index=True
+                width='stretch', hide_index=True
             )
 
         st.markdown("---")
@@ -561,7 +561,7 @@ with tab_ema:
                 }, na_rep="—")
             )
 
-            st.dataframe(styled, use_container_width=True, hide_index=True, height=520)
+            st.dataframe(styled, width='stretch', hide_index=True, height=520)
 
             # ── Score distribution chart ───────────────────────────────────────
             st.markdown("---")
@@ -1062,7 +1062,7 @@ with tab_hm:
             _row_px = 35
             _header_px = 38
             _tbl_height = min(_header_px + len(display_hm) * _row_px, 600)
-            st.dataframe(styled_hm, use_container_width=True, hide_index=True, height=_tbl_height)
+            st.dataframe(styled_hm, width='stretch', hide_index=True, height=_tbl_height)
 
             # ── Charts row ────────────────────────────────────────────────────
             st.markdown("---")

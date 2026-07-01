@@ -687,7 +687,7 @@ col_h.title("💰 Smart Money Tracker")
 col_h.caption("Institutional activity detection via NSE Cash Delivery %, Action ratio & Futures OI — For educational purposes only. Not SEBI-registered investment advice.")
 from app.utils.auth import is_admin
 if is_admin():
-    _sm_refresh = col_ref.button("🔄 Refresh Data", use_container_width=True)
+    _sm_refresh = col_ref.button("🔄 Refresh Data", width='stretch')
 else:
     col_ref.caption("🔒 Admin only.")
     _sm_refresh = False
@@ -1073,7 +1073,7 @@ with tab_stock:
                         "Futures OI":  "{:,}",
                         "Action":      "{:.1f}",
                     }, na_rep="–"),
-                use_container_width=True, hide_index=True, height=550,
+                width='stretch', hide_index=True, height=550,
             )
 
             # ── Shareholding Pattern (6 quarters) ────────────────────────────
@@ -1153,7 +1153,7 @@ with tab_stock:
                         .map(_sh_color("Promoter %", 0, 80, (25, 118, 210)),  subset=["Promoter %"])
                         .map(_sh_color("FII %",      0, 30, (27, 94,  32)),   subset=["FII %"])
                         .map(_sh_color("DII %",      0, 30, (230, 81, 0)),    subset=["DII %"]),
-                    use_container_width=True, hide_index=True,
+                    width='stretch', hide_index=True,
                 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1331,7 +1331,7 @@ with tab_screener:
                         "Avg Act":  "{:.1f}",
                         "OI Chg%":  "{:+.1f}%",
                     }, na_rep="–"),
-                use_container_width=True, hide_index=True, height=600,
+                width='stretch', hide_index=True, height=600,
             )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1429,7 +1429,7 @@ with tab_delivery:
                 f"🟢 ≥50% delivery (institutional)  🟡 25–49% (mixed)  🔴 <25% (mostly intraday)  "
                 f"· {len(pivot)} stock(s) · {sel_month.strftime('%B %Y')}"
             )
-            st.dataframe(styled, use_container_width=True, height=550)
+            st.dataframe(styled, width='stretch', height=550)
 
             # ── Top 10 stocks by avg delivery % ──────────────────────────────
             st.subheader("🏆 Top 10 Stocks by Avg Delivery %")
@@ -1447,7 +1447,7 @@ with tab_delivery:
                 top10.style
                 .background_gradient(cmap="Greens", subset=["Avg Delivery %"])
                 .format({"Avg Delivery %": "{:.1f}%"}),
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
             )
 
@@ -1592,7 +1592,7 @@ with tab_delivery:
                 margin=dict(t=50, b=50),
                 hovermode="x unified",
             )
-            st.plotly_chart(fig_dobv, use_container_width=True)
+            st.plotly_chart(fig_dobv, width='stretch')
 
 from app.utils.disclaimer import show_footer
 show_footer()

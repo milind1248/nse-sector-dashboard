@@ -76,7 +76,7 @@ with st.expander("📋 Aligned Signals — All Dashboard Stocks (Both Models Agr
             st.caption(f"⚠️ Last computed **{age} day(s) ago** — scheduler may be offline. Click **Force Scan** to refresh manually.")
     with h2:
         if is_admin():
-            run_scan_btn = st.button("⚡ Force Scan", type="secondary", use_container_width=True,
+            run_scan_btn = st.button("⚡ Force Scan", type="secondary", width='stretch',
                                      help=f"Admin only. Runs Prophet + XGBoost for all {_n_stocks} stocks and caches results (~15 min).")
         else:
             run_scan_btn = False
@@ -126,7 +126,7 @@ with st.expander("📋 Aligned Signals — All Dashboard Stocks (Both Models Agr
                         .map(_signal_color, subset=["Signal"])
                         .map(_prob_color,   subset=["XGB Prob"])
                         .format({"XGB Prob": "{:.1f}%", "Price (₹)": "₹{:,.1f}", "Accuracy %": "{:.1f}%"}),
-                    use_container_width=True, hide_index=True,
+                    width='stretch', hide_index=True,
                 )
             else:
                 st.info("No bullish aligned signals in last scan.")
@@ -139,7 +139,7 @@ with st.expander("📋 Aligned Signals — All Dashboard Stocks (Both Models Agr
                         .map(_signal_color, subset=["Signal"])
                         .map(_prob_color,   subset=["XGB Prob"])
                         .format({"XGB Prob": "{:.1f}%", "Price (₹)": "₹{:,.1f}", "Accuracy %": "{:.1f}%"}),
-                    use_container_width=True, hide_index=True,
+                    width='stretch', hide_index=True,
                 )
             else:
                 st.info("No bearish aligned signals in last scan.")
@@ -170,7 +170,7 @@ with c3:
     horizon_days  = forward_days_map[horizon]
     xgb_fwd_days  = 5   # XGBoost always predicts 5-day direction; horizon only affects Prophet
     st.markdown("<br>", unsafe_allow_html=True)
-    run_btn = st.button("▶ Run Forecast", type="primary", use_container_width=True)
+    run_btn = st.button("▶ Run Forecast", type="primary", width='stretch')
 
 ticker_ns   = symbol_map[selected_label]
 ticker_name = symbol_clean[selected_label]
@@ -678,7 +678,7 @@ with col_right:
         st.dataframe(
             display_bt.style.map(_acc_color, subset=["Accuracy %"])
                             .format({"Accuracy %": "{:.1f}"}),
-            use_container_width=True, hide_index=True,
+            width='stretch', hide_index=True,
         )
 
         st.caption(

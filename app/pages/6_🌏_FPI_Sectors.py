@@ -271,7 +271,7 @@ with tab_ov:
                    "AUC (₹ Cr)":  lambda x: f"₹{x:,.0f}" if isinstance(x, (int, float)) else "–",
                    "AUC Chg %":   lambda x: f"{x:+.2f}%" if isinstance(x, (int, float)) else "–",
                }),
-            use_container_width=True, hide_index=True, height=500,
+            width='stretch', hide_index=True, height=500,
         )
 
 
@@ -305,7 +305,7 @@ with tab_net:
                 label,
                 key=f"chip_{idx}",
                 type="primary" if active else "secondary",
-                use_container_width=True,
+                width='stretch',
             ):
                 st.session_state["net_sector"] = sec
                 st.rerun()
@@ -582,7 +582,7 @@ with tab_cum:
             cum_df3.style
                    .map(_cn, subset=["Cumulative ₹ Cr"])
                    .format({"Cumulative ₹ Cr": _fmt_cr}),
-            use_container_width=True, hide_index=True,
+            width='stretch', hide_index=True,
         )
 
 
@@ -695,7 +695,7 @@ with tab_auc:
                   "Change (₹ Cr)":   lambda x: f"₹{x:+,.0f}" if isinstance(x, (int, float)) else "–",
                   "Change %":        lambda x: f"{x:+.2f}%" if isinstance(x, (int, float)) else "–",
               }),
-        use_container_width=True, hide_index=True,
+        width='stretch', hide_index=True,
     )
 from app.utils.disclaimer import show_footer
 show_footer()

@@ -56,7 +56,7 @@ if st.button("Generate Excel Report", type="primary"):
                 data=io.BytesIO(data),
                 file_name="NSE_Sector_Intel.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
+                width='stretch',
             )
             st.success("Ready — click the download button above.")
         except Exception as e:

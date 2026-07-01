@@ -375,7 +375,7 @@ def _show_top_stocks_table(acc_col: str, sig_col: str, method_label: str, thresh
             sig_col: "Signals",
         })
         display["Accuracy"] = display["Accuracy"].apply(lambda x: f"{x:.1f}%")
-        st.dataframe(display, use_container_width=True)
+        st.dataframe(display, width='stretch')
         st.caption(f"{len(subset)} of {len(_all_acc)} stocks exceed {threshold}% accuracy")
 
 
@@ -468,7 +468,7 @@ with tab_atr:
             "Next3d%": "Next 3d %", "Reversed": "Reversed ✅",
         })
         with st.expander("Signal detail table"):
-            st.dataframe(display_bdf, use_container_width=True, hide_index=True)
+            st.dataframe(display_bdf, width='stretch', hide_index=True)
     else:
         st.info("No range-complete signals found in the 2-year history for this stock.")
 
@@ -508,7 +508,7 @@ with tab_atr:
                 show_hc = _hc[["symbol"] + [lbl for _, lbl in _methods] + ["Methods Passed"]].rename(
                     columns={"symbol": "Stock"}
                 )
-                st.dataframe(show_hc, use_container_width=True, hide_index=True)
+                st.dataframe(show_hc, width='stretch', hide_index=True)
                 st.caption(f"{len(_hc)} high-conviction stocks (>50% in 3+ of 5 Gann methods)")
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -552,7 +552,7 @@ with tab_deg:
             })
 
         st.caption(f"Pivot: {pivot_choice} ₹{ref_price:,.1f} on {ref_date} · CMP ₹{cmp:,.1f}")
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
 
         # Chart with level overlays
         df_plot   = df.tail(126)
@@ -604,7 +604,7 @@ with tab_deg:
             display_deg = deg_bt_df.rename(columns={
                 "Price": "Price (₹)", "BounceRate": "Bounce Rate %", "Avg3dRet": "Avg 3d Ret%",
             })
-            st.dataframe(display_deg, use_container_width=True, hide_index=True)
+            st.dataframe(display_deg, width='stretch', hide_index=True)
 
             fig_dacc = go.Figure(go.Bar(
                 x=deg_bt_df["Level"],
@@ -691,7 +691,7 @@ with tab_date:
             last_tp = top_proj[-1]
             st.dataframe(
                 pd.DataFrame(_rename_proj(top_proj[::-1])).style.map(_days_style, subset=["Days Away"]),
-                use_container_width=True, hide_index=True,
+                width='stretch', hide_index=True,
             )
             da = last_tp.get("DaysAway", 999)
             if 0 <= da <= 10:
@@ -707,7 +707,7 @@ with tab_date:
             last_bp = bot_proj[-1]
             st.dataframe(
                 pd.DataFrame(_rename_proj(bot_proj[::-1])).style.map(_days_style, subset=["Days Away"]),
-                use_container_width=True, hide_index=True,
+                width='stretch', hide_index=True,
             )
             da = last_bp.get("DaysAway", 999)
             if 0 <= da <= 10:
@@ -768,7 +768,7 @@ with tab_date:
             "ErrDays": "Error (days)", "Within3d": "Within ±3d", "Within7d": "Within ±7d",
         })
         with st.expander("Projection detail table"):
-            st.dataframe(display_bt, use_container_width=True, hide_index=True)
+            st.dataframe(display_bt, width='stretch', hide_index=True)
     else:
         st.info("Need ≥ 3 swing highs or lows for walk-forward backtest. Reduce the pivot window.")
 
@@ -799,7 +799,7 @@ with tab_pts:
             rows2 = [{"Scale": k, "Variance %": f"{v:.1f}%",
                       "Signal": "🎯" if v < 5 else ("⚠️" if v < 15 else "")}
                      for k, v in sq["scales"].items()]
-            st.dataframe(pd.DataFrame(rows2), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows2), width='stretch', hide_index=True)
             if sq["squared"]:
                 st.success(f"✅ SQUARED — {sq['best_k']} ({sq['best_v']:.1f}% variance)")
             else:
@@ -936,7 +936,7 @@ with tab_gnn:
         udf = pd.DataFrame(upcoming).rename(columns={"DaysAway": "Days Away"})
         st.dataframe(
             udf.style.map(_days_style, subset=["Days Away"]),
-            use_container_width=True, hide_index=True,
+            width='stretch', hide_index=True,
         )
         nxt = upcoming[0]
         if nxt.get("DaysAway", 99) <= 5:
@@ -985,7 +985,7 @@ with tab_gnn:
 
         st.dataframe(
             display_gdf.style.map(_hit_style, subset=["Pivot ±3d"]),
-            use_container_width=True, hide_index=True,
+            width='stretch', hide_index=True,
         )
 
         misses = total - hits

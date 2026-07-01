@@ -106,7 +106,7 @@ with st.expander("🔄 Data Sync — NSE India + Market Price Feeds", expanded=F
         from app.utils.auth import is_admin
         st.markdown("**Actions**")
         if is_admin():
-            do_sync = st.button("🔄 Refresh Data", type="primary", use_container_width=True,
+            do_sync = st.button("🔄 Refresh Data", type="primary", width='stretch',
                                 help="Fetch latest constituent list from NSE and market caps from price feeds")
             st.caption("Takes ~5–8 min · All 34 indices")
         else:
@@ -246,7 +246,7 @@ else:
             if st.button(
                 f"{'✅ ' if active else ''}{idx['index_display']}",
                 key=f"sis_idxbtn_{idx['index_name']}",
-                use_container_width=True,
+                width='stretch',
                 type="primary" if active else "secondary",
             ):
                 st.session_state["sis_index"] = idx["index_name"]
@@ -323,7 +323,7 @@ with col_tbl:
                 "Weight %":      lambda v: f"{v:.2f}%" if isinstance(v, (int,float)) else "–",
                 "Mkt Cap (₹Cr)": lambda v: f"₹{v:,.0f}" if isinstance(v,(int,float)) and not pd.isna(v) else "–",
             }),
-        use_container_width=True, hide_index=True,
+        width='stretch', hide_index=True,
         height=min(560, 42 + n_stocks * 28),
         column_config={
             "Rank":          st.column_config.NumberColumn(width="small"),
@@ -472,7 +472,7 @@ with st.expander("🌐 All Sectors Overview", expanded=False):
     ov = pd.DataFrame(rows)
     st.dataframe(
         ov.style.format({"Mkt Cap (₹Cr)": "₹{:,.0f}"}),
-        use_container_width=True, hide_index=True,
+        width='stretch', hide_index=True,
     )
 
 # ── Index Price Chart (yfinance + Plotly) ─────────────────────────────────────

@@ -177,7 +177,7 @@ with st.sidebar:
     st.markdown("---")
     from app.utils.auth import is_admin
     if is_admin():
-        _do_refresh = st.button("🔄 Refresh Data", use_container_width=True,
+        _do_refresh = st.button("🔄 Refresh Data", width='stretch',
                                 help="Fetches today's latest NSDL + price data only. Old historical data stays.")
     else:
         st.caption("🔒 Data refresh is admin-only.")
@@ -472,7 +472,7 @@ with tab_curr:
             "AUC Curr (Cr)":    lambda x: f"₹{x:,.0f}"  if isinstance(x,(int,float)) else "–",
             "AUC Chg %":        lambda x: f"{x:+.2f}%"  if isinstance(x,(int,float)) else "–",
         }),
-        use_container_width=True, hide_index=True, height=520,
+        width='stretch', hide_index=True, height=520,
     )
     st.caption("AUC = Assets Under Custody (total FII holding). Chg vs Prev = change from previous fortnight.")
 
@@ -560,7 +560,7 @@ with tab_hist:
             fmt_dict[c] = lambda x: f"{x:+.1f}%" if isinstance(x,(int,float)) and not pd.isna(x) else "–"
 
         styled_hist = hist_table.style.map(color_n, subset=net_cols + pct_cols).format(fmt_dict)
-        st.dataframe(styled_hist, use_container_width=True, height=max(380, len(all_sector_names)*28+40))
+        st.dataframe(styled_hist, width='stretch', height=max(380, len(all_sector_names)*28+40))
 
         # Summary: which sectors consistently bought in range
         st.markdown("---")
@@ -573,16 +573,16 @@ with tab_hist:
         sc1, sc2, sc3 = st.columns(3)
         sc1.markdown("**Most Fortnights Buying**")
         sc1.dataframe(buy_counts.rename("Buy periods").reset_index().rename(columns={"index":"Sector"}),
-                       hide_index=True, use_container_width=True)
+                       hide_index=True, width='stretch')
         sc2.markdown("**Most Fortnights Selling**")
         sc2.dataframe(sell_counts.rename("Sell periods").reset_index().rename(columns={"index":"Sector"}),
-                       hide_index=True, use_container_width=True)
+                       hide_index=True, width='stretch')
         sc3.markdown("**Cumulative Flow in Range (₹ Cr)**")
         sc3.dataframe(
             total_flow.rename("Total ₹ Cr").reset_index().rename(columns={"index":"Sector"})
             .style.map(color_n, subset=["Total ₹ Cr"])
             .format({"Total ₹ Cr": lambda x: f"₹{x:+,.0f}" if isinstance(x,(int,float)) else "–"}),
-            hide_index=True, use_container_width=True
+            hide_index=True, width='stretch'
         )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -683,12 +683,12 @@ if selected:
     st.markdown("")
 
     c1, c2 = st.columns(2)
-    if c1.button("📈 Analyse sector price trend", use_container_width=True, type="primary"):
+    if c1.button("📈 Analyse sector price trend", width='stretch', type="primary"):
         st.session_state["selected_sector"]          = internal
         st.session_state["selected_sector_nsdl"]     = selected
         st.session_state["selected_sector_net_curr"] = net_curr
         st.switch_page("pages/2_📈_Sector_Analysis.py")
-    if c2.button("🔍 Analyse stocks in this sector", use_container_width=True):
+    if c2.button("🔍 Analyse stocks in this sector", width='stretch'):
         st.session_state["selected_sector"]          = internal
         st.session_state["selected_sector_nsdl"]     = selected
         st.session_state["selected_sector_net_curr"] = net_curr

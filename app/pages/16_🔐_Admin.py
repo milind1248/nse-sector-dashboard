@@ -91,7 +91,7 @@ with h1:
     st.title("🔐 Admin Dashboard")
 with h2:
     st.write("")
-    if st.button("🚪 Logout", use_container_width=True):
+    if st.button("🚪 Logout", width='stretch'):
         logout()
         st.rerun()
 
@@ -151,7 +151,7 @@ try:
                 else:
                     nrt_ist = "—"
                 _job_rows.append({"Job": j.name, "Next Fire (IST)": nrt_ist})
-            st.dataframe(pd.DataFrame(_job_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(_job_rows), width='stretch', hide_index=True)
     else:
         st.error("🔴 Scheduler is **Not Running** — no jobs will fire automatically. Restart the app.")
 except Exception as e:
@@ -265,7 +265,7 @@ else:
                  "Started (IST)": lambda v: v or "—",
                  "Finished (IST)": lambda v: v or "—"}, na_rep="—")
     )
-    st.dataframe(styled, use_container_width=True, height=320, hide_index=True)
+    st.dataframe(styled, width='stretch', height=320, hide_index=True)
 
 st.markdown("---")
 
@@ -463,7 +463,7 @@ r1c1.markdown("1")
 r1c2.markdown("📡 Market Pulse")
 r1c3.markdown("Market Pulse Snapshot — Bhavcopy breadth + sector heatmap + RRG → stored in DB (~3–5 min)")
 r1c4.markdown(_last_run_for("market_pulse_snapshot"))
-if r1c5.button("▶ Run", key="btn_mps", use_container_width=True):
+if r1c5.button("▶ Run", key="btn_mps", width='stretch'):
     with st.spinner("Running Market Pulse pipeline…"):
         try:
             from backend.data_ingestion.market_pulse_pipeline import run_market_pulse_pipeline
@@ -490,7 +490,7 @@ r2c1.markdown("2")
 r2c2.markdown("📈 Sector Analysis · 🏦 FII DII Flow · 🏢 FII Sectors · 🏠 Home")
 r2c3.markdown("Sector Snapshot — FII/DII flows, sector prices, breadth data")
 r2c4.markdown(_last_run_for("sector_snapshot"))
-if r2c5.button("▶ Run", key="btn_sector", use_container_width=True):
+if r2c5.button("▶ Run", key="btn_sector", width='stretch'):
     with st.spinner("Running sector snapshot…"):
         try:
             from backend.data_ingestion.pipeline import (
@@ -517,7 +517,7 @@ r3c1.markdown("3")
 r3c2.markdown("🏛️ Index Stocks")
 r3c3.markdown("NSE constituent list + market price feeds for market caps (~5–8 min)")
 r3c4.markdown(_last_run_for("index_stocks_sync"))
-if r3c5.button("▶ Run", key="btn_idx", use_container_width=True):
+if r3c5.button("▶ Run", key="btn_idx", width='stretch'):
     with st.spinner("Syncing Index Stocks from NSE India + market price feeds…"):
         try:
             from backend.data_ingestion.sector_sync import sync_all
@@ -544,7 +544,7 @@ r4c1.markdown("4")
 r4c2.markdown("💰 Smart Money")
 r4c3.markdown("Stock Snapshot — delivery %, OI, smart money signals for all FNO stocks")
 r4c4.markdown(_last_run_for("stock_snapshot"))
-if r4c5.button("▶ Run", key="btn_stock", use_container_width=True):
+if r4c5.button("▶ Run", key="btn_stock", width='stretch'):
     with st.spinner("Running stock snapshot…"):
         try:
             from backend.data_ingestion.pipeline import run_stock_pipeline
@@ -565,7 +565,7 @@ r4bc1.markdown("4b")
 r4bc2.markdown("💰 Smart Money")
 r4bc3.markdown("Smart Money Signals — F&O delivery %, futures OI for all F&O symbols (90-day rolling)")
 r4bc4.markdown(_last_run_for("smart_money"))
-if r4bc5.button("▶ Run", key="btn_sm_signals", use_container_width=True):
+if r4bc5.button("▶ Run", key="btn_sm_signals", width='stretch'):
     with st.spinner("Running Smart Money Signals pipeline (~3–5 min)…"):
         rid = None
         try:
@@ -591,7 +591,7 @@ r5c1.markdown("5")
 r5c2.markdown("📊 FII Accumulation")
 r5c3.markdown("Shareholding Refresh — FII/DII/Promoter quarterly data for all sector stocks (~3–5 min)")
 r5c4.markdown(_last_run_for("shareholding_quarterly"))
-if r5c5.button("▶ Run", key="btn_sh", use_container_width=True):
+if r5c5.button("▶ Run", key="btn_sh", width='stretch'):
     with st.spinner("Running shareholding pipeline…"):
         try:
             from backend.data_ingestion.shareholding_pipeline import run_shareholding_pipeline
@@ -613,7 +613,7 @@ r6c1.markdown("6")
 r6c2.markdown("🤖 AI Forecast")
 r6c3.markdown("AI Scan — XGBoost direction signal for all dashboard stocks · stored to DB (~3–5 min)")
 r6c4.markdown(_last_run_for("ai_scan_daily"))
-if r6c5.button("▶ Run", key="btn_ai", use_container_width=True):
+if r6c5.button("▶ Run", key="btn_ai", width='stretch'):
     with st.spinner("Running AI scan for all dashboard stocks (~3–5 min)…"):
         try:
             from backend.data_ingestion.ai_scan_pipeline import run_ai_scan_pipeline
@@ -640,7 +640,7 @@ from backend.data_ingestion.gann_pipeline import _all_symbols as _gann_symbols
 _gann_total = len(_gann_symbols())
 r7c3.markdown(f"Gann Cache — all 5 methods for all {_gann_total} dashboard stocks · stored to DB (~5–8 min)")
 r7c4.markdown(_last_run_for("gann_daily"))
-if r7c5.button("▶ Run", key="btn_gann", use_container_width=True):
+if r7c5.button("▶ Run", key="btn_gann", width='stretch'):
     _gann_rid = None
     try:
         from backend.data_ingestion.gann_pipeline import run_gann_pipeline
@@ -809,7 +809,7 @@ for i, (page, tbl, dcol, label, pipe_key) in enumerate(_inventory):
 
     # Show Fix button once per pipeline group (not once per table row)
     btn_key = f"inv_fix_{pipe_key}_{i}"
-    if rc[6].button("▶ Fix", key=btn_key, use_container_width=True):
+    if rc[6].button("▶ Fix", key=btn_key, width='stretch'):
         with st.spinner(f"Running pipeline for {label}…"):
             try:
                 msg = _run_pipeline(pipe_key)
@@ -987,7 +987,7 @@ schedule_data = {
     ],
 }
 
-st.dataframe(pd.DataFrame(schedule_data), use_container_width=True, hide_index=True)
+st.dataframe(pd.DataFrame(schedule_data), width='stretch', hide_index=True)
 
 st.markdown("---")
 
@@ -1024,7 +1024,7 @@ st.caption(
 _STATUS_ICON  = {"OK": "✅", "WARN": "⚠️", "FAIL": "❌"}
 _STATUS_COLOR = {"OK": "green", "WARN": "orange", "FAIL": "red"}
 
-if st.button("🔍 Run Health Check", type="primary", use_container_width=False):
+if st.button("🔍 Run Health Check", type="primary", width='content'):
     from backend.health_check import run_health_check
     with st.spinner("Running health checks across all pages…"):
         t_start = time.time()

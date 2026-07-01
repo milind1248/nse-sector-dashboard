@@ -190,7 +190,7 @@ styled = (
     .map(color_ema, subset=["EMA Signal"])
     .map(color_rsi, subset=["RSI"])
 )
-st.dataframe(styled, use_container_width=True, hide_index=True, height=420)
+st.dataframe(styled, width='stretch', hide_index=True, height=420)
 
 st.caption(
     "**How to read:** RSI 45–65 = mid-range momentum. EMA Bullish = price above moving averages. "
@@ -410,11 +410,11 @@ if chosen:
 
 st.markdown("---")
 c1, c2, c3 = st.columns(3)
-if c1.button("← Sector Analysis",  use_container_width=True):
+if c1.button("← Sector Analysis",  width='stretch'):
     st.switch_page("pages/2_📈_Sector_Analysis.py")
-if c2.button("← FII Sector Watch", use_container_width=True):
+if c2.button("← FII Sector Watch", width='stretch'):
     st.switch_page("Home.py")
-if c3.button("\U0001f4ca Market Pulse →", use_container_width=True):
+if c3.button("\U0001f4ca Market Pulse →", width='stretch'):
     st.switch_page("pages/1_📡_Market_Pulse.py")
 from app.utils.disclaimer import show_footer
 show_footer()

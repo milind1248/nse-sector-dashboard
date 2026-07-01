@@ -34,7 +34,7 @@ col_title, col_refresh = st.columns([6, 1])
 with col_refresh:
     from app.utils.auth import is_admin
     if is_admin():
-        if st.button("🔄 Refresh Data", use_container_width=True):
+        if st.button("🔄 Refresh Data", width='stretch'):
             from backend.data_ingestion.job_logger import log_start, log_finish
             rid = log_start("sector_snapshot", "Sector Snapshot (FII/DII + Breadth + Prices)", "admin")
             try:
@@ -155,7 +155,7 @@ with tabs[0]:
                         "fii_buy":  "₹{:,.0f}", "fii_sell": "₹{:,.0f}", "fii_net":  "₹{:+,.0f}",
                         "dii_buy":  "₹{:,.0f}", "dii_sell": "₹{:,.0f}", "dii_net":  "₹{:+,.0f}",
                     }),
-                use_container_width=True, hide_index=True,
+                width='stretch', hide_index=True,
             )
 
 # ── Tab 2 — Fortnightly Sector Breakdown ──────────────────────────────────────
@@ -230,7 +230,7 @@ with tabs[1]:
                             "AUC Prev (Cr)": "₹{:,.0f}", "AUC Curr (Cr)": "₹{:,.0f}",
                             "Change (Cr)":   "₹{:+,.0f}", "Change %":       "{:+.2f}%",
                         }),
-            use_container_width=True, hide_index=True,
+            width='stretch', hide_index=True,
         )
 from app.utils.disclaimer import show_footer
 show_footer()

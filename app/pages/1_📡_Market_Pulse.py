@@ -149,7 +149,7 @@ col_h.title("📡 Market Pulse")
 
 from app.utils.auth import is_admin
 if is_admin():
-    if col_ref.button("🔄 Refresh Data", use_container_width=True):
+    if col_ref.button("🔄 Refresh Data", width='stretch'):
         from backend.data_ingestion.job_logger import log_start, log_finish
         from backend.data_ingestion.market_pulse_pipeline import run_market_pulse_pipeline
         rid = log_start("market_pulse_snapshot",
@@ -302,7 +302,7 @@ if rrg_data:
         col.markdown(f"**{quad}**")
         if sectors:
             for s in sectors:
-                if col.button(s[:18], key=f"rrg_{quad}_{s}", use_container_width=True):
+                if col.button(s[:18], key=f"rrg_{quad}_{s}", width='stretch'):
                     st.session_state["selected_sector"] = s
                     st.switch_page("pages/2_📈_Sector_Analysis.py")
         else:
@@ -314,7 +314,7 @@ else:
     )
 
 st.markdown("---")
-if st.button("← FII Sector Watch", use_container_width=False):
+if st.button("← FII Sector Watch", width='content'):
     st.switch_page("Home.py")
 from app.utils.disclaimer import show_footer
 show_footer()

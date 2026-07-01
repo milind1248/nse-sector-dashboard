@@ -183,7 +183,7 @@ with tab_matrix:
             if not isinstance(v,(int,float)) or pd.isna(v): return ""
             return "color:#00C853;font-weight:600" if v>0 else "color:#D50000;font-weight:600"
         st.dataframe(disp.style.map(cn).format(fmt_d),
-                     use_container_width=True,
+                     width='stretch',
                      height=min(600, len(disp)*32+60))
 
     # Cumulative summary — title shows latest → older
@@ -405,7 +405,7 @@ with tab_analysis:
                      idx_col:          lambda v: f"{v:+.2f}%" if isinstance(v,(int,float)) else "No data",
                      stk_col:          lambda v: f"{v:+.2f}%" if isinstance(v,(int,float)) else "–",
                  }),
-            use_container_width=True, hide_index=True, height=540,
+            width='stretch', hide_index=True, height=540,
         )
 
         # Confirmed sectors — call to action
