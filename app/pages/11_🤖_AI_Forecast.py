@@ -244,6 +244,8 @@ else:
         st.session_state["ai_last_ticker"] = ticker_ns
 
     with st.spinner(f"Fetching data and training models for {ticker_name} — first load ~15–20 seconds…"):
+        if run_btn:
+            _fetch_and_model.clear()   # force re-run on manual click — avoids serving stale cached errors
         raw, prophet_res, xgb_res, arima_res = _fetch_and_model(ticker_ns, xgb_fwd_days)
 
     if raw is None:

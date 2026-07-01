@@ -250,6 +250,10 @@ def run_prophet_forecast(close_series: pd.Series, horizon_days: int = 30) -> dic
         else:
             direction = "Neutral"
 
+        # uncertainty_samples=0 skips posterior sampling → no yhat_lower/upper columns
+        yhat_lower = fcast.get("yhat_lower", fcast["yhat"]).tolist()
+        yhat_upper = fcast.get("yhat_upper", fcast["yhat"]).tolist()
+
         return {
             "error":           None,
             "history_dates":   hist["ds"].dt.date.tolist(),
@@ -257,8 +261,8 @@ def run_prophet_forecast(close_series: pd.Series, horizon_days: int = 30) -> dic
             "history_actual":  s.tail(126).tolist(),
             "forecast_dates":  fcast["ds"].dt.date.tolist(),
             "yhat":            fcast["yhat"].tolist(),
-            "yhat_lower":      fcast["yhat_lower"].tolist(),
-            "yhat_upper":      fcast["yhat_upper"].tolist(),
+            "yhat_lower":      yhat_lower,
+            "yhat_upper":      yhat_upper,
             "trend_direction": direction,
             "trend_pct":       round(trend_pct, 2),
             "last_price":      last_price,
