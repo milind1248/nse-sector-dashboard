@@ -18,7 +18,9 @@ def _resolve_db_path() -> Path:
     # Read-only mount (Streamlit Cloud): work from /tmp copy
     if not _TMP_DB.exists() and _REPO_DB.exists():
         shutil.copy2(_REPO_DB, _TMP_DB)
-        _TMP_DB.chmod(0o644)  # copy2 preserves source read-only perms; make writable
+    # Always ensure writable — chmod2 preserves source perms; hot-reload may skip copy
+    if _TMP_DB.exists():
+        _TMP_DB.chmod(0o644)
     return _TMP_DB
 
 DB_PATH = _resolve_db_path()
