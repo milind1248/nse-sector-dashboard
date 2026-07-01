@@ -520,19 +520,26 @@ with st.expander("🧪 Page Test Runner", expanded=False):
         st.markdown("---")
 
     if st.button("▶ Run Page Tests", type="primary", key="btn_page_tests"):
+        import subprocess
         from backend.data_ingestion.job_logger import log_start, log_finish
         _pt_rid = log_start("page_test", "Page Test Runner (All Pages)", triggered_by="admin")
         try:
-            from backend.page_tester import run_page_tests
-            from app.utils.page_test_db import store_test_results
+            _cli = _ROOT / "scripts" / "run_page_tests_cli.py"
             with st.spinner("Testing all pages — this takes 5–15 minutes…"):
-                _pt_results = run_page_tests(str(_ROOT))
-            store_test_results(run_id=_pt_rid, results=_pt_results)
-            log_finish(_pt_rid, "success", records_done=len(_pt_results))
-            st.session_state["_page_test_results"] = _pt_results
-            # Render inline — no st.rerun() to avoid AppTest runtime conflict
-            st.markdown("**Results:**")
-            _render_test_report(_pt_results)
+                _proc = subprocess.run(
+                    [sys.executable, str(_cli), str(_pt_rid)],
+                    capture_output=True, text=True, cwd=str(_ROOT),
+                )
+            if _proc.returncode == 0:
+                log_finish(_pt_rid, "success", records_done=16)
+                _pt_results = _load_latest_test_run()
+                st.session_state["_page_test_results"] = _pt_results
+                st.markdown("**Results:**")
+                _render_test_report(_pt_results)
+            else:
+                _err = (_proc.stderr or "unknown error")[-500:]
+                log_finish(_pt_rid, "failed", error_msg=_err)
+                st.error(f"Page tests failed: {_err}")
         except Exception as _pt_e:
             log_finish(_pt_rid, "failed", error_msg=str(_pt_e))
             st.error(f"Page test runner failed: {_pt_e}")
