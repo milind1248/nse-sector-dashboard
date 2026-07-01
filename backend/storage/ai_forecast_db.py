@@ -164,19 +164,22 @@ def load_forecast(symbol: str) -> tuple[dict | None, str | None]:
         else:
             prophet_res = None
 
-        # Reconstruct xgb_res in same shape as run_xgb_direction()
-        xgb_res = {
-            "error":              None,
-            "prob_up":            row[2],
-            "direction":          row[3],
-            "signal_label":       row[4],
-            "backtest_accuracy":  row[5],
-            "n_train_bars":       row[6],
-            "n_features":         row[7],
-            "backtest_monthly":   bt,
-            "feature_importance": fi,
-            "forward_days":       5,
-        }
+        # Reconstruct xgb_res — None if no model was stored (pipeline failure)
+        if row[2] is not None:
+            xgb_res = {
+                "error":              None,
+                "prob_up":            row[2],
+                "direction":          row[3],
+                "signal_label":       row[4],
+                "backtest_accuracy":  row[5],
+                "n_train_bars":       row[6],
+                "n_features":         row[7],
+                "backtest_monthly":   bt,
+                "feature_importance": fi,
+                "forward_days":       5,
+            }
+        else:
+            xgb_res = None
 
         # Reconstruct arima_res in same shape as run_arima_forecast()
         arima_res = None
