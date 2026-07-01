@@ -1,13 +1,16 @@
 """
 Shared job run logging utility.
 Records start/finish of every scheduled and admin-triggered pipeline run
-into the job_run_log SQLite table.
+into the job_run_log SQLite table AND the rotating app.log file.
 """
 import sqlite3
+import logging
 from datetime import datetime
 from pathlib import Path
 
 from config import DB_PATH as _DB_PATH
+
+_log = logging.getLogger(__name__)
 
 
 def _db():
@@ -47,8 +50,9 @@ ensure_table()
 
 
 def log_start(job_id: str, job_name: str, triggered_by: str = "scheduler") -> int:
-    """Insert a 'running' row and return its row id."""
+    """Insert a 'running' row, log to file, and return its row id."""
     started = datetime.utcnow().isoformat()
+    _log.info("JOB START  | %-30s | triggered_by=%-9s | %s", job_id, triggered_by, started)
     con = _db()
     cur = con.execute(
         "INSERT INTO job_run_log (job_id, job_name, triggered_by, started_at, status) "
@@ -62,8 +66,18 @@ def log_start(job_id: str, job_name: str, triggered_by: str = "scheduler") -> in
 
 
 def log_finish(row_id: int, status: str, records_done: int = 0, error_msg: str | None = None):
-    """Update the row when a job finishes."""
+    """Update the row when a job finishes and log result to file."""
     finished = datetime.utcnow().isoformat()
+    if status == "success":
+        _log.info(
+            "JOB FINISH | row=%-4s | status=%-8s | records=%s | %s",
+            row_id, status, records_done, finished,
+        )
+    else:
+        _log.error(
+            "JOB FINISH | row=%-4s | status=%-8s | error=%s | %s",
+            row_id, status, error_msg or "", finished,
+        )
     con = _db()
     con.execute(
         "UPDATE job_run_log SET finished_at=?, status=?, records_done=?, error_msg=? WHERE id=?",
