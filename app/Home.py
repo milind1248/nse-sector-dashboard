@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import json
 from datetime import date
 
 st.set_page_config(
@@ -19,6 +20,23 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ── Scheduler — starts once per process at application launch ─────────────────
+# Streamlit calls Home.py directly (local & Streamlit Cloud) — this is the boot hook.
+# @st.cache_resource ensures exactly one scheduler instance even on multi-user loads.
+@st.cache_resource
+def _start_scheduler():
+    import logging
+    try:
+        from backend.data_ingestion.scheduler import get_scheduler
+        sched = get_scheduler()
+        logging.getLogger(__name__).info("Scheduler started at application boot.")
+        return sched
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Scheduler failed to start: {e}")
+        return None
+
+_start_scheduler()
 
 from app.utils.guard import enforce_deployment_gate
 enforce_deployment_gate()
@@ -30,6 +48,7 @@ from app.utils.logo import show_logo
 from app.utils.visitor import get_visitor_count, render_visitor_counter
 show_logo()
 get_visitor_count()   # increment DB counter once per session
+
 
 # ── FII Ticker — own lightweight cache, renders before main data load ─────────
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -95,6 +114,25 @@ div[style*="fii-scroll"]:hover{{animation-play-state:paused}}
 """, unsafe_allow_html=True)
 
 _ticker_rows, _ticker_lbl = _get_ticker_data()
+
+# ── Home page announcement (configured in Admin) ──────────────────────────────
+@st.cache_data(ttl=60, show_spinner=False)
+def _get_announcement() -> dict:
+    _ann_path = Path(__file__).parent.parent / "data" / "announcement.json"
+    try:
+        return json.loads(_ann_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"enabled": False, "text": ""}
+
+_ann = _get_announcement()
+if _ann.get("enabled") and _ann.get("text", "").strip():
+    st.markdown(
+        f"<div style='background:#0d2818;border-left:4px solid #4ade80;"
+        f"padding:10px 16px;border-radius:4px;margin-bottom:8px;"
+        f"font-weight:700;color:#4ade80;font-size:15px;'>📢 {_ann['text']}</div>",
+        unsafe_allow_html=True,
+    )
+
 if _ticker_rows:
     _render_ticker(_ticker_rows, _ticker_lbl)
 

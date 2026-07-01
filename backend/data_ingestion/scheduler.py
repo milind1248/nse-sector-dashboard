@@ -1,7 +1,27 @@
 """APScheduler-based daily job runner."""
+import json
 import logging
+from pathlib import Path
 from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+
+_SCHEDULE_CFG_PATH = Path(__file__).parent.parent.parent / "data" / "schedule_config.json"
+
+def _load_schedule_config() -> dict:
+    """Load job times from JSON config. Falls back to defaults if file missing."""
+    _defaults = {
+        "sector_snapshot":       {"hour": 18, "minute": 0},
+        "stock_snapshot":        {"hour": 18, "minute": 30},
+        "smart_money":           {"hour": 19, "minute": 0},
+        "market_pulse_snapshot": {"hour": 20, "minute": 0},
+        "ai_scan_daily":         {"hour": 21, "minute": 0},
+        "gann_daily":            {"hour": 21, "minute": 30},
+    }
+    try:
+        return json.loads(_SCHEDULE_CFG_PATH.read_text())
+    except Exception:
+        return _defaults
 from backend.data_ingestion.pipeline import (
     run_fii_dii_pipeline, run_breadth_pipeline,
     run_sector_pipeline, run_stock_pipeline,
@@ -10,6 +30,7 @@ from backend.data_ingestion.shareholding_pipeline import run_shareholding_pipeli
 from backend.data_ingestion.ai_scan_pipeline import run_ai_scan_pipeline
 from backend.data_ingestion.market_pulse_pipeline import run_market_pulse_pipeline
 from backend.data_ingestion.gann_pipeline import run_gann_pipeline
+from backend.data_ingestion.smart_money_pipeline import run_smart_money_pipeline
 from backend.data_ingestion.job_logger import log_start, log_finish
 from backend.storage.cache import invalidate_all
 from config import SCHEDULE_TZ
@@ -31,73 +52,82 @@ def _logged(job_id: str, job_name: str, fn):
     return _run
 
 
-def start_scheduler():
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    scheduler = BlockingScheduler(timezone=SCHEDULE_TZ)
+def _register_jobs(scheduler):
+    """Register all cron jobs onto a scheduler instance (blocking or background)."""
+    cfg = _load_schedule_config()
+    logger.info(f"Schedule config loaded: {cfg}")
 
-    # 6:00 PM IST — price + breadth snapshot
+    def _t(job_id):
+        return cfg[job_id]["hour"], cfg[job_id]["minute"]
+
+    h, m = _t("sector_snapshot")
     scheduler.add_job(
         _logged(
             "sector_snapshot",
             "Sector Snapshot (FII/DII + Breadth + Prices)",
             lambda: (invalidate_all(), run_fii_dii_pipeline(), run_breadth_pipeline(), run_sector_pipeline()),
         ),
-        CronTrigger(hour=18, minute=0, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
+        CronTrigger(hour=h, minute=m, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
         id="sector_snapshot",
-        name="Sector snapshot @ 6 PM",
+        name=f"Sector snapshot @ {h:02d}:{m:02d}",
     )
 
-    # 6:30 PM IST — stock-level detail
+    h, m = _t("stock_snapshot")
     scheduler.add_job(
         _logged("stock_snapshot", "Stock Snapshot (Delivery + OI)", run_stock_pipeline),
-        CronTrigger(hour=18, minute=30, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
+        CronTrigger(hour=h, minute=m, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
         id="stock_snapshot",
-        name="Stock snapshot @ 6:30 PM",
+        name=f"Stock snapshot @ {h:02d}:{m:02d}",
     )
 
-    # 8:00 PM IST — Market Pulse snapshot (after Bhavcopy is published by NSE)
-    # Bhavcopy is published ~6–7 PM; 8 PM gives buffer for NSE to publish
+    h, m = _t("smart_money")
+    scheduler.add_job(
+        _logged(
+            "smart_money",
+            "Smart Money Signals (F&O Delivery + OI)",
+            lambda: run_smart_money_pipeline(triggered_by="scheduler"),
+        ),
+        CronTrigger(hour=h, minute=m, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
+        id="smart_money",
+        name=f"Smart Money Signals @ {h:02d}:{m:02d}",
+    )
+
+    h, m = _t("market_pulse_snapshot")
     scheduler.add_job(
         _logged(
             "market_pulse_snapshot",
             "Market Pulse Snapshot (Breadth + Heatmap + RRG)",
             lambda: run_market_pulse_pipeline(triggered_by="scheduler"),
         ),
-        CronTrigger(hour=20, minute=0, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
+        CronTrigger(hour=h, minute=m, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
         id="market_pulse_snapshot",
-        name="Market Pulse snapshot @ 8 PM IST",
+        name=f"Market Pulse snapshot @ {h:02d}:{m:02d}",
     )
 
-    # 9:00 PM IST — AI scan (XGBoost direction for all dashboard stocks)
-    # Runs after sector (6 PM) and market pulse (8 PM) jobs so price data is fresh
+    h, m = _t("ai_scan_daily")
     scheduler.add_job(
         _logged(
             "ai_scan_daily",
             "AI Scan — XGBoost Direction (All Dashboard Stocks)",
             run_ai_scan_pipeline,
         ),
-        CronTrigger(hour=21, minute=0, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
+        CronTrigger(hour=h, minute=m, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
         id="ai_scan_daily",
-        name="AI scan @ 9 PM IST",
+        name=f"AI scan @ {h:02d}:{m:02d}",
     )
 
-    # 9:30 PM IST — Gann analysis (all 5 methods for all dashboard stocks)
-    # Runs after AI scan (9 PM) so traffic on Yahoo Finance is staggered
+    h, m = _t("gann_daily")
     scheduler.add_job(
         _logged(
             "gann_daily",
             "Gann Analysis — All 5 Methods (All Dashboard Stocks)",
             run_gann_pipeline,
         ),
-        CronTrigger(hour=21, minute=30, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
+        CronTrigger(hour=h, minute=m, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
         id="gann_daily",
-        name="Gann analysis @ 9:30 PM IST",
+        name=f"Gann analysis @ {h:02d}:{m:02d}",
     )
 
-    # Quarterly shareholding refresh — 27th of Jan, Apr, Jul, Oct at 7:00 AM IST
-    # SEBI deadline is 21 days after quarter end; 27th gives 6 days buffer
-    # Covers: Q4 (Apr 27), Q1 (Jul 27), Q2 (Oct 27), Q3 (Jan 27)
     scheduler.add_job(
         _logged(
             "shareholding_quarterly",
@@ -107,9 +137,52 @@ def start_scheduler():
         CronTrigger(month="1,4,7,10", day=27, hour=7, minute=0, timezone=SCHEDULE_TZ),
         id="shareholding_quarterly",
         name="Quarterly shareholding refresh @ 7 AM IST on 27th Jan/Apr/Jul/Oct",
-        misfire_grace_time=86400,  # run within 24h if server was down on the 27th
+        misfire_grace_time=86400,
     )
 
+
+def start_scheduler_background():
+    """Start scheduler as a background thread — called once from run.py at boot."""
+    scheduler = BackgroundScheduler(timezone=SCHEDULE_TZ)
+    _register_jobs(scheduler)
+    scheduler.start()
+    logger.info("Background scheduler started inside Streamlit process.")
+    return scheduler
+
+
+def get_scheduler():
+    """Return the live BackgroundScheduler instance (cached per Streamlit process)."""
+    import streamlit as st
+
+    @st.cache_resource
+    def _cached():
+        return start_scheduler_background()
+
+    return _cached()
+
+
+def reschedule_job(job_id: str, hour: int, minute: int):
+    """Update a running job's trigger without restarting the app."""
+    try:
+        sched = get_scheduler()
+        sched.reschedule_job(
+            job_id,
+            trigger=CronTrigger(hour=hour, minute=minute,
+                                day_of_week="mon-fri", timezone=SCHEDULE_TZ),
+        )
+        logger.info(f"Rescheduled {job_id} → {hour:02d}:{minute:02d} IST")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to reschedule {job_id}: {e}")
+        return False
+
+
+def start_scheduler():
+    """Start scheduler as a blocking process — used when running: python run.py schedule."""
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    scheduler = BlockingScheduler(timezone=SCHEDULE_TZ)
+    _register_jobs(scheduler)
     logger.info("Scheduler started. Waiting for triggers...")
     try:
         scheduler.start()

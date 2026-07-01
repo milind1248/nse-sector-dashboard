@@ -23,7 +23,7 @@ def _to_ist(ts) -> str:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         dt_ist = dt.astimezone(_IST)
-        return dt_ist.strftime("%d %b %Y %H:%M IST")
+        return dt_ist.strftime("%d %b %Y %H:%M:%S IST")
     except Exception:
         return ts[:16] if ts else "—"
 
@@ -41,9 +41,45 @@ from app.utils.logo import show_logo
 show_logo()
 
 from app.utils.auth import is_admin, require_admin, logout, session_remaining_minutes
+import json
 
 # ── Auth gate ─────────────────────────────────────────────────────────────────
 require_admin()
+
+# ── Announcement JSON helpers ─────────────────────────────────────────────────
+_ANN_PATH = Path(__file__).parent.parent.parent / "data" / "announcement.json"
+
+# ── Schedule config JSON helpers ──────────────────────────────────────────────
+_SCH_PATH = Path(__file__).parent.parent.parent / "data" / "schedule_config.json"
+_SCH_DEFAULTS = {
+    "sector_snapshot":       {"hour": 18, "minute": 0},
+    "stock_snapshot":        {"hour": 18, "minute": 30},
+    "smart_money":           {"hour": 19, "minute": 0},
+    "market_pulse_snapshot": {"hour": 20, "minute": 0},
+    "ai_scan_daily":         {"hour": 21, "minute": 0},
+    "gann_daily":            {"hour": 21, "minute": 30},
+}
+
+def _read_schedule_config() -> dict:
+    try:
+        return json.loads(_SCH_PATH.read_text())
+    except Exception:
+        return _SCH_DEFAULTS.copy()
+
+def _write_schedule_config(cfg: dict):
+    _SCH_PATH.write_text(json.dumps(cfg, indent=2))
+
+def _read_announcement() -> dict:
+    try:
+        return json.loads(_ANN_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {"enabled": False, "text": ""}
+
+def _write_announcement(enabled: bool, text: str) -> None:
+    _ANN_PATH.write_text(
+        json.dumps({"enabled": enabled, "text": text.strip()}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 # ── DB ────────────────────────────────────────────────────────────────────────
 _DB_PATH = Path(__file__).parent.parent.parent / "data" / "nse_dashboard.db"
@@ -67,6 +103,35 @@ st.caption(
 )
 st.markdown("---")
 
+# ── Home Page Announcement ────────────────────────────────────────────────────
+st.subheader("📢 Home Page Announcement")
+_ann = _read_announcement()
+ann_col1, ann_col2 = st.columns([5, 1])
+with ann_col1:
+    ann_text = st.text_area(
+        "Announcement text (leave blank to show nothing)",
+        value=_ann.get("text", ""),
+        height=80,
+        placeholder="e.g. Markets closed on 15 Aug 2026 — Independence Day holiday",
+        key="ann_text",
+    )
+with ann_col2:
+    st.write("")
+    st.write("")
+    ann_enabled = st.toggle("Enabled", value=_ann.get("enabled", False), key="ann_enabled")
+
+if st.button("💾 Save Announcement", key="ann_save"):
+    _write_announcement(ann_enabled, ann_text)
+    st.success("Announcement saved." if (ann_enabled and ann_text.strip()) else "Announcement cleared / disabled.")
+    st.cache_data.clear()
+
+if _ann.get("enabled") and _ann.get("text", "").strip():
+    st.caption(f"Currently live on Home page: **{_ann['text']}**")
+else:
+    st.caption("No announcement currently shown on Home page.")
+
+st.markdown("---")
+
 # ── Job Run Log ────────────────────────────────────────────────────────────────
 st.subheader("Job Run History")
 
@@ -75,7 +140,7 @@ def _load_job_log() -> pd.DataFrame:
     try:
         con = _db()
         df = pd.read_sql_query(
-            "SELECT job_name, triggered_by, started_at, finished_at, status, records_done, error_msg "
+            "SELECT job_id, job_name, triggered_by, started_at, finished_at, status, records_done, error_msg "
             "FROM job_run_log ORDER BY started_at DESC LIMIT 100",
             con,
         )
@@ -95,24 +160,63 @@ job_df = _load_job_log()
 if job_df.empty:
     st.info("No job runs recorded yet. Runs will appear here after the scheduler fires or you trigger a manual run below.")
 else:
-    # Summary cards
-    total     = len(job_df)
-    successes = (job_df["status"] == "success").sum()
-    failures  = (job_df["status"] == "failed").sum()
-    running   = (job_df["status"] == "running").sum()
+    # ── Today's summary cards (IST date) ─────────────────────────────────────
+    _DAILY_JOB_IDS = {
+        "sector_snapshot", "stock_snapshot", "market_pulse_snapshot",
+        "ai_scan_daily", "gann_daily", "smart_money",
+    }
+
+    def _ist_date(ts) -> str:
+        if not ts or not isinstance(ts, str):
+            return ""
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(_IST).date().isoformat()
+        except Exception:
+            return ""
+
+    today_ist = datetime.now(_IST).date().isoformat()
+    today_df  = job_df[job_df["started_at"].apply(_ist_date) == today_ist]
+
+    manual_today  = today_df[today_df["triggered_by"] == "admin"]
+    sched_today   = today_df[
+        (today_df["triggered_by"] == "scheduler") &
+        (today_df["job_id"].isin(_DAILY_JOB_IDS))
+    ]
+
+    man_success   = int((manual_today["status"] == "success").sum())
+    man_total     = len(manual_today)
+    sched_ran     = sched_today["job_id"].nunique()
+    sched_success = int((sched_today["status"] == "success").sum())
+    failed_today  = int((today_df["status"] == "failed").sum())
+    running_now   = int((job_df["status"] == "running").sum())
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Runs", total)
-    c2.metric("Successful", int(successes))
-    c3.metric("Failed", int(failures))
-    c4.metric("Running Now", int(running))
+    c1.metric("Manual Today",    f"{man_success} ✓ / {man_total} runs",
+              help="Admin-triggered runs today (IST) — success / total")
+    c2.metric("Scheduled Today", f"{sched_ran} / 6 jobs",
+              delta=f"{sched_success} success",
+              help="Daily scheduler jobs that ran today out of 6 expected")
+    c3.metric("Failed Today",    failed_today,
+              help="Failed runs today (manual + scheduled)")
+    c4.metric("Running Now",     running_now,
+              help="Jobs currently in 'running' state")
+
+    st.caption(f"Today (IST): **{today_ist}**  ·  Stats above are for today only · Full log below")
 
     # Format display — convert UTC timestamps to IST
     display = job_df.copy()
-    display.columns = ["Job", "Triggered By", "started_raw", "finished_raw", "Status", "Records", "Error"]
+    display.columns = ["job_id_raw", "Job", "Triggered By", "started_raw", "finished_raw", "Status", "Records", "Error"]
+    display = display.drop(columns=["job_id_raw"])
     display["Started (IST)"]  = display["started_raw"].apply(_to_ist)
     display["Finished (IST)"] = display["finished_raw"].apply(_to_ist)
     display = display.drop(columns=["started_raw", "finished_raw"])
+    display["Triggered By"] = display["Triggered By"].map({
+        "admin":     "👤 Admin",
+        "scheduler": "🤖 Scheduler",
+    }).fillna(display["Triggered By"])
     display = display[["Job", "Triggered By", "Started (IST)", "Finished (IST)", "Status", "Records", "Error"]]
 
     def _status_color(val):
@@ -122,8 +226,9 @@ else:
         return ""
 
     def _trigger_color(val):
-        if val == "admin":    return "color: #64B5F6; font-weight:600"
-        return "color: #aaa"
+        if "Admin"     in str(val): return "color: #64B5F6; font-weight:600"
+        if "Scheduler" in str(val): return "color: #aaaaaa; font-weight:500"
+        return ""
 
     styled = (
         display.style
@@ -294,16 +399,22 @@ with st.expander("🚀 Master Job — Refresh All Data", expanded=False):
         "Runs all 7 pipelines sequentially. Each job starts only after the previous one finishes. "
         "Use when the site is out of sync after downtime. Estimated runtime: 40–60 minutes."
     )
+    _mj_cfg = _read_schedule_config()
+    def _mj_t(job_id):
+        c = _mj_cfg.get(job_id, _SCH_DEFAULTS[job_id])
+        h, m = c["hour"], c["minute"]
+        suffix = "AM" if h < 12 else "PM"
+        return f"{h % 12 or 12}:{m:02d} {suffix}"
     st.markdown(
         "| # | Pipeline | Frequency | Scheduled At (IST) | Est. Time |\n"
         "|---|---|---|---|---|\n"
-        "| 1 | Market Pulse Snapshot | Daily (Mon–Fri) | 8:00 PM | 3–5 min |\n"
-        "| 2 | Sector Snapshot | Daily (Mon–Fri) | 6:00 PM | 2–3 min |\n"
+        f"| 1 | Market Pulse Snapshot | Daily (Mon–Fri) | {_mj_t('market_pulse_snapshot')} | 3–5 min |\n"
+        f"| 2 | Sector Snapshot | Daily (Mon–Fri) | {_mj_t('sector_snapshot')} | 2–3 min |\n"
         "| 3 | Index Stocks Sync | Manual only | — | 5–8 min |\n"
-        "| 4 | Stock Snapshot | Daily (Mon–Fri) | 6:30 PM | 2–3 min |\n"
-        "| 5 | Smart Money Signals | Daily (Mon–Fri) | Manual trigger | 5–10 min |\n"
-        "| 6 | AI Scan | Daily (Mon–Fri) | 9:00 PM | 15–27 min |\n"
-        "| 7 | Gann Cache | Daily (Mon–Fri) | 9:30 PM | 10–15 min |"
+        f"| 4 | Stock Snapshot | Daily (Mon–Fri) | {_mj_t('stock_snapshot')} | 2–3 min |\n"
+        f"| 5 | Smart Money Signals | Daily (Mon–Fri) | {_mj_t('smart_money')} | 5–10 min |\n"
+        f"| 6 | AI Scan | Daily (Mon–Fri) | {_mj_t('ai_scan_daily')} | 15–27 min |\n"
+        f"| 7 | Gann Cache | Daily (Mon–Fri) | {_mj_t('gann_daily')} | 10–15 min |"
     )
     if st.button("▶ Run Master Job", type="primary", key="master_job_btn"):
         _run_master_job()
@@ -428,14 +539,14 @@ r4bc1, r4bc2, r4bc3, r4bc4, r4bc5 = st.columns([2, 3, 4, 3, 2])
 r4bc1.markdown("4b")
 r4bc2.markdown("💰 Smart Money")
 r4bc3.markdown("Smart Money Signals — F&O delivery %, futures OI for all F&O symbols (90-day rolling)")
-r4bc4.markdown(_last_run_for("smart_money_signals"))
+r4bc4.markdown(_last_run_for("smart_money"))
 if r4bc5.button("▶ Run", key="btn_sm_signals", use_container_width=True):
     with st.spinner("Running Smart Money Signals pipeline (~3–5 min)…"):
         rid = None
         try:
             from backend.data_ingestion.smart_money_pipeline import run_smart_money_pipeline
             from backend.data_ingestion.job_logger import log_start, log_finish
-            rid = log_start("smart_money_signals", "Smart Money Signals (F&O Delivery + OI)", "admin")
+            rid = log_start("smart_money", "Smart Money Signals (F&O Delivery + OI)", "admin")
             summary = run_smart_money_pipeline(triggered_by="admin")
             log_finish(rid, "success", records_done=summary.get("rows_added", 0))
             st.cache_data.clear()
@@ -623,7 +734,7 @@ def _run_pipeline(key: str):
         return "Shareholding refresh completed."
     elif key == "smart_money":
         from backend.data_ingestion.smart_money_pipeline import run_smart_money_pipeline
-        rid = log_start("smart_money_signals", "Smart Money Signals (F&O Delivery + OI)", "admin")
+        rid = log_start("smart_money", "Smart Money Signals (F&O Delivery + OI)", "admin")
         summary = run_smart_money_pipeline(triggered_by="admin")
         log_finish(rid, "success", records_done=summary.get("rows_added", 0))
         st.cache_data.clear()
@@ -684,6 +795,66 @@ for i, (page, tbl, dcol, label, pipe_key) in enumerate(_inventory):
 
 st.markdown("---")
 
+# ── Schedule Configuration ─────────────────────────────────────────────────────
+st.subheader("⏰ Schedule Configuration")
+st.caption("Set the daily trigger time (IST) for each scheduled job. Save → changes reflect in the calendar below. Restart the scheduler process to apply new times to the live runner.")
+
+_sch_cfg = _read_schedule_config()
+
+_SCH_JOBS = [
+    ("sector_snapshot",       "Sector Snapshot (FII/DII + Breadth + Prices)", "6:00 PM"),
+    ("stock_snapshot",        "Stock Snapshot (Delivery + OI)",                "6:30 PM"),
+    ("smart_money",           "Smart Money Signals (F&O Delivery + OI)",       "7:00 PM"),
+    ("market_pulse_snapshot", "Market Pulse Snapshot (Breadth + Heatmap + RRG)", "8:00 PM"),
+    ("ai_scan_daily",         "AI Scan — XGBoost Direction (All Stocks)",      "9:00 PM"),
+    ("gann_daily",            "Gann Cache — All 5 Methods (All Stocks)",        "9:30 PM"),
+]
+
+_hour_options   = list(range(0, 24))
+_minute_options = [0, 15, 30, 45]
+
+with st.form("schedule_config_form"):
+    new_cfg = {}
+    hdr1, hdr2, hdr3, hdr4 = st.columns([3, 1, 1, 2])
+    hdr1.markdown("**Job**")
+    hdr2.markdown("**Hour (IST)**")
+    hdr3.markdown("**Minute**")
+    hdr4.markdown("**Current Time**")
+
+    for job_id, label, _default_label in _SCH_JOBS:
+        cur_h = _sch_cfg.get(job_id, _SCH_DEFAULTS[job_id])["hour"]
+        cur_m = _sch_cfg.get(job_id, _SCH_DEFAULTS[job_id])["minute"]
+        c1, c2, c3, c4 = st.columns([3, 1, 1, 2])
+        c1.markdown(label)
+        sel_h = c2.selectbox("H", _hour_options, index=_hour_options.index(cur_h),
+                              key=f"sch_h_{job_id}", label_visibility="collapsed")
+        # nearest supported minute
+        nearest_m = min(_minute_options, key=lambda x: abs(x - cur_m))
+        sel_m = c3.selectbox("M", _minute_options, index=_minute_options.index(nearest_m),
+                              key=f"sch_m_{job_id}", label_visibility="collapsed")
+        c4.markdown(f"`{cur_h:02d}:{cur_m:02d}` → `{sel_h:02d}:{sel_m:02d}`")
+        new_cfg[job_id] = {"hour": sel_h, "minute": sel_m}
+
+    if st.form_submit_button("💾 Save Schedule", type="primary"):
+        _write_schedule_config(new_cfg)
+        # Apply new times to the live running scheduler immediately — no restart needed
+        try:
+            from backend.data_ingestion.scheduler import reschedule_job
+            failed = []
+            for job_id, times in new_cfg.items():
+                ok = reschedule_job(job_id, times["hour"], times["minute"])
+                if not ok:
+                    failed.append(job_id)
+            if failed:
+                st.warning(f"✅ Saved to config. Could not reschedule live: {', '.join(failed)} — restart app to apply.")
+            else:
+                st.success("✅ Schedule saved and applied to live scheduler instantly. No restart needed.")
+        except Exception as e:
+            st.warning(f"✅ Saved to config. Live reschedule failed ({e}) — restart app to apply.")
+        st.rerun()
+
+st.markdown("---")
+
 # ── Upcoming scheduled runs ────────────────────────────────────────────────────
 st.subheader("Scheduled Job Calendar")
 
@@ -722,16 +893,30 @@ def _next_quarterly(month_str: str, day: int) -> str:
     label = "today" if days_away == 0 else f"in {days_away} days"
     return f"{nxt.strftime('%d %b %Y')} 07:00 IST ({label})"
 
+_cal_cfg = _read_schedule_config()
+
+def _hm(job_id):
+    c = _cal_cfg.get(job_id, _SCH_DEFAULTS[job_id])
+    return c["hour"], c["minute"]
+
+def _fmt_time(job_id):
+    h, m = _hm(job_id)
+    suffix = "AM" if h < 12 else "PM"
+    h12 = h % 12 or 12
+    return f"{h:02d}:{m:02d}  ({h12}:{m:02d} {suffix})"
+
 schedule_data = {
     "Job": [
         "Sector Snapshot (FII/DII + Breadth + Prices)",
         "Stock Snapshot (Delivery + OI)",
+        "Smart Money Signals (F&O Delivery + OI)",
         "Market Pulse Snapshot (Breadth + Heatmap + RRG)",
         "AI Scan — XGBoost Direction (All Dashboard Stocks)",
         "Quarterly Shareholding Refresh",
     ],
     "Pages": [
         "Home · Sector Analysis · FII DII Flow · FII Sectors",
+        "Smart Money",
         "Smart Money",
         "Market Pulse",
         "AI Forecast",
@@ -742,25 +927,29 @@ schedule_data = {
         "Mon–Fri daily",
         "Mon–Fri daily",
         "Mon–Fri daily",
+        "Mon–Fri daily",
         "4× per year",
     ],
     "Cron (IST)": [
-        "18:00  (6:00 PM)",
-        "18:30  (6:30 PM)",
-        "20:00  (8:00 PM)",
-        "21:00  (9:00 PM)",
+        _fmt_time("sector_snapshot"),
+        _fmt_time("stock_snapshot"),
+        _fmt_time("smart_money"),
+        _fmt_time("market_pulse_snapshot"),
+        _fmt_time("ai_scan_daily"),
         "27th Jan / Apr / Jul / Oct @ 07:00",
     ],
     "Next Run": [
-        _next_weekday(18, 0),
-        _next_weekday(18, 30),
-        _next_weekday(20, 0),
-        _next_weekday(21, 0),
+        _next_weekday(*_hm("sector_snapshot")),
+        _next_weekday(*_hm("stock_snapshot")),
+        _next_weekday(*_hm("smart_money")),
+        _next_weekday(*_hm("market_pulse_snapshot")),
+        _next_weekday(*_hm("ai_scan_daily")),
         _next_quarterly("1,4,7,10", 27),
     ],
     "Last Run": [
         _last_run_for("sector_snapshot"),
         _last_run_for("stock_snapshot"),
+        _last_run_for("smart_money"),
         _last_run_for("market_pulse_snapshot"),
         _last_run_for("ai_scan_daily"),
         _last_run_for("shareholding_quarterly"),

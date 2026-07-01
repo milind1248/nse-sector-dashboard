@@ -15,6 +15,9 @@ build/
 docs/
 CLAUDE.md
 
+# Logs — local only
+logs/
+
 # Temp profiling / test scripts (local only)
 backtest_new_methods.py
 report*.py

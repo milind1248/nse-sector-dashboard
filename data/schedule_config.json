@@ -1,0 +1,26 @@
+{
+  "sector_snapshot": {
+    "hour": 18,
+    "minute": 0
+  },
+  "stock_snapshot": {
+    "hour": 18,
+    "minute": 30
+  },
+  "smart_money": {
+    "hour": 19,
+    "minute": 0
+  },
+  "market_pulse_snapshot": {
+    "hour": 20,
+    "minute": 0
+  },
+  "ai_scan_daily": {
+    "hour": 21,
+    "minute": 0
+  },
+  "gann_daily": {
+    "hour": 21,
+    "minute": 30
+  }
+}

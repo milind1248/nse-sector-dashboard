@@ -791,7 +791,7 @@ if not fno_symbols:
     st.stop()
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_stock, tab_screener = st.tabs(["🔍 Stock Analysis (90-Day)", "📊 Smart Money Screener"])
+tab_stock, tab_screener, tab_delivery = st.tabs(["🔍 Stock Analysis (90-Day)", "📊 Smart Money Screener", "📦 Delivery Tracker"])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — 90-Day Stock Deep Dive with DB cache
@@ -1331,6 +1331,266 @@ with tab_screener:
                     }, na_rep="–"),
                 use_container_width=True, hide_index=True, height=600,
             )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 3 — Delivery Position Tracker (monthly calendar heatmap)
+# ══════════════════════════════════════════════════════════════════════════════
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_delivery_matrix(month: int, year: int) -> pd.DataFrame:
+    con = _db()
+    df = pd.read_sql("""
+        SELECT symbol, trade_date, dlv_pct, close_price, pct_price_chg, trade_qty
+        FROM smart_money_history
+        WHERE strftime('%Y-%m', trade_date) = ?
+        ORDER BY symbol, trade_date
+    """, con, params=(f"{year:04d}-{month:02d}",))
+    con.close()
+    return df
+
+
+with tab_delivery:
+    today = date.today()
+    # Build month options (current + last 2 months within 90-day window)
+    month_opts = []
+    for delta in range(3):
+        d = date(today.year, today.month, 1) - pd.DateOffset(months=delta)
+        month_opts.append(d.to_pydatetime().replace(day=1).date())
+
+    col_m, col_s = st.columns([2, 3])
+    with col_m:
+        sel_month = st.selectbox(
+            "Month",
+            month_opts,
+            format_func=lambda d: d.strftime("%B %Y"),
+            key="dlv_month",
+        )
+    with col_s:
+        min_dlv = st.slider("Min Avg Delivery % (filter rows)", 0, 80, 0, 5, key="dlv_min")
+
+    dlv_df = _load_delivery_matrix(sel_month.month, sel_month.year)
+
+    if dlv_df.empty:
+        st.info(
+            f"No delivery data found for {sel_month.strftime('%B %Y')}. "
+            "Data is populated by the Smart Money pipeline (Admin → Trigger)."
+        )
+    else:
+        dlv_df["day"] = pd.to_datetime(dlv_df["trade_date"]).dt.day
+        dlv_df["week"] = pd.cut(
+            dlv_df["day"], bins=[0, 7, 14, 21, 31],
+            labels=["I (1–7)", "II (8–14)", "III (15–21)", "IV (22–31)"],
+        )
+
+        # ── Weekly average metric cards ───────────────────────────────────────
+        weekly_avg = dlv_df.groupby("week", observed=True)["dlv_pct"].mean()
+        wc1, wc2, wc3, wc4 = st.columns(4)
+        for col_w, label in zip([wc1, wc2, wc3, wc4],
+                                 ["I (1–7)", "II (8–14)", "III (15–21)", "IV (22–31)"]):
+            val = weekly_avg.get(label)
+            col_w.metric(
+                f"Week {label[:1]} Avg",
+                f"{val:.1f}%" if val is not None else "—",
+                help=f"Average delivery % across all stocks — {label.replace('(','days ').replace(')','').strip()}",
+            )
+
+        # ── Apply min delivery filter ─────────────────────────────────────────
+        if min_dlv > 0:
+            sym_avg = dlv_df.groupby("symbol")["dlv_pct"].mean()
+            keep = sym_avg[sym_avg >= min_dlv].index
+            dlv_df = dlv_df[dlv_df["symbol"].isin(keep)]
+
+        if dlv_df.empty:
+            st.info(f"No stocks with avg delivery ≥ {min_dlv}% in {sel_month.strftime('%B %Y')}.")
+        else:
+            # ── Pivot: rows = symbol, cols = day-of-month ─────────────────────
+            pivot = dlv_df.pivot_table(
+                index="symbol", columns="day", values="dlv_pct", aggfunc="first"
+            )
+            pivot.columns = [int(c) for c in pivot.columns]
+
+            def _cell_color(val):
+                if pd.isna(val):
+                    return "background-color:#1a1d2e;color:#444"
+                if val >= 50:
+                    return "background-color:#1a4731;color:#4ade80;font-weight:600"
+                if val >= 25:
+                    return "background-color:#3d3000;color:#facc15"
+                return "background-color:#3d0f0f;color:#f87171"
+
+            styled = (
+                pivot.style
+                .map(_cell_color)
+                .format("{:.1f}%", na_rep="—")
+            )
+
+            st.caption(
+                f"🟢 ≥50% delivery (institutional)  🟡 25–49% (mixed)  🔴 <25% (mostly intraday)  "
+                f"· {len(pivot)} stock(s) · {sel_month.strftime('%B %Y')}"
+            )
+            st.dataframe(styled, use_container_width=True, height=550)
+
+            # ── Top 10 stocks by avg delivery % ──────────────────────────────
+            st.subheader("🏆 Top 10 Stocks by Avg Delivery %")
+            top10 = (
+                dlv_df.groupby("symbol")["dlv_pct"]
+                .mean()
+                .sort_values(ascending=False)
+                .head(10)
+                .reset_index()
+            )
+            top10.columns = ["Symbol", "Avg Delivery %"]
+            top10["Days Tracked"] = dlv_df.groupby("symbol")["dlv_pct"].count().reindex(top10["Symbol"]).values
+
+            st.dataframe(
+                top10.style
+                .background_gradient(cmap="Greens", subset=["Avg Delivery %"])
+                .format({"Avg Delivery %": "{:.1f}%"}),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    # ── D-OBV Analysis (90-day, single stock) ────────────────────────────────
+    st.divider()
+    st.subheader("📈 Delivery OBV (D-OBV) — 90-Day Stock Analysis")
+    st.caption(
+        "D-OBV uses only genuine delivery volume (shares that actually changed hands) "
+        "instead of total traded volume. Rising D-OBV = real accumulation; "
+        "falling D-OBV with rising price = weak rally driven by intraday speculation."
+    )
+
+    # Stock selector — reuse fno_symbols already loaded above
+    if not fno_symbols:
+        st.info("No F&O stocks found in database. Run the Smart Money pipeline first.")
+    else:
+        dobv_sym = st.selectbox(
+            "Select stock for D-OBV analysis",
+            fno_symbols,
+            key="dobv_sym",
+        )
+
+    if fno_symbols and dobv_sym:
+        dobv_raw = _load_from_db(dobv_sym)   # already cached, 90-day DESC order
+
+        if dobv_raw.empty or len(dobv_raw) < 5:
+            st.info(f"Not enough data for {dobv_sym}. Fetch history via Stock Analysis tab first.")
+        else:
+            # Sort ascending for cumulative calculation
+            dobv = dobv_raw.sort_values("trade_date").reset_index(drop=True)
+            dobv["trade_date"] = pd.to_datetime(dobv["trade_date"])
+
+            # Derive delivery volume and intraday (speculative) volume
+            dobv["dlv_vol"]      = dobv["trade_qty"] * dobv["dlv_pct"] / 100
+            dobv["intraday_vol"] = dobv["trade_qty"] - dobv["dlv_vol"]
+
+            # Compute D-OBV: add delivery vol on up days, subtract on down days
+            dobv["direction"] = dobv["pct_price_chg"].apply(
+                lambda x: 1 if x > 0 else (-1 if x < 0 else 0)
+            )
+            dobv["dobv"] = (dobv["direction"] * dobv["dlv_vol"]).cumsum()
+
+            # D-OBV trend over last 10 days (or all available if < 10)
+            lookback     = min(10, len(dobv))
+            dobv_last10  = dobv["dobv"].iloc[-lookback:]
+            dobv_slope   = dobv_last10.iloc[-1] - dobv_last10.iloc[0]
+            trend_label  = "🟢 Rising" if dobv_slope > 0 else ("🔴 Falling" if dobv_slope < 0 else "⚪ Flat")
+
+            # Signal: price vs D-OBV divergence
+            price_slope = dobv["close_price"].iloc[-1] - dobv["close_price"].iloc[-lookback]
+            if price_slope > 0 and dobv_slope > 0:
+                signal = "✅ Confirmed Uptrend — price and D-OBV rising together (genuine buying)"
+                sig_color = "#4ade80"
+            elif price_slope > 0 and dobv_slope <= 0:
+                signal = "⚠️ Bearish Divergence — price rising but D-OBV falling (speculative rally, watch for reversal)"
+                sig_color = "#f87171"
+            elif price_slope <= 0 and dobv_slope > 0:
+                signal = "💡 Bullish Divergence — price falling but D-OBV rising (smart money buying the dip)"
+                sig_color = "#facc15"
+            else:
+                signal = "🔴 Confirmed Downtrend — price and D-OBV falling (genuine selling)"
+                sig_color = "#f87171"
+
+            # Metric cards
+            mc1, mc2, mc3, mc4 = st.columns(4)
+            mc1.metric("D-OBV Trend (10d)", trend_label)
+            mc2.metric("Avg Delivery %", f"{dobv['dlv_pct'].mean():.1f}%")
+            mc3.metric(
+                "Last Delivery Vol",
+                f"{dobv['dlv_vol'].iloc[-1]:,.0f}",
+                help="Shares with genuine delivery on last trading day",
+            )
+            mc4.metric(
+                "Last Intraday Vol",
+                f"{dobv['intraday_vol'].iloc[-1]:,.0f}",
+                help="Shares traded intraday (netted out, no delivery)",
+            )
+
+            st.markdown(
+                f"<div style='padding:10px 14px;border-radius:6px;"
+                f"background:#1e2130;border-left:4px solid {sig_color};"
+                f"color:{sig_color};font-weight:600;margin-bottom:12px'>{signal}</div>",
+                unsafe_allow_html=True,
+            )
+
+            dates = dobv["trade_date"].tolist()
+
+            # ── Chart: Price + D-OBV + volume bars (3-axis) ──────────────────
+            fig_dobv = go.Figure()
+
+            # Volume bars on y3 (background, rendered first)
+            fig_dobv.add_trace(go.Bar(
+                x=dates, y=dobv["dlv_vol"],
+                name="Delivery Vol",
+                marker_color="rgba(74,222,128,0.35)",
+                yaxis="y3",
+                hovertemplate="%{y:,.0f}<extra>Delivery Vol</extra>",
+            ))
+            fig_dobv.add_trace(go.Bar(
+                x=dates, y=dobv["intraday_vol"],
+                name="Intraday Vol",
+                marker_color="rgba(248,113,113,0.35)",
+                yaxis="y3",
+                hovertemplate="%{y:,.0f}<extra>Intraday Vol</extra>",
+            ))
+
+            # Price line on y1
+            fig_dobv.add_trace(go.Scatter(
+                x=dates, y=dobv["close_price"],
+                name="Close Price ₹",
+                line=dict(color="#60a5fa", width=2),
+                yaxis="y1",
+                hovertemplate="₹%{y:,.2f}<extra>Price</extra>",
+            ))
+
+            # D-OBV line on y2
+            fig_dobv.add_trace(go.Scatter(
+                x=dates, y=dobv["dobv"],
+                name="D-OBV",
+                line=dict(color="#4ade80", width=2, dash="dot"),
+                yaxis="y2",
+                hovertemplate="%{y:,.0f}<extra>D-OBV</extra>",
+            ))
+
+            fig_dobv.update_layout(
+                template="plotly_dark",
+                height=420,
+                barmode="stack",
+                title=f"{dobv_sym} — Price · D-OBV · Delivery vs Intraday Volume (90 Days)",
+                yaxis=dict(title="Price ₹", side="left", showgrid=True),
+                yaxis2=dict(
+                    title="D-OBV", side="right", overlaying="y",
+                    showgrid=False,
+                ),
+                yaxis3=dict(
+                    overlaying="y", side="right",
+                    showgrid=False, showticklabels=False,
+                    # scale so bars occupy bottom ~30% of chart
+                    range=[0, dobv["trade_qty"].max() * 4],
+                ),
+                legend=dict(orientation="h", y=-0.18),
+                margin=dict(t=50, b=50),
+                hovermode="x unified",
+            )
+            st.plotly_chart(fig_dobv, use_container_width=True)
 
 from app.utils.disclaimer import show_footer
 show_footer()
