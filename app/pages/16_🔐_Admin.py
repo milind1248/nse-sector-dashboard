@@ -522,24 +522,54 @@ with st.expander("🧪 Page Test Runner", expanded=False):
     if st.button("▶ Run Page Tests", type="primary", key="btn_page_tests"):
         import subprocess
         from backend.data_ingestion.job_logger import log_start, log_finish
-        _pt_rid = log_start("page_test", "Page Test Runner (All Pages)", triggered_by="admin")
+        from backend.page_tester import PAGE_REGISTRY as _PT_REG
+        _pt_rid  = log_start("page_test", "Page Test Runner (All Pages)", triggered_by="admin")
+        _pt_total = len(_PT_REG)
+        _cli      = _ROOT / "scripts" / "run_page_tests_cli.py"
+
+        _pt_bar   = st.progress(0, text="Starting page tests…")
+        _pt_table = st.empty()
+        _pt_rows  = []
+
+        def _live_table():
+            if not _pt_rows:
+                return
+            hdr  = "| # | Page | Status | Time (s) |"
+            sep  = "|---|---|---|---|"
+            body = "\n".join(
+                f"| {r['i']} | {r['page']} | {r['icon']} {r['status']} | {r['elapsed']} |"
+                for r in _pt_rows
+            )
+            _pt_table.markdown(f"{hdr}\n{sep}\n{body}")
+
         try:
-            _cli = _ROOT / "scripts" / "run_page_tests_cli.py"
-            with st.spinner("Testing all pages — this takes 5–15 minutes…"):
-                _proc = subprocess.run(
-                    [sys.executable, str(_cli), str(_pt_rid)],
-                    capture_output=True, text=True, cwd=str(_ROOT),
-                )
+            _proc = subprocess.Popen(
+                [sys.executable, str(_cli), str(_pt_rid)],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, cwd=str(_ROOT),
+            )
+            for _line in _proc.stdout:
+                _line = _line.strip()
+                if _line.startswith("PAGE:"):
+                    _, _idx, _tot, _name, _st, _el = _line.split(":", 5)
+                    _icon = "✅" if _st == "OK" else ("⚠️" if _st == "WARN" else "❌")
+                    _pt_rows.append({"i": _idx, "page": _name, "status": _st,
+                                     "icon": _icon, "elapsed": _el})
+                    _pt_bar.progress(int(_idx) / int(_tot),
+                                     text=f"[{_idx}/{_tot}] {_name} — {_icon} {_st}")
+                    _live_table()
+            _proc.wait()
+
             if _proc.returncode == 0:
-                log_finish(_pt_rid, "success", records_done=16)
+                _pt_bar.progress(1.0, text=f"✅ All {_pt_total} pages tested")
+                log_finish(_pt_rid, "success", records_done=_pt_total)
                 _pt_results = _load_latest_test_run()
                 st.session_state["_page_test_results"] = _pt_results
-                st.markdown("**Results:**")
+                _pt_table.empty()
                 _render_test_report(_pt_results)
             else:
-                _err = (_proc.stderr or "unknown error")[-500:]
-                log_finish(_pt_rid, "failed", error_msg=_err)
-                st.error(f"Page tests failed: {_err}")
+                log_finish(_pt_rid, "failed", error_msg="Subprocess exited non-zero")
+                st.error("Page test subprocess failed — check logs.")
         except Exception as _pt_e:
             log_finish(_pt_rid, "failed", error_msg=str(_pt_e))
             st.error(f"Page test runner failed: {_pt_e}")
