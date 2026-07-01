@@ -6,21 +6,32 @@ BASE_DIR = Path(__file__).parent
 _REPO_DB  = BASE_DIR / "data" / "nse_dashboard.db"
 _TMP_DB   = Path("/tmp/nse_dashboard.db")
 
+def _is_truly_writable(path: Path) -> bool:
+    """os.access() lies on read-only mounts (inode has write bit, fs doesn't).
+    Probe with an actual write to confirm."""
+    try:
+        with open(path, "ab"):
+            pass
+        return True
+    except OSError:
+        return False
+
+
 def _resolve_db_path() -> Path:
     """
-    On Streamlit Cloud the repo is mounted read-only.
-    Copy seed DB to /tmp on first access so pipelines can write.
-    Locally the repo DB is writable — use it directly.
+    On Streamlit Cloud the repo is mounted read-only at the VFS level.
+    os.access() returns True even so (inode owner has write bit), so we
+    probe with an actual open(). Copy seed DB to /tmp and use that instead.
+    Locally the repo DB is truly writable — use it directly.
     """
     _REPO_DB.parent.mkdir(exist_ok=True)
-    if os.access(_REPO_DB, os.W_OK):
-        return _REPO_DB          # local dev — writable, use directly
+    if _REPO_DB.exists() and _is_truly_writable(_REPO_DB):
+        return _REPO_DB          # local dev — truly writable
     # Read-only mount (Streamlit Cloud): work from /tmp copy
     if not _TMP_DB.exists() and _REPO_DB.exists():
         shutil.copy2(_REPO_DB, _TMP_DB)
-    # Always ensure writable — chmod2 preserves source perms; hot-reload may skip copy
     if _TMP_DB.exists():
-        _TMP_DB.chmod(0o644)
+        _TMP_DB.chmod(0o644)     # ensure writable regardless of source perms
     return _TMP_DB
 
 DB_PATH = _resolve_db_path()
