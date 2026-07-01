@@ -102,12 +102,12 @@ def run_page_tests(base_dir: str) -> list[dict]:
             continue
 
         try:
-            at = AppTest.from_file(str(page_path), default_timeout=page["timeout"])
+            at = AppTest.from_file(str(page_path))
             # Inject mock secrets so deployment gate and auth imports don't raise
             for section, vals in _test_secrets().items():
                 at.secrets[section] = vals
 
-            at.run()
+            at.run(timeout=page["timeout"])
 
             # Uncaught exceptions (Python tracebacks shown as red box in browser)
             for exc in at.exception:

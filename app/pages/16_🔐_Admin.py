@@ -528,10 +528,11 @@ with st.expander("🧪 Page Test Runner", expanded=False):
             with st.spinner("Testing all pages — this takes 5–15 minutes…"):
                 _pt_results = run_page_tests(str(_ROOT))
             store_test_results(run_id=_pt_rid, results=_pt_results)
-            _fail_n = sum(1 for r in _pt_results if r["status"] == "FAIL")
             log_finish(_pt_rid, "success", records_done=len(_pt_results))
             st.session_state["_page_test_results"] = _pt_results
-            st.rerun()
+            # Render inline — no st.rerun() to avoid AppTest runtime conflict
+            st.markdown("**Results:**")
+            _render_test_report(_pt_results)
         except Exception as _pt_e:
             log_finish(_pt_rid, "failed", error_msg=str(_pt_e))
             st.error(f"Page test runner failed: {_pt_e}")
