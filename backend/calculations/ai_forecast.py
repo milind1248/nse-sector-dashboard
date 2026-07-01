@@ -619,23 +619,34 @@ def run_arima_forecast(close: pd.Series, horizon_days: int = 30) -> dict:
 
 
 def run_full_stock_forecast(ticker_ns: str, forward_days: int = 5,
-                            horizon_days: int = 30) -> dict | None:
+                            horizon_days: int = 30,
+                            prefetched_df: "pd.DataFrame | None" = None) -> dict | None:
     """
     Complete pipeline for one stock: fetch 3y OHLCV, run Prophet + XGBoost with backtest,
     compute EMA/close chart data.  Returns a dict ready for store_forecast(), or None on failure.
 
     Called by the nightly pipeline (all 185 stocks in parallel) so the AI Forecast page
     reads from DB the next morning — zero Yahoo Finance calls at page load time.
+
+    prefetched_df: pre-sliced single-symbol DataFrame from a batch yf.download call.
+                   When provided, skips the individual yf.download call entirely.
     """
     import yfinance as yf
     from datetime import datetime
 
     try:
-        raw = yf.download(ticker_ns, period="3y", interval="1d",
-                          progress=False, auto_adjust=True)
+        if prefetched_df is not None and not prefetched_df.empty:
+            raw = prefetched_df.copy()
+            raw.index = pd.to_datetime(raw.index).date
+        else:
+            raw = yf.download(ticker_ns, period="3y", interval="1d",
+                              progress=False, auto_adjust=True)
+            if raw is None or len(raw) < 300:
+                return None
+            raw.index = pd.to_datetime(raw.index).date
+
         if raw is None or len(raw) < 300:
             return None
-        raw.index = pd.to_datetime(raw.index).date
 
         close = _get_close(raw)
         if close is None or len(close) < 300:
