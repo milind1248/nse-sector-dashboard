@@ -113,6 +113,27 @@ def run_ai_scan_pipeline(triggered_by: str = "scheduler") -> dict:
     logger.info("Batch-fetching %d symbols (3y daily) …", len(all_tickers))
     batch_raw = _batch_fetch(all_tickers)
 
+    # Identify tickers missing from batch result and retry as a second batch
+    # so workers never need to fall back to individual yf.download() calls
+    missing = [t for t in all_tickers
+               if _slice_ticker(batch_raw, t) is None]
+    if missing:
+        logger.info("Retry batch for %d tickers missing from first fetch …", len(missing))
+        retry_raw = _batch_fetch(missing)
+    else:
+        retry_raw = None
+
+    # Build prefetch map: ticker_ns → sliced DataFrame (None if both batches failed)
+    prefetch: dict[str, "pd.DataFrame | None"] = {}
+    for t in all_tickers:
+        df = _slice_ticker(batch_raw, t)
+        if df is None and retry_raw is not None:
+            df = _slice_ticker(retry_raw, t)
+        prefetch[t] = df
+
+    logger.info("Prefetch complete — %d/%d tickers have data",
+                sum(1 for v in prefetch.values() if v is not None), len(all_tickers))
+
     cache_results: list[tuple[str, str, dict]] = []
     failed = 0
 
@@ -120,7 +141,7 @@ def run_ai_scan_pipeline(triggered_by: str = "scheduler") -> dict:
         futs = {
             pool.submit(
                 _process_one, sym, sec,
-                _slice_ticker(batch_raw, sym + ".NS"),
+                prefetch.get(sym + ".NS"),
             ): (sym, sec)
             for sym, sec in stock_list
         }

@@ -189,24 +189,47 @@ def _to_series(date_list: list, value_list: list) -> pd.Series:
 
 # ── Live fetch + model (fallback when not cached) ─────────────────────────────
 @st.cache_data(ttl=21600, show_spinner=False)
-def _fetch_and_model(ticker_ns: str, xgb_fwd: int):
+def _batch_prefetch_all():
+    """Fetch all NSE stocks in one batch call — shared across all ticker selections."""
     import yfinance as yf
-    from backend.calculations.ai_forecast import run_prophet_forecast, run_xgb_direction
-    from backend.data_ingestion.yfinance_fetcher import _get_close
+    from config import SECTOR_STOCKS
+    seen: set = set()
+    tickers: list[str] = []
+    for syms in SECTOR_STOCKS.values():
+        for sym in syms:
+            s = sym.replace(".NS", "") + ".NS"
+            if s not in seen:
+                seen.add(s)
+                tickers.append(s)
+    return yf.download(tickers, period="3y", interval="1d",
+                       group_by="ticker", threads=False,
+                       progress=False, auto_adjust=True)
 
-    raw = yf.download(ticker_ns, period="3y", interval="1d",
-                      progress=False, auto_adjust=True)
+@st.cache_data(ttl=21600, show_spinner=False)
+def _fetch_and_model(ticker_ns: str, xgb_fwd: int):
+    from backend.calculations.ai_forecast import run_prophet_forecast, run_xgb_direction, run_arima_forecast
+    from backend.data_ingestion.yfinance_fetcher import _get_close
+    from backend.data_ingestion.ai_scan_pipeline import _slice_ticker
+
+    batch = _batch_prefetch_all()
+    raw = _slice_ticker(batch, ticker_ns)
+
+    # Fallback: individual fetch if ticker missing from batch
+    if raw is None or raw.empty:
+        import yfinance as yf
+        raw = yf.download(ticker_ns, period="3y", interval="1d",
+                          progress=False, auto_adjust=True)
+
     if raw is None or raw.empty or len(raw) < 300:
-        return None, None, None
+        return None, None, None, None
 
     raw.index = pd.to_datetime(raw.index).date
     close     = _get_close(raw)
     if close is None:
-        return None, None, None
+        return None, None, None, None
 
     prophet_res = run_prophet_forecast(close, horizon_days=30)
     xgb_res     = run_xgb_direction(raw, forward_days=xgb_fwd)
-    from backend.calculations.ai_forecast import run_arima_forecast
     arima_res   = run_arima_forecast(close, horizon_days=30)
     return raw, prophet_res, xgb_res, arima_res
 
@@ -243,9 +266,10 @@ else:
     if run_btn or st.session_state.get("ai_last_ticker") != ticker_ns:
         st.session_state["ai_last_ticker"] = ticker_ns
 
-    with st.spinner(f"Fetching data and training models for {ticker_name} — first load ~15–20 seconds…"):
+    with st.spinner(f"Fetching market data for all stocks then training models for {ticker_name} — first load ~60 seconds…"):
         if run_btn:
-            _fetch_and_model.clear()   # force re-run on manual click — avoids serving stale cached errors
+            _fetch_and_model.clear()
+            _batch_prefetch_all.clear()
         raw, prophet_res, xgb_res, arima_res = _fetch_and_model(ticker_ns, xgb_fwd_days)
 
     if raw is None:
@@ -628,7 +652,11 @@ with col_left:
             )
             st.plotly_chart(fig_fi, width='stretch')
     else:
-        st.warning(f"XGBoost error: {(xgb_res or {}).get('error')}")
+        _x_err = (xgb_res or {}).get("error")
+        if _x_err:
+            st.warning(f"XGBoost error: {_x_err}")
+        else:
+            st.info("📊 XGBoost signal not yet available — will appear after tonight's nightly scan.")
 
 with col_right:
     st.subheader("📊 Walk-Forward Backtest Results")
