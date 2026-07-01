@@ -1,6 +1,9 @@
 import os
 import shutil
+import logging
 from pathlib import Path
+
+_log = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).parent
 _REPO_DB  = BASE_DIR / "data" / "nse_dashboard.db"
@@ -17,12 +20,15 @@ def _resolve_db_path() -> Path:
     _REPO_DB.parent.mkdir(exist_ok=True)
     on_streamlit_cloud = str(_REPO_DB).startswith("/mount/src/")
     if not on_streamlit_cloud:
+        _log.info("[config] DB_PATH → %s (local)", _REPO_DB)
         return _REPO_DB          # local dev — writable
     # Streamlit Cloud: copy seed DB to /tmp and use that
     if not _TMP_DB.exists() and _REPO_DB.exists():
         shutil.copy2(_REPO_DB, _TMP_DB)
+        _log.info("[config] seed DB copied to %s", _TMP_DB)
     if _TMP_DB.exists():
         _TMP_DB.chmod(0o644)
+    _log.info("[config] DB_PATH → %s (Streamlit Cloud)", _TMP_DB)
     return _TMP_DB
 
 DB_PATH = _resolve_db_path()
