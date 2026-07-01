@@ -49,7 +49,7 @@ INDEX_DISPLAY = {
 }
 
 # ── Data ──────────────────────────────────────────────────────────────────────
-_DB = Path(__file__).resolve().parent.parent.parent / "data" / "nse_dashboard.db"
+from config import DB_PATH as _DB
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_data() -> pd.DataFrame:

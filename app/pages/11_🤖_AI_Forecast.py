@@ -378,14 +378,14 @@ m4.markdown(f"""
 <div style='background:#1a2236;border-radius:10px;padding:18px 16px;text-align:center;border-left:4px solid {t_color}'>
   <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Prophet Trend (30d)</div>
   <div style='color:{t_color};font-size:30px;font-weight:700'>{t_dir}</div>
-  <div style='color:#ccc;font-size:13px;margin-top:4px'>{t_pct:+.2f}% projected</div>
+  <div style='color:#ccc;font-size:13px;margin-top:4px'>{(t_pct or 0):+.2f}% projected</div>
 </div>""", unsafe_allow_html=True)
 
 m5.markdown(f"""
 <div style='background:#1a2236;border-radius:10px;padding:18px 16px;text-align:center;border-left:4px solid {a_color}'>
   <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>ARIMA Trend (30d)</div>
   <div style='color:{a_color};font-size:30px;font-weight:700'>{a_dir}</div>
-  <div style='color:#ccc;font-size:13px;margin-top:4px'>{a_pct:+.2f}% projected</div>
+  <div style='color:#ccc;font-size:13px;margin-top:4px'>{(a_pct or 0):+.2f}% projected</div>
 </div>""", unsafe_allow_html=True)
 
 # ── Prophet chart ─────────────────────────────────────────────────────────────

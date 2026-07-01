@@ -13,7 +13,7 @@ import traceback
 from datetime import date, timedelta
 from pathlib import Path
 
-_DB_PATH = Path(__file__).parent.parent / "data" / "nse_dashboard.db"
+from config import DB_PATH as _DB_PATH
 _MAX_STALE_DAYS = 4   # allow Fri→Mon gap + 1 buffer day
 
 

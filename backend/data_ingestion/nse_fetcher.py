@@ -9,7 +9,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-_DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "nse_dashboard.db"
+from config import DB_PATH as _DB_PATH
 
 
 def _upsert_fii_rows(rows: list[dict]) -> None:

@@ -12,7 +12,7 @@ from backend.storage.ai_scan_db import ensure_table as _ensure_ai_scan_table
 _ensure_ai_scan_table()
 
 _IST = timezone(timedelta(hours=5, minutes=30))
-_DB_PATH = Path(__file__).parent.parent.parent / "data" / "nse_dashboard.db"
+from config import DB_PATH as _DB_PATH
 
 def _to_ist(ts) -> str:
     """Convert a UTC ISO timestamp string to IST display string."""
@@ -82,8 +82,6 @@ def _write_announcement(enabled: bool, text: str) -> None:
     )
 
 # ── DB ────────────────────────────────────────────────────────────────────────
-_DB_PATH = Path(__file__).parent.parent.parent / "data" / "nse_dashboard.db"
-
 def _db():
     return sqlite3.connect(_DB_PATH)
 
@@ -297,7 +295,7 @@ def _last_run_for(job_id: str) -> str:
 
 def _call_pipeline(job_id: str, detail_ph) -> None:
     """Dispatch a single pipeline by job_id. Raises on failure."""
-    _db_path = str(Path(__file__).resolve().parent.parent.parent / "data" / "nse_dashboard.db")
+    _db_path = str(_DB_PATH)
     if job_id == "market_pulse_snapshot":
         from backend.data_ingestion.market_pulse_pipeline import run_market_pulse_pipeline
         run_market_pulse_pipeline(triggered_by="admin")
@@ -522,12 +520,10 @@ r3c4.markdown(_last_run_for("index_stocks_sync"))
 if r3c5.button("▶ Run", key="btn_idx", use_container_width=True):
     with st.spinner("Syncing Index Stocks from NSE India + market price feeds…"):
         try:
-            from pathlib import Path as _Path
             from backend.data_ingestion.sector_sync import sync_all
             from backend.data_ingestion.job_logger import log_start, log_finish
-            _db_path = _Path(__file__).resolve().parent.parent.parent / "data" / "nse_dashboard.db"
             rid = log_start("index_stocks_sync", "Index Stocks Sync (NSE + Yahoo Finance)", "admin")
-            result = sync_all(str(_db_path))
+            result = sync_all(str(_DB_PATH))
             log_finish(rid, "success", records_done=result.get("stocks_total", 0))
             st.cache_data.clear()
             st.success(

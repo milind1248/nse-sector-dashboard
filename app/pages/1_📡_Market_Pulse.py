@@ -30,7 +30,7 @@ inject_seo("Market_Pulse")
 from app.utils.logo import show_logo
 show_logo()
 
-_DB_PATH = Path(__file__).parent.parent.parent / "data" / "nse_dashboard.db"
+from config import DB_PATH as _DB_PATH
 _IST = timezone(td(hours=5, minutes=30))
 
 

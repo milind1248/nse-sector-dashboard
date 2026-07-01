@@ -3,7 +3,7 @@ import sqlite3
 import streamlit as st
 from pathlib import Path
 
-_DB = Path(__file__).resolve().parent.parent.parent / "data" / "nse_dashboard.db"
+from config import DB_PATH as _DB
 
 
 def increment_and_get() -> int:
@@ -17,7 +17,7 @@ def increment_and_get() -> int:
             "SELECT value FROM site_stats WHERE key='visitor_count'"
         ).fetchone()
         if row is None:
-            con.execute("INSERT INTO site_stats VALUES ('visitor_count', 1)")
+            con.execute("INSERT INTO site_stats (key, value) VALUES ('visitor_count', 1)")
             count = 1
         else:
             count = row[0] + 1

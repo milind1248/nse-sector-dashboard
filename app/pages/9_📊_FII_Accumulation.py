@@ -29,7 +29,7 @@ show_logo()
 from app.utils.disclaimer import show_sebi_notice, show_footer
 
 # ── DB ────────────────────────────────────────────────────────────────────────
-_DB_PATH = Path(__file__).parent.parent.parent / "data" / "nse_dashboard.db"
+from config import DB_PATH as _DB_PATH
 
 def _db():
     return sqlite3.connect(_DB_PATH)

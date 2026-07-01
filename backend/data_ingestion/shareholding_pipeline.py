@@ -23,7 +23,7 @@ from config import SECTOR_STOCKS
 
 logger = logging.getLogger(__name__)
 
-_DB_PATH = Path(__file__).parent.parent.parent / "data" / "nse_dashboard.db"
+from config import DB_PATH as _DB_PATH
 
 
 def _db():

@@ -9,7 +9,7 @@ import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils.dataframe import dataframe_to_rows
 
-_DB = Path(__file__).resolve().parent.parent / "data" / "nse_dashboard.db"
+from config import DB_PATH as _DB
 
 GREEN_FILL  = PatternFill("solid", fgColor="1B5E20")
 RED_FILL    = PatternFill("solid", fgColor="B71C1C")

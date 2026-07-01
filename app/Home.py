@@ -47,7 +47,7 @@ get_visitor_count()   # increment DB counter once per session
 @st.cache_data(ttl=3600, show_spinner=False)
 def _get_ticker_data():
     import sqlite3
-    db_path = Path(__file__).parent.parent / "data" / "nse_dashboard.db"
+    from config import DB_PATH as db_path
     if not db_path.exists():
         return [], ""
     try:
