@@ -162,6 +162,8 @@ GUIDE = [
 # ── Page layout ───────────────────────────────────────────────────────────────
 st.title("📖 User Guide")
 st.caption("Business meaning and step-by-step how-to for every page of the Market Sector Analysis dashboard.")
+from app.utils.disclaimer import show_sebi_notice, show_footer
+show_sebi_notice()
 
 st.markdown("""
 <style>
@@ -237,5 +239,4 @@ for page in GUIDE:
                 unsafe_allow_html=True,
             )
 
-st.markdown("---")
-st.caption("📌 This guide covers all user-facing pages. Admin and Disclaimer pages are internal. To add a new page to this guide, append one dict to the GUIDE list in `app/pages/17_📖_User_Guide.py`.")
+show_footer()
