@@ -310,12 +310,13 @@ if not cached:
         scan_date = datetime.date.today().isoformat()
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_atr, tab_deg, tab_date, tab_pts, tab_gnn = st.tabs([
+tab_atr, tab_deg, tab_date, tab_pts, tab_gnn, tab_emb = st.tabs([
     "📏 ATR Range",
     "📐 Degree Levels",
     "📅 Date Projection",
     "⚖️ Price-Time Square",
     "🗓️ Natural Dates",
+    "🌟 Gann Emblem",
 ])
 
 # ── Cross-stock accuracy data (loaded once, shared across all tabs) ─────────
@@ -1007,3 +1008,210 @@ with tab_gnn:
 
     st.markdown("---")
     _show_top_stocks_table("nat_accuracy_pct", "nat_signals", "Natural Dates")
+
+# ── Tab 6: Gann Emblem ────────────────────────────────────────────────────────
+with tab_emb:
+    import math
+
+    st.subheader("🌟 Gann Emblem — Hexagram Time Cycle")
+    st.caption(
+        "Two overlapping triangles (blue 0°/120°/240° · red 90°/180°/270°) mark key "
+        "angular time intervals from a chosen start date. 360° = 365 calendar days. "
+        "Rotate the wheel by selecting any reference date as the 0° origin."
+    )
+
+    # ── Controls ──────────────────────────────────────────────────────────────
+    _default_emb = (
+        pd.Timestamp(ph_list[-1][0]).date() if ph_list
+        else datetime.date.today()
+    )
+    c1e, c2e, c3e = st.columns([2, 1, 1])
+    emb_start  = c1e.date_input("📅 Start Date (0°)", value=_default_emb, key="emb_start")
+    emb_window = c2e.slider("Reversal window (±days)", 3, 10, 5, key="emb_win")
+    emb_labels = c3e.checkbox("Show degree labels", value=True, key="emb_lbl")
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+    KEY_ANGLES = [0, 60, 90, 120, 144, 180, 216, 240, 270, 300]
+    BLUE_TRI   = [0, 120, 240]
+    RED_TRI    = [90, 180, 270]
+    SPOKES     = [60, 144, 216, 300]
+
+    def _deg_to_date(start, deg):
+        return pd.Timestamp(start) + pd.Timedelta(days=round(deg * 365 / 360))
+
+    def _wheel_xy(deg, r=1.0):
+        rad = math.radians(deg - 90)   # 0° at 12 o'clock
+        return r * math.cos(rad), r * math.sin(rad)
+
+    # ── Build Plotly wheel ────────────────────────────────────────────────────
+    fig_emb = go.Figure()
+
+    # Outer circle (approximated by scatter)
+    circle_t = [math.radians(d) for d in range(0, 361)]
+    fig_emb.add_trace(go.Scatter(
+        x=[math.cos(t) for t in circle_t],
+        y=[math.sin(t) for t in circle_t],
+        mode="lines", line=dict(color="#444", width=1.5), showlegend=False,
+    ))
+
+    # Tick marks every 15°
+    for d in range(0, 360, 15):
+        x0, y0 = _wheel_xy(d, 0.91)
+        x1, y1 = _wheel_xy(d, 1.0)
+        fig_emb.add_trace(go.Scatter(
+            x=[x0, x1], y=[y0, y1],
+            mode="lines", line=dict(color="#333", width=1), showlegend=False,
+        ))
+
+    # Degree labels + date annotations at perimeter
+    for deg in KEY_ANGLES:
+        proj = _deg_to_date(emb_start, deg)
+        xL, yL = _wheel_xy(deg, 1.28)
+        date_str = proj.strftime("%b %d")
+        label = f"{deg}°<br><b>{date_str}</b>" if emb_labels else f"<b>{date_str}</b>"
+        fig_emb.add_annotation(
+            x=xL, y=yL, text=label, showarrow=False,
+            font=dict(size=10, color="#cccccc"), align="center",
+        )
+        # Small dot on circle at this angle
+        xD, yD = _wheel_xy(deg, 1.0)
+        fig_emb.add_trace(go.Scatter(
+            x=[xD], y=[yD], mode="markers",
+            marker=dict(size=7, color="#888"), showlegend=False,
+        ))
+
+    # Blue triangle (0°, 120°, 240°)
+    _bpts = BLUE_TRI + [BLUE_TRI[0]]
+    fig_emb.add_trace(go.Scatter(
+        x=[_wheel_xy(d)[0] for d in _bpts],
+        y=[_wheel_xy(d)[1] for d in _bpts],
+        mode="lines", line=dict(color="#4a9eff", width=2.5),
+        name="🔵 Triangle 1 (0° · 120° · 240°)",
+    ))
+
+    # Red triangle (90°, 180°, 270°)
+    _rpts = RED_TRI + [RED_TRI[0]]
+    fig_emb.add_trace(go.Scatter(
+        x=[_wheel_xy(d)[0] for d in _rpts],
+        y=[_wheel_xy(d)[1] for d in _rpts],
+        mode="lines", line=dict(color="#FF5252", width=2.5),
+        name="🔴 Triangle 2 (90° · 180° · 270°)",
+    ))
+
+    # Green dashed spokes (60°, 144°, 216°, 300°)
+    for d in SPOKES:
+        x1s, y1s = _wheel_xy(d)
+        fig_emb.add_trace(go.Scatter(
+            x=[0, x1s], y=[0, y1s], mode="lines",
+            line=dict(color="#4ade80", width=1.2, dash="dot"),
+            showlegend=(d == SPOKES[0]),
+            name="🟢 Spokes (60° · 144° · 216° · 300°)" if d == SPOKES[0] else "",
+        ))
+        fig_emb.add_trace(go.Scatter(
+            x=[x1s], y=[y1s], mode="markers",
+            marker=dict(size=7, color="#4ade80"), showlegend=False,
+        ))
+
+    # 0° origin marker (gold)
+    x0m, y0m = _wheel_xy(0)
+    fig_emb.add_trace(go.Scatter(
+        x=[x0m], y=[y0m], mode="markers",
+        marker=dict(size=13, color="#FFD600", symbol="circle",
+                    line=dict(width=2, color="#fff")),
+        name=f"⭐ Start: {pd.Timestamp(emb_start).strftime('%d %b %Y')}",
+    ))
+
+    fig_emb.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(14,17,23,1)",
+        font=dict(color="#FAFAFA"),
+        xaxis=dict(visible=False, range=[-1.55, 1.55]),
+        yaxis=dict(visible=False, range=[-1.55, 1.55], scaleanchor="x"),
+        legend=dict(orientation="h", y=-0.04, font=dict(size=11)),
+        margin=dict(l=10, r=10, t=10, b=10), height=540,
+    )
+
+    st.plotly_chart(fig_emb, use_container_width=True)
+
+    # ── Projected dates table ─────────────────────────────────────────────────
+    st.markdown("**📋 Projected Key Dates from Start**")
+    _legend_rows = []
+    for deg in KEY_ANGLES:
+        proj = _deg_to_date(emb_start, deg)
+        shape = (
+            "🔵 Blue Triangle" if deg in BLUE_TRI else
+            "🔴 Red Triangle"  if deg in RED_TRI  else
+            "🟢 Spoke"
+        )
+        _legend_rows.append({
+            "Angle": f"{deg}°",
+            "Days from Start": round(deg * 365 / 360),
+            "Projected Date": proj.strftime("%d %b %Y"),
+            "Shape": shape,
+        })
+    st.dataframe(pd.DataFrame(_legend_rows), use_container_width=True, hide_index=True)
+
+    # ── Backtest ──────────────────────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("📊 Backtest — Historic Reversal Accuracy")
+    st.markdown(_BT_LABEL, unsafe_allow_html=True)
+    st.caption(
+        f"For each past swing pivot as the 0° start, checks whether price reversed "
+        f"within ±{emb_window} days of each projected key angle. "
+        f"Reversal = price makes a local turning point in the window."
+    )
+
+    close_s = df["Close"].squeeze()
+    _emb_bt = []
+    for ptype, plist_bt in [("Swing High", ph_list), ("Swing Low", pl_list)]:
+        for pdate_str, pprice in plist_bt[-10:]:
+            pdate = pd.Timestamp(pdate_str)
+            hits = 0
+            total = 0
+            for ang in KEY_ANGLES[1:]:   # skip 0° (the start itself)
+                proj_d = pdate + pd.Timedelta(days=round(ang * 365 / 360))
+                if proj_d > close_s.index[-1]:
+                    continue
+                total += 1
+                win = close_s.loc[
+                    (close_s.index >= proj_d - pd.Timedelta(days=emb_window)) &
+                    (close_s.index <= proj_d + pd.Timedelta(days=emb_window))
+                ]
+                if len(win) >= 3:
+                    mid = win.iloc[len(win) // 2]
+                    # Local high (reversal down) or local low (reversal up)
+                    if (win.iloc[0] < mid > win.iloc[-1]) or (win.iloc[0] > mid < win.iloc[-1]):
+                        hits += 1
+            if total > 0:
+                _emb_bt.append({
+                    "Pivot Type":    ptype,
+                    "Pivot Date":    pdate_str,
+                    "Pivot Price":   f"₹{pprice:,.1f}",
+                    "Angles Tested": total,
+                    "Reversals Hit": hits,
+                    "Accuracy %":    round(hits / total * 100, 1),
+                })
+
+    if _emb_bt:
+        _emb_df = pd.DataFrame(_emb_bt).sort_values("Pivot Date", ascending=False).reset_index(drop=True)
+        avg_acc = _emb_df["Accuracy %"].mean()
+
+        mc1, mc2, mc3 = st.columns(3)
+        mc1.metric("Avg Emblem Accuracy", f"{avg_acc:.1f}%")
+        mc2.metric("Pivots Tested", len(_emb_df))
+        mc3.metric("Reversal Window", f"±{emb_window} days")
+
+        def _emb_color(val):
+            if val >= 60:  return "color: #4ade80"
+            if val >= 40:  return "color: #FFD600"
+            return "color: #FF5252"
+
+        st.dataframe(
+            _emb_df.style.map(_emb_color, subset=["Accuracy %"]),
+            use_container_width=True, hide_index=True,
+        )
+    else:
+        st.info("Not enough historical data to run backtest for this stock.")
+
+    st.markdown("---")
+    from app.utils.disclaimer import show_footer
+    show_footer()
