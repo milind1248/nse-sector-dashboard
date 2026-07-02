@@ -379,36 +379,38 @@ if arima_ok:
 else:
     a_dir = "—"; a_pct = 0.0; a_color = "#888"
 
+_card = "background:#1a2236;border-radius:10px;padding:18px 16px;text-align:center;min-height:110px;display:flex;flex-direction:column;justify-content:center"
+
 m1.markdown(f"""
-<div style='background:#1a2236;border-radius:10px;padding:18px 16px;text-align:center;border-left:4px solid {dir_color}'>
+<div style='{_card};border-left:4px solid {dir_color}'>
   <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>XGB Direction ({xgb_fwd_days}d)</div>
   <div style='color:{dir_color};font-size:30px;font-weight:700'>{dir_icon} {direction}</div>
   <div style='color:#ccc;font-size:13px;margin-top:4px'>{sig_label.split(" ",1)[-1] if xgb_ok else "—"}</div>
 </div>""", unsafe_allow_html=True)
 
 m2.markdown(f"""
-<div style='background:#1a2236;border-radius:10px;padding:18px 16px;text-align:center;border-left:4px solid #1E88E5'>
+<div style='{_card};border-left:4px solid #1E88E5'>
   <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Upward Probability</div>
   <div style='color:#1E88E5;font-size:30px;font-weight:700'>{prob_pct:.1f}%</div>
   <div style='color:#ccc;font-size:13px;margin-top:4px'>XGBoost classifier</div>
 </div>""", unsafe_allow_html=True)
 
 m3.markdown(f"""
-<div style='background:#1a2236;border-radius:10px;padding:18px 16px;text-align:center;border-left:4px solid #FFD600'>
+<div style='{_card};border-left:4px solid #FFD600'>
   <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Backtest Accuracy</div>
   <div style='color:#FFD600;font-size:30px;font-weight:700'>{bt_acc:.1f}%</div>
   <div style='color:#ccc;font-size:13px;margin-top:4px'>Walk-forward out-of-sample</div>
 </div>""", unsafe_allow_html=True)
 
 m4.markdown(f"""
-<div style='background:#1a2236;border-radius:10px;padding:18px 16px;text-align:center;border-left:4px solid {t_color}'>
+<div style='{_card};border-left:4px solid {t_color}'>
   <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Prophet Trend (30d)</div>
   <div style='color:{t_color};font-size:30px;font-weight:700'>{t_dir}</div>
   <div style='color:#ccc;font-size:13px;margin-top:4px'>{(t_pct or 0):+.2f}% projected</div>
 </div>""", unsafe_allow_html=True)
 
 m5.markdown(f"""
-<div style='background:#1a2236;border-radius:10px;padding:18px 16px;text-align:center;border-left:4px solid {a_color}'>
+<div style='{_card};border-left:4px solid {a_color}'>
   <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>ARIMA Trend (30d)</div>
   <div style='color:{a_color};font-size:30px;font-weight:700'>{a_dir}</div>
   <div style='color:#ccc;font-size:13px;margin-top:4px'>{(a_pct or 0):+.2f}% projected</div>
