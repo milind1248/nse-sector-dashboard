@@ -16,8 +16,8 @@
     "minute": 0
   },
   "ai_scan_daily": {
-    "hour": 21,
-    "minute": 0
+    "hour": 4,
+    "minute": 40
   },
   "gann_daily": {
     "hour": 21,
