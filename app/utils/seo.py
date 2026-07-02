@@ -115,6 +115,11 @@ PAGE_SEO = {
         "description": "Send feedback, report data issues or request new features for the Market Sector Analysis FII dashboard.",
         "keywords":    "contact NSE dashboard, FII data feedback, Indian stock market tool support",
     },
+    "User_Guide": {
+        "title":       "User Guide | How to Use | Market Sector Analysis",
+        "description": "Step-by-step guide to every page of the NSE Market Sector Analysis dashboard — FII flow, sector screeners, AI forecast, Gann analysis and more.",
+        "keywords":    "NSE dashboard guide, FII tracker tutorial, sector analysis help, market sector analysis how to",
+    },
     "Export": {
         "title":       "Export FII Sector Data | Download NSDL Data CSV | Market Sector Analysis",
         "description": "Download historical FII/FPI sector-wise investment data as CSV or Excel. "
