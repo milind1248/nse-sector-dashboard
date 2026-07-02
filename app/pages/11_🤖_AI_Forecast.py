@@ -399,7 +399,7 @@ m3.markdown(f"""
 <div style='{_card};border-left:4px solid #FFD600'>
   <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Backtest Accuracy</div>
   <div style='color:#FFD600;font-size:30px;font-weight:700'>{bt_acc:.1f}%</div>
-  <div style='color:#ccc;font-size:13px;margin-top:4px'>Walk-forward out-of-sample</div>
+  <div style='color:#ccc;font-size:13px;margin-top:4px'>Out-of-sample</div>
 </div>""", unsafe_allow_html=True)
 
 m4.markdown(f"""
