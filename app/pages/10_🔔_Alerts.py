@@ -1341,21 +1341,26 @@ with tab_frvp:
             return None, None
 
     def _find_swing_pivot(df_w):
-        lookback = 3
-        search = df_w.iloc[max(0, len(df_w) - 26): max(0, len(df_w) - lookback)]
-        if len(search) < lookback * 2 + 1:
-            return len(df_w) - 13 if len(df_w) >= 13 else 0, "Low"
-        pivot_idx, pivot_type = 0, "Low"
-        for i in range(lookback, len(search) - lookback):
-            win_h = search["High"].iloc[i - lookback: i + lookback + 1]
-            win_l = search["Low"].iloc[i - lookback: i + lookback + 1]
-            if search["High"].iloc[i] == win_h.max():
-                pivot_idx = len(df_w) - len(search) + i
-                pivot_type = "High"
-            elif search["Low"].iloc[i] == win_l.min():
-                pivot_idx = len(df_w) - len(search) + i
-                pivot_type = "Low"
-        return pivot_idx, pivot_type
+        # Use last 26 weeks (6 months); exclude the most recent 1 week (incomplete candle)
+        search = df_w.iloc[max(0, len(df_w) - 26): max(1, len(df_w) - 1)]
+        if len(search) < 4:
+            return max(0, len(df_w) - 13), "Low"
+        # Structural pivot = the single most extreme high OR low in the 3-6 month range
+        max_pos = int(search["High"].values.argmax())
+        min_pos = int(search["Low"].values.argmin())
+        max_val = float(search["High"].iloc[max_pos])
+        min_val = float(search["Low"].iloc[min_pos])
+        # Use current price position to decide: if price is closer to the high,
+        # the meaningful structural anchor is the swing LOW (base of the move), and vice-versa
+        current = float(df_w["Close"].iloc[-1])
+        mid = (max_val + min_val) / 2
+        offset = len(df_w) - len(search)
+        if current >= mid:
+            # Price in upper half → anchor from the swing LOW
+            return offset + min_pos, "Low"
+        else:
+            # Price in lower half → anchor from the swing HIGH
+            return offset + max_pos, "High"
 
     def _compute_frvp(df_slice, n_bins=30, va_pct=0.70):
         if df_slice.empty or len(df_slice) < 2:
@@ -1382,13 +1387,19 @@ with tab_frvp:
         target = total_vol * va_pct
         lo_idx = hi_idx = poc_bin
         va_vol = vol_per_bin[poc_bin]
+        # Market Profile standard: expand symmetrically — keep equal distance above/below POC.
+        # When one side is exhausted, continue on the other.
         while va_vol < target and (lo_idx > 0 or hi_idx < n_bins - 1):
-            exp_lo = vol_per_bin[lo_idx - 1] if lo_idx > 0 else 0
-            exp_hi = vol_per_bin[hi_idx + 1] if hi_idx < n_bins - 1 else 0
-            if exp_lo >= exp_hi and lo_idx > 0:
-                lo_idx -= 1; va_vol += exp_lo
-            elif hi_idx < n_bins - 1:
-                hi_idx += 1; va_vol += exp_hi
+            above_dist = hi_idx - poc_bin
+            below_dist = poc_bin - lo_idx
+            can_up   = hi_idx < n_bins - 1
+            can_down = lo_idx > 0
+            if can_up and (above_dist <= below_dist or not can_down):
+                hi_idx += 1
+                va_vol += vol_per_bin[hi_idx]
+            elif can_down:
+                lo_idx -= 1
+                va_vol += vol_per_bin[lo_idx]
             else:
                 break
         vah = price_min + (hi_idx + 1) * bin_size
@@ -1419,19 +1430,23 @@ with tab_frvp:
             poc1 = frvp1["poc"]
             touch_idx = pivot_idx
             for i in range(len(df_w) - 1, pivot_idx - 1, -1):
-                if float(df_w["High"].iloc[i]) >= poc1:
+                # Candle must have TRADED THROUGH the POC (Low <= POC <= High)
+                if float(df_w["Low"].iloc[i]) <= poc1 <= float(df_w["High"].iloc[i]):
                     touch_idx = i
                     break
 
-            frvp = _compute_frvp(df_w.iloc[touch_idx:])
+            start_date = df_w.index[touch_idx]
+            # Step 3: recompute final POC on DAILY data from shifted start date
+            # (daily granularity gives a more precise POC than weekly)
+            df_d_slice = df_d[df_d.index >= start_date]
+            frvp = _compute_frvp(df_d_slice) if len(df_d_slice) >= 2 else None
             if frvp is None:
-                frvp = frvp1
+                frvp = _compute_frvp(df_w.iloc[touch_idx:]) or frvp1
 
             poc  = frvp["poc"]
             vah  = frvp["vah"]
             val  = frvp["val"]
             bins_df = frvp["bins"]
-            start_date = df_w.index[touch_idx]
 
             current_price = float(df_d["Close"].iloc[-1])
             signal    = "BUY" if current_price > poc else "SELL"
@@ -1444,7 +1459,7 @@ with tab_frvp:
                 f"padding:14px 20px;border-radius:8px;margin-bottom:14px'>"
                 f"<span style='font-size:24px;font-weight:700;color:{sig_color}'>{signal}</span>"
                 f"&nbsp;&nbsp;"
-                f"<span style='color:#ccc;font-size:15px'>Developing POC: "
+                f"<span style='color:#ccc;font-size:15px'>FRVP POC: "
                 f"<b style='color:#fff'>₹{poc:,.2f}</b>"
                 f" — price is <b style='color:{sig_color}'>{bias_word}</b> the POC</span>"
                 f"</div>",
@@ -1521,7 +1536,7 @@ with tab_frvp:
             # ── Key levels table ──────────────────────────────────────────────
             st.markdown("**Key Price Levels**")
             kl = pd.DataFrame({
-                "Level": ["Value Area High (VAH)", "Point of Control (POC) ← key level",
+                "Level": ["Value Area High (VAH)", "FRVP POC ← BUY / SELL gate",
                           "Value Area Low (VAL)", "Current Market Price"],
                 "Price (₹)": [f"{vah:,.2f}", f"{poc:,.2f}", f"{val:,.2f}", f"{current_price:,.2f}"],
                 "Bias": ["Resistance", "BUY / SELL gate", "Support",
@@ -1530,11 +1545,13 @@ with tab_frvp:
             st.dataframe(kl, use_container_width=True, hide_index=True)
 
             st.caption(
-                f"FRVP logic: Step 1 — detect swing pivot on weekly chart (last 3–6 months). "
-                f"Step 2 — compute initial POC, shift start to last candle that touched the POC. "
-                f"Step 3 — recompute final POC from shifted start. "
-                f"Signal: price > POC = BUY bias, price < POC = SELL bias. "
-                f"Value Area covers 70% of traded volume. For educational purposes only."
+                f"FRVP logic: Step 1 — anchor from the structural swing high/low of the last 3–6 months "
+                f"(most extreme price level; direction chosen by current price position). "
+                f"Step 2 — compute initial POC from weekly data; shift start to the last daily candle "
+                f"that traded through (Low ≤ POC ≤ High) the initial POC. "
+                f"Step 3 — recompute final POC on daily data from the shifted start date. "
+                f"Value Area (VAH/VAL) expands symmetrically from POC covering 70% of total volume. "
+                f"Signal: price > POC = BUY bias, price < POC = SELL bias. Educational use only."
             )
 
 from app.utils.disclaimer import show_footer
