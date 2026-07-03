@@ -26,10 +26,11 @@ show_sebi_notice()
 st.caption("Technical scanners and alerts across all NSE sectors. For informational and educational purposes only.")
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_breakout, tab_ema, tab_hm = st.tabs([
+tab_breakout, tab_ema, tab_hm, tab_frvp = st.tabs([
     "📡 Breakout Alerts",
     "📈 20 EMA Pullback Scanner",
     "🎯 H-M Scanner",
+    "📊 FRVP Signal",
 ])
 
 # Pre-render loading skeletons into tabs 2 and 3 BEFORE any scanner starts.
@@ -63,6 +64,14 @@ other scans loading first…<br>
 <div class="_scan-bar" style="width:60%"></div>
 <div class="_scan-bar" style="width:80%"></div>
 <div class="_scan-bar" style="width:45%"></div>""", unsafe_allow_html=True)
+
+with tab_frvp:
+    _frvp_ph = st.empty()
+    _frvp_ph.markdown(_LOADING_CSS + """
+<div class="_scan-loading">⏳ <strong>FRVP Signal</strong> — select a stock to compute the volume profile…</div>
+<div class="_scan-bar" style="width:65%"></div>
+<div class="_scan-bar" style="width:80%"></div>
+<div class="_scan-bar" style="width:50%"></div>""", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1304,6 +1313,229 @@ with tab_hm:
         "Supporting signals (Stoch/MACD/Candle/Vol) 15. "
         "For educational purposes only — not SEBI-registered investment advice."
     )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 4 — FRVP SIGNAL
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_frvp:
+    _frvp_ph.empty()
+
+    import yfinance as yf
+    from plotly.subplots import make_subplots
+
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def _frvp_fetch(sym_ns: str):
+        try:
+            raw_w = yf.download(sym_ns, period="6mo", interval="1wk",
+                                auto_adjust=True, progress=False)
+            raw_d = yf.download(sym_ns, period="6mo", interval="1d",
+                                auto_adjust=True, progress=False)
+            if isinstance(raw_w.columns, pd.MultiIndex):
+                raw_w = raw_w.droplevel(1, axis=1)
+            if isinstance(raw_d.columns, pd.MultiIndex):
+                raw_d = raw_d.droplevel(1, axis=1)
+            raw_w = raw_w.dropna(subset=["Close"])
+            raw_d = raw_d.dropna(subset=["Close"])
+            return raw_w, raw_d
+        except Exception:
+            return None, None
+
+    def _find_swing_pivot(df_w):
+        lookback = 3
+        search = df_w.iloc[max(0, len(df_w) - 26): max(0, len(df_w) - lookback)]
+        if len(search) < lookback * 2 + 1:
+            return len(df_w) - 13 if len(df_w) >= 13 else 0, "Low"
+        pivot_idx, pivot_type = 0, "Low"
+        for i in range(lookback, len(search) - lookback):
+            win_h = search["High"].iloc[i - lookback: i + lookback + 1]
+            win_l = search["Low"].iloc[i - lookback: i + lookback + 1]
+            if search["High"].iloc[i] == win_h.max():
+                pivot_idx = len(df_w) - len(search) + i
+                pivot_type = "High"
+            elif search["Low"].iloc[i] == win_l.min():
+                pivot_idx = len(df_w) - len(search) + i
+                pivot_type = "Low"
+        return pivot_idx, pivot_type
+
+    def _compute_frvp(df_slice, n_bins=30, va_pct=0.70):
+        if df_slice.empty or len(df_slice) < 2:
+            return None
+        price_min = float(df_slice["Low"].min())
+        price_max = float(df_slice["High"].max())
+        if price_max <= price_min:
+            return None
+        bin_size = (price_max - price_min) / n_bins
+        vol_per_bin = np.zeros(n_bins)
+        for _, row in df_slice.iterrows():
+            lo, hi, vol = float(row["Low"]), float(row["High"]), float(row.get("Volume", 0) or 0)
+            span = hi - lo
+            if span <= 0:
+                continue
+            for i in range(n_bins):
+                b_lo = price_min + i * bin_size
+                b_hi = b_lo + bin_size
+                overlap = max(0.0, min(hi, b_hi) - max(lo, b_lo))
+                vol_per_bin[i] += vol * (overlap / span)
+        poc_bin = int(vol_per_bin.argmax())
+        poc = price_min + (poc_bin + 0.5) * bin_size
+        total_vol = vol_per_bin.sum()
+        target = total_vol * va_pct
+        lo_idx = hi_idx = poc_bin
+        va_vol = vol_per_bin[poc_bin]
+        while va_vol < target and (lo_idx > 0 or hi_idx < n_bins - 1):
+            exp_lo = vol_per_bin[lo_idx - 1] if lo_idx > 0 else 0
+            exp_hi = vol_per_bin[hi_idx + 1] if hi_idx < n_bins - 1 else 0
+            if exp_lo >= exp_hi and lo_idx > 0:
+                lo_idx -= 1; va_vol += exp_lo
+            elif hi_idx < n_bins - 1:
+                hi_idx += 1; va_vol += exp_hi
+            else:
+                break
+        vah = price_min + (hi_idx + 1) * bin_size
+        val = price_min + lo_idx * bin_size
+        bins_df = pd.DataFrame({
+            "price": price_min + (np.arange(n_bins) + 0.5) * bin_size,
+            "volume": vol_per_bin,
+        })
+        return {"poc": poc, "vah": vah, "val": val, "bins": bins_df}
+
+    # ── Controls ──────────────────────────────────────────────────────────────
+    all_stocks = sorted({s.replace(".NS", "") for sec in SECTOR_STOCKS.values() for s in sec})
+    sel = st.selectbox("Select Stock", all_stocks, key="frvp_stock")
+    sym_ns = sel + ".NS"
+
+    with st.spinner(f"Computing FRVP for {sel}…"):
+        df_w, df_d = _frvp_fetch(sym_ns)
+
+    if df_w is None or df_w.empty or df_d is None or df_d.empty:
+        st.warning(f"No data available for {sel}. Try another stock.")
+    else:
+        pivot_idx, _ = _find_swing_pivot(df_w)
+
+        frvp1 = _compute_frvp(df_w.iloc[pivot_idx:])
+        if frvp1 is None:
+            st.warning("Insufficient data to compute volume profile.")
+        else:
+            poc1 = frvp1["poc"]
+            touch_idx = pivot_idx
+            for i in range(len(df_w) - 1, pivot_idx - 1, -1):
+                if float(df_w["High"].iloc[i]) >= poc1:
+                    touch_idx = i
+                    break
+
+            frvp = _compute_frvp(df_w.iloc[touch_idx:])
+            if frvp is None:
+                frvp = frvp1
+
+            poc  = frvp["poc"]
+            vah  = frvp["vah"]
+            val  = frvp["val"]
+            bins_df = frvp["bins"]
+            start_date = df_w.index[touch_idx]
+
+            current_price = float(df_d["Close"].iloc[-1])
+            signal    = "BUY" if current_price > poc else "SELL"
+            sig_color = "#4ade80" if signal == "BUY" else "#f87171"
+            bias_word = "ABOVE" if signal == "BUY" else "BELOW"
+
+            # ── Signal card ───────────────────────────────────────────────────
+            st.markdown(
+                f"<div style='background:#111827;border-left:5px solid {sig_color};"
+                f"padding:14px 20px;border-radius:8px;margin-bottom:14px'>"
+                f"<span style='font-size:24px;font-weight:700;color:{sig_color}'>{signal}</span>"
+                f"&nbsp;&nbsp;"
+                f"<span style='color:#ccc;font-size:15px'>Developing POC: "
+                f"<b style='color:#fff'>₹{poc:,.2f}</b>"
+                f" — price is <b style='color:{sig_color}'>{bias_word}</b> the POC</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            # ── Plotly chart ─────────────────────────────────────────────────
+            df_plot = df_d[df_d.index >= start_date].copy()
+            if df_plot.empty:
+                df_plot = df_d.copy()
+
+            fig = make_subplots(
+                rows=1, cols=2,
+                column_widths=[0.80, 0.20],
+                shared_yaxes=True,
+                horizontal_spacing=0.005,
+            )
+
+            fig.add_trace(go.Candlestick(
+                x=df_plot.index,
+                open=df_plot["Open"], high=df_plot["High"],
+                low=df_plot["Low"],   close=df_plot["Close"],
+                increasing_line_color="#4ade80",
+                decreasing_line_color="#f87171",
+                name=sel,
+            ), row=1, col=1)
+
+            for price_level, label, color, dash in [
+                (vah,           f"VAH {vah:,.2f}",   "cyan",      "dot"),
+                (poc,           f"POC {poc:,.2f}",   "white",     "solid"),
+                (val,           f"VAL {val:,.2f}",   "cyan",      "dot"),
+                (current_price, f"CMP {current_price:,.2f}", sig_color, "dash"),
+            ]:
+                fig.add_shape(type="line", x0=df_plot.index[0], x1=df_plot.index[-1],
+                              y0=price_level, y1=price_level,
+                              line=dict(color=color, width=2 if label.startswith("POC") else 1,
+                                        dash=dash),
+                              row=1, col=1)
+                fig.add_annotation(
+                    x=df_plot.index[-1], y=price_level, text=label,
+                    showarrow=False, xanchor="left", font=dict(color=color, size=11),
+                    xref="x", yref="y",
+                )
+
+            bar_colors = ["#4ade80" if p >= poc else "#f87171" for p in bins_df["price"]]
+            fig.add_trace(go.Bar(
+                x=bins_df["volume"], y=bins_df["price"],
+                orientation="h",
+                marker_color=bar_colors,
+                marker_opacity=0.7,
+                showlegend=False,
+                name="Volume Profile",
+            ), row=1, col=2)
+
+            fig.update_layout(
+                height=580,
+                template="plotly_dark",
+                paper_bgcolor="#0e1117",
+                plot_bgcolor="#0e1117",
+                xaxis_rangeslider_visible=False,
+                title=dict(
+                    text=f"{sel} — FRVP Signal  |  Start: {start_date.strftime('%d %b %Y')}",
+                    font=dict(size=14),
+                ),
+                margin=dict(l=10, r=10, t=45, b=10),
+                showlegend=False,
+            )
+            fig.update_xaxes(showgrid=False)
+            fig.update_yaxes(showgrid=True, gridcolor="#1e2130", tickformat=",.0f")
+            fig.update_xaxes(showgrid=False, col=2)
+
+            st.plotly_chart(fig, use_container_width=True)
+
+            # ── Key levels table ──────────────────────────────────────────────
+            st.markdown("**Key Price Levels**")
+            kl = pd.DataFrame({
+                "Level": ["Value Area High (VAH)", "Point of Control (POC) ← key level",
+                          "Value Area Low (VAL)", "Current Market Price"],
+                "Price (₹)": [f"{vah:,.2f}", f"{poc:,.2f}", f"{val:,.2f}", f"{current_price:,.2f}"],
+                "Bias": ["Resistance", "BUY / SELL gate", "Support",
+                         f"{'↑ Above POC' if signal=='BUY' else '↓ Below POC'}"],
+            })
+            st.dataframe(kl, use_container_width=True, hide_index=True)
+
+            st.caption(
+                f"FRVP logic: Step 1 — detect swing pivot on weekly chart (last 3–6 months). "
+                f"Step 2 — compute initial POC, shift start to last candle that touched the POC. "
+                f"Step 3 — recompute final POC from shifted start. "
+                f"Signal: price > POC = BUY bias, price < POC = SELL bias. "
+                f"Value Area covers 70% of traded volume. For educational purposes only."
+            )
 
 from app.utils.disclaimer import show_footer
 show_footer()

@@ -127,6 +127,7 @@ GUIDE = [
             ("📡 Breakout Alerts", "Stocks breaking out of consolidation ranges with volume confirmation across all sectors."),
             ("📈 20 EMA Pullback Scanner", "Uptrending stocks pulling back to their 20-day EMA — potential re-entry points in established uptrends."),
             ("🎯 H-M Scanner", "RSI(9) momentum reversal setups — stocks turning from oversold or overbought extremes."),
+            ("📊 FRVP Signal", "Fixed Range Volume Profile — select any stock to see the Developing POC level. Price above POC = BUY bias, price below = SELL bias. The POC is computed over the range from the last swing-pivot candle that touched it, mirroring the 3-step TradingView FRVP method."),
         ],
     },
     {
