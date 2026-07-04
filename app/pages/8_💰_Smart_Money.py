@@ -29,6 +29,50 @@ from config import DB_PATH as _DB_PATH
 def _db():
     return sqlite3.connect(_DB_PATH)
 
+# ── FII historical trade DB (separate, read-only) ─────────────────────────────
+_FII_DB = Path(__file__).parent.parent.parent / "data" / "fii_data.db"
+
+def _fii_db():
+    """Read-only connection to fii_data.db — works local + Streamlit Cloud."""
+    if not _FII_DB.exists():
+        return None
+    conn = sqlite3.connect(str(_FII_DB), check_same_thread=False)
+    conn.execute("PRAGMA query_only = ON")
+    return conn
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fii_symbols() -> list:
+    conn = _fii_db()
+    if conn is None:
+        return []
+    rows = conn.execute("SELECT symbol FROM symbols ORDER BY symbol").fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _fii_trades(symbol: str, start_int: int, end_int: int, direction: str) -> pd.DataFrame:
+    conn = _fii_db()
+    if conn is None:
+        return pd.DataFrame()
+    clauses = ["s.symbol = ?", "t.txn_date BETWEEN ? AND ?"]
+    params: list = [symbol, start_int, end_int]
+    if direction == "Buy":
+        clauses.append("t.is_buy = 1")
+    elif direction == "Sell":
+        clauses.append("t.is_buy = 0")
+    where = " AND ".join(clauses)
+    df = pd.read_sql_query(
+        f"""SELECT t.txn_date, s.symbol,
+               CASE WHEN t.is_buy=1 THEN 'BUY' ELSE 'SELL' END AS direction,
+               t.rate, t.quantity, t.value
+           FROM trades t JOIN symbols s ON t.symbol_id = s.symbol_id
+           WHERE {where}
+           ORDER BY t.txn_date DESC LIMIT 5000""",
+        conn, params=params,
+    )
+    conn.close()
+    return df
+
 def _init_tables():
     con = _db()
     con.execute("""
@@ -793,7 +837,10 @@ if not fno_symbols:
     st.stop()
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_stock, tab_screener, tab_delivery = st.tabs(["🔍 Stock Analysis (90-Day)", "📊 Smart Money Screener", "📦 Delivery Tracker"])
+tab_stock, tab_screener, tab_delivery, tab_fii = st.tabs([
+    "🔍 Stock Analysis (90-Day)", "📊 Smart Money Screener",
+    "📦 Delivery Tracker", "📋 Historical FII Trade",
+])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — 90-Day Stock Deep Dive with DB cache
@@ -1593,6 +1640,103 @@ with tab_delivery:
                 hovermode="x unified",
             )
             st.plotly_chart(fig_dobv, width='stretch')
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 4 — Historical FII Trade Data
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_fii:
+    st.subheader("📋 Historical FII Trade Data")
+
+    _syms = _fii_symbols()
+    if not _syms:
+        st.warning("FII trade database not found at data/fii_data.db")
+    else:
+        c1, c2, c3, c4 = st.columns([2, 1.5, 1.5, 1.5])
+        with c1:
+            fii_sym = st.selectbox("Stock Symbol", _syms, key="fii_sym")
+        with c2:
+            fii_dir = st.radio("Direction", ["Both", "Buy", "Sell"], horizontal=True, key="fii_dir")
+        with c3:
+            fii_start = st.date_input("From", value=pd.Timestamp("2020-01-01").date(), key="fii_start")
+        with c4:
+            fii_end = st.date_input("To", value=pd.Timestamp.today().date(), key="fii_end")
+
+        sort_col = st.selectbox(
+            "Sort by",
+            ["Date (newest)", "Date (oldest)", "Value (high→low)", "Rate (high→low)", "Quantity (high→low)"],
+            key="fii_sort",
+        )
+
+        start_int = int(fii_start.strftime("%Y%m%d"))
+        end_int   = int(fii_end.strftime("%Y%m%d"))
+
+        with st.spinner("Loading FII trades…"):
+            df_fii = _fii_trades(fii_sym, start_int, end_int, fii_dir)
+
+        if df_fii.empty:
+            st.info("No trades found for the selected filters.")
+        else:
+            buys  = df_fii[df_fii["direction"] == "BUY"]
+            sells = df_fii[df_fii["direction"] == "SELL"]
+            buy_val  = buys["value"].sum()
+            sell_val = sells["value"].sum()
+            net_cr   = (buy_val - sell_val) / 1e7
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Total Trades", f"{len(df_fii):,}")
+            m2.metric("Buy Trades",   f"{len(buys):,}",
+                      delta=f"₹{buy_val/1e7:.1f} Cr")
+            m3.metric("Sell Trades",  f"{len(sells):,}",
+                      delta=f"₹{sell_val/1e7:.1f} Cr", delta_color="inverse")
+            m4.metric("Net (Buy−Sell)", f"₹{abs(net_cr):.1f} Cr",
+                      delta="Buy Heavy" if net_cr > 0 else "Sell Heavy",
+                      delta_color="normal" if net_cr > 0 else "inverse")
+
+            sort_map = {
+                "Date (newest)":       ("txn_date", False),
+                "Date (oldest)":       ("txn_date", True),
+                "Value (high→low)":    ("value",    False),
+                "Rate (high→low)":     ("rate",     False),
+                "Quantity (high→low)": ("quantity", False),
+            }
+            sb, asc = sort_map[sort_col]
+            df_fii = df_fii.sort_values(sb, ascending=asc)
+
+            df_fii["txn_date"] = (
+                df_fii["txn_date"].astype(str)
+                .str.replace(r"(\d{4})(\d{2})(\d{2})", r"\1-\2-\3", regex=True)
+            )
+
+            display = pd.DataFrame({
+                "Date":      df_fii["txn_date"],
+                "Symbol":    df_fii["symbol"],
+                "Direction": df_fii["direction"],
+                "Rate (₹)":  df_fii["rate"],
+                "Quantity":  df_fii["quantity"],
+                "Value (₹)": df_fii["value"],
+            })
+
+            def _cdir(v):
+                return "color:#4ade80;font-weight:600" if v == "BUY" else "color:#f87171;font-weight:600"
+
+            st.dataframe(
+                display.style
+                    .map(_cdir, subset=["Direction"])
+                    .format({
+                        "Rate (₹)":  "₹{:,.2f}",
+                        "Quantity":  "{:,.0f}",
+                        "Value (₹)": "₹{:,.0f}",
+                    }, na_rep="–"),
+                use_container_width=True, hide_index=True, height=550,
+            )
+
+            st.download_button(
+                "⬇ Download CSV",
+                df_fii.to_csv(index=False).encode("utf-8"),
+                file_name=f"{fii_sym}_fii_trades.csv",
+                mime="text/csv",
+            )
+            st.caption(f"Showing {len(df_fii):,} trades (cap: 5,000). Source: fii_data.db")
 
 from app.utils.disclaimer import show_footer
 show_footer()

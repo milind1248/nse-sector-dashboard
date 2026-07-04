@@ -1422,26 +1422,35 @@ with tab_frvp:
         st.warning(f"No data available for {sel}. Try another stock.")
     else:
         pivot_idx, _ = _find_swing_pivot(df_w)
+        swing_pivot_date = df_w.index[pivot_idx]  # raw yfinance date for slice
 
-        frvp1 = _compute_frvp(df_w.iloc[pivot_idx:])
+        # Step 2: compute poc1 from DAILY FRVP over the full Step-1 range.
+        # Daily data gives the same precise POC that TradingView's developing POC
+        # settles to (e.g. 1,147.94 for INFY). Weekly FRVP gives a different,
+        # higher POC because weekly bars smooth out intra-week volume distribution.
+        df_d_full = df_d[df_d.index >= swing_pivot_date]
+        frvp1 = (_compute_frvp(df_d_full) if len(df_d_full) >= 2
+                 else _compute_frvp(df_w.iloc[pivot_idx:]))
         if frvp1 is None:
             st.warning("Insufficient data to compute volume profile.")
         else:
             poc1 = frvp1["poc"]
-            touch_idx = pivot_idx
+            # Scan WEEKLY bars backwards: find the latest candle that STRADDLED the
+            # developing POC (Low <= poc1 <= High). Straddle = price crossed through
+            # the POC level during that candle — the true "candle cut" condition.
+            # High >= poc1 alone is too loose; Low <= poc1 <= High ensures the candle
+            # actually traded on BOTH sides of the POC level.
+            touch_idx = pivot_idx  # fallback: swing pivot itself
             for i in range(len(df_w) - 1, pivot_idx - 1, -1):
-                # Candle must have TRADED THROUGH the POC (Low <= POC <= High)
                 if float(df_w["Low"].iloc[i]) <= poc1 <= float(df_w["High"].iloc[i]):
                     touch_idx = i
                     break
 
             start_date = df_w.index[touch_idx]
-            # Step 3: recompute final POC on DAILY data from shifted start date
-            # (daily granularity gives a more precise POC than weekly)
+            # Step 3: FRVP start shifts to the Step-2 candle-cut date (Jun 8 for INFY),
+            # end = last daily candle. Compute final POC on this daily slice.
             df_d_slice = df_d[df_d.index >= start_date]
-            frvp = _compute_frvp(df_d_slice) if len(df_d_slice) >= 2 else None
-            if frvp is None:
-                frvp = _compute_frvp(df_w.iloc[touch_idx:]) or frvp1
+            frvp = _compute_frvp(df_d_slice) if len(df_d_slice) >= 2 else frvp1
 
             poc  = frvp["poc"]
             vah  = frvp["vah"]
@@ -1467,14 +1476,55 @@ with tab_frvp:
             )
 
             # ── Plotly chart ─────────────────────────────────────────────────
+            # yfinance weekly bars use the LAST trading day of the week as the bar date,
+            # but TradingView labels the same bar as the Monday (week start).
+            # Normalize both dates to Monday so they match TradingView display.
+            def _to_week_monday(d):
+                ts = pd.Timestamp(d)
+                return ts - pd.Timedelta(days=ts.weekday())
+
+            swing_date_tv = _to_week_monday(swing_pivot_date)
+            start_date_tv = _to_week_monday(start_date)   # weekly bar → normalize to Monday
+
             df_plot = df_d[df_d.index >= start_date].copy()
             if df_plot.empty:
                 df_plot = df_d.copy()
 
+            # ── H-M RSI(9) computations on FULL daily close (needs history) ──
+            _close_full = df_d["Close"]
+            _d9f        = _close_full.diff()
+            _g9f        = _d9f.clip(lower=0).rolling(9).mean()
+            _l9f        = (-_d9f.clip(upper=0)).rolling(9).mean()
+            _rsi9_full  = (100 - (100 / (1 + _g9f / _l9f.replace(0, float("nan"))))).dropna()
+            _ema3_full  = _rsi9_full.ewm(span=3, adjust=False).mean()
+            _w21        = np.arange(1, 22, dtype=float)
+            _wma21_full = _rsi9_full.rolling(21).apply(
+                lambda x: float(np.dot(x, _w21) / _w21.sum()), raw=True
+            )
+            # Slice to FRVP display range (same dates as df_plot)
+            _rsi9  = _rsi9_full[_rsi9_full.index >= df_plot.index[0]]
+            _ema3  = _ema3_full.reindex(_rsi9.index)
+            _wma21 = _wma21_full.reindex(_rsi9.index)
+            # Entry signals: RSI(9) crosses above 50 from below
+            _rsi9_arr = _rsi9_full.values
+            _sig_x2, _sig_y2_rsi = [], []
+            for _i in range(1, len(_rsi9_full)):
+                if (_rsi9_full.index[_i] >= df_plot.index[0]
+                        and _rsi9_arr[_i] >= 50 and _rsi9_arr[_i - 1] < 50):
+                    _sig_x2.append(_rsi9_full.index[_i])
+                    _sig_y2_rsi.append(float(_rsi9_arr[_i]))
+
             fig = make_subplots(
-                rows=1, cols=2,
+                rows=2, cols=2,
+                row_heights=[0.65, 0.35],
                 column_widths=[0.80, 0.20],
+                specs=[
+                    [{}, {}],
+                    [{}, None],
+                ],
                 shared_yaxes=True,
+                shared_xaxes=True,
+                vertical_spacing=0.06,
                 horizontal_spacing=0.005,
             )
 
@@ -1485,6 +1535,14 @@ with tab_frvp:
                 increasing_line_color="#4ade80",
                 decreasing_line_color="#f87171",
                 name=sel,
+            ), row=1, col=1)
+
+            # EMA(20) — computed on full daily history for accuracy, plotted on df_plot range
+            _ema20_full = df_d["Close"].ewm(span=20, adjust=False).mean()
+            _ema20_plot = _ema20_full[_ema20_full.index >= df_plot.index[0]]
+            fig.add_trace(go.Scatter(
+                x=_ema20_plot.index, y=_ema20_plot,
+                name="EMA(20)", line=dict(color="#FFD600", width=1.5),
             ), row=1, col=1)
 
             for price_level, label, color, dash in [
@@ -1514,18 +1572,80 @@ with tab_frvp:
                 name="Volume Profile",
             ), row=1, col=2)
 
+            # ── RSI(9) H-M panel (row 2, spanning both cols) ─────────────
+            _idx  = _rsi9.index
+            _mid  = pd.Series(50.0, index=_idx)
+            _rsi_above = _rsi9.where(_rsi9 >= 50, 50.0)
+            _rsi_below = _rsi9.where(_rsi9 <= 50, 50.0)
+
+            # Green fill above 50
+            fig.add_trace(go.Scatter(
+                x=_idx, y=_mid, line=dict(width=0), mode="lines",
+                showlegend=False, hoverinfo="skip",
+            ), row=2, col=1)
+            fig.add_trace(go.Scatter(
+                x=_idx, y=_rsi_above,
+                fill="tonexty", fillcolor="rgba(38,166,154,0.35)",
+                line=dict(width=0), mode="lines",
+                showlegend=False, hoverinfo="skip",
+            ), row=2, col=1)
+
+            # Red fill below 50
+            fig.add_trace(go.Scatter(
+                x=_idx, y=_mid, line=dict(width=0), mode="lines",
+                showlegend=False, hoverinfo="skip",
+            ), row=2, col=1)
+            fig.add_trace(go.Scatter(
+                x=_idx, y=_rsi_below,
+                fill="tonexty", fillcolor="rgba(239,83,80,0.35)",
+                line=dict(width=0), mode="lines",
+                showlegend=False, hoverinfo="skip",
+            ), row=2, col=1)
+
+            # RSI(9), EMA(3), WMA(21) lines
+            fig.add_trace(go.Scatter(
+                x=_idx, y=_rsi9, name="RSI(9)",
+                line=dict(color="#90CAF9", width=1.5),
+            ), row=2, col=1)
+            fig.add_trace(go.Scatter(
+                x=_idx, y=_ema3, name="EMA(3)",
+                line=dict(color="#4CAF50", width=1.5),
+            ), row=2, col=1)
+            fig.add_trace(go.Scatter(
+                x=_wma21.reindex(_idx).index, y=_wma21.reindex(_idx),
+                name="WMA(21)", line=dict(color="#EF5350", width=1.5),
+            ), row=2, col=1)
+
+            # Entry signal dots on RSI panel
+            if _sig_x2:
+                fig.add_trace(go.Scatter(
+                    x=_sig_x2, y=_sig_y2_rsi, mode="markers",
+                    name="H-M Entry", showlegend=False,
+                    marker=dict(color="lime", size=7, symbol="circle",
+                                line=dict(color="white", width=1)),
+                ), row=2, col=1)
+
+            fig.add_hline(y=50, line_dash="dash", line_color="#888888",
+                          annotation_text="50", row=2, col=1)
+            fig.add_hline(y=30, line_dash="dot", line_color="#FFD600",
+                          annotation_text="30", row=2, col=1)
+
             fig.update_layout(
-                height=580,
+                height=720,
                 template="plotly_dark",
                 paper_bgcolor="#0e1117",
                 plot_bgcolor="#0e1117",
                 xaxis_rangeslider_visible=False,
                 title=dict(
-                    text=f"{sel} — FRVP Signal  |  Start: {start_date.strftime('%d %b %Y')}",
+                    text=(f"{sel} — FRVP Signal  |  "
+                          f"Step 1 Swing Start: {swing_date_tv.strftime('%d %b %Y')}  →  "
+                          f"Step 2 Candle Cut: {start_date_tv.strftime('%d %b %Y')}"),
                     font=dict(size=14),
                 ),
                 margin=dict(l=10, r=10, t=45, b=10),
-                showlegend=False,
+                showlegend=True,
+                legend=dict(orientation="h", y=1.04, x=0),
+                yaxis3=dict(title="RSI(9)", range=[0, 100]),
             )
             fig.update_xaxes(showgrid=False)
             fig.update_yaxes(showgrid=True, gridcolor="#1e2130", tickformat=",.0f")

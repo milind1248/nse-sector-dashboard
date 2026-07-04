@@ -25,3 +25,8 @@ res*.parquet
 res*.json
 tmp*.parquet
 start_app.bat
+
+# Runtime-written data files (scheduler / pipeline output — never commit)
+data/announcement.json
+data/schedule_config.json
+start_dashboard.bat
