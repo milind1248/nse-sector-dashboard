@@ -735,6 +735,35 @@ if r5c5.button("▶ Run", key="btn_sh", width='stretch'):
             st.error(f"Pipeline failed: {e}")
     st.rerun()
 
+# ── Row 5b: NSDL Fortnightly Sync ────────────────────────────────────────────
+r5bc1, r5bc2, r5bc3, r5bc4, r5bc5 = st.columns([2, 3, 4, 3, 2])
+r5bc1.markdown("5b")
+r5bc2.markdown("🌏 FII Sectors · 🏢 FPI Sectors")
+r5bc3.markdown("Fetch fortnightly NSDL sector data — downloads the latest NSDL HTML report and stores sector-wise FII investment into DB (published 15th & last of each month)")
+r5bc4.markdown(_last_run_for("nsdl_fortnightly_sync"))
+if r5bc5.button("▶ Run", key="btn_nsdl", width='stretch'):
+    with st.spinner("Fetching NSDL fortnightly sector data…"):
+        rid = None
+        try:
+            from backend.data_ingestion.nsdl_fetcher import sync_nsdl_to_db
+            from backend.data_ingestion.job_logger import log_start, log_finish
+            rid = log_start("nsdl_fortnightly_sync",
+                            "NSDL Fortnightly Sector FII Data Sync", "admin")
+            result = sync_nsdl_to_db()
+            total_reports = len(result) if isinstance(result, dict) else 0
+            log_finish(rid, "success", records_done=total_reports)
+            st.cache_data.clear()
+            st.success(f"✅ NSDL sync complete — {total_reports} fortnightly reports in DB.")
+        except Exception as e:
+            if rid:
+                try:
+                    from backend.data_ingestion.job_logger import log_finish
+                    log_finish(rid, "failed", error_msg=str(e))
+                except Exception:
+                    pass
+            st.error(f"NSDL sync failed: {e}")
+    st.rerun()
+
 # ── Row 6: AI Scan ───────────────────────────────────────────────────────────
 r6c1, r6c2, r6c3, r6c4, r6c5 = st.columns([2, 3, 4, 3, 2])
 r6c1.markdown("6")

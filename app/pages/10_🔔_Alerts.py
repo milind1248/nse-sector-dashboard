@@ -26,11 +26,12 @@ show_sebi_notice()
 st.caption("Technical scanners and alerts across all NSE sectors. For informational and educational purposes only.")
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_breakout, tab_ema, tab_hm, tab_frvp = st.tabs([
+tab_breakout, tab_ema, tab_hm, tab_frvp, tab_frvp_hm = st.tabs([
     "📡 Breakout Alerts",
     "📈 20 EMA Pullback Scanner",
     "🎯 H-M Scanner",
     "📊 FRVP Signal",
+    "🔍 FRVP H-M Scanner",
 ])
 
 # Pre-render loading skeletons into tabs 2 and 3 BEFORE any scanner starts.
@@ -72,6 +73,14 @@ with tab_frvp:
 <div class="_scan-bar" style="width:65%"></div>
 <div class="_scan-bar" style="width:80%"></div>
 <div class="_scan-bar" style="width:50%"></div>""", unsafe_allow_html=True)
+
+with tab_frvp_hm:
+    _frvp_hm_ph = st.empty()
+    _frvp_hm_ph.markdown(_LOADING_CSS + """
+<div class="_scan-loading">⏳ <strong>FRVP H-M Scanner</strong> — click Run Scan to compute LOC levels…</div>
+<div class="_scan-bar" style="width:70%"></div>
+<div class="_scan-bar" style="width:55%"></div>
+<div class="_scan-bar" style="width:80%"></div>""", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1410,6 +1419,17 @@ with tab_frvp:
         })
         return {"poc": poc, "vah": vah, "val": val, "bins": bins_df}
 
+    # ── Tab identity banner ───────────────────────────────────────────────────
+    st.markdown(
+        "<div style='background:#1e293b;border-left:4px solid #6366f1;"
+        "padding:10px 16px;border-radius:6px;margin-bottom:12px;font-size:13px'>"
+        "📅 <b>Anchor:</b> Weekly swing pivot &nbsp;|&nbsp; "
+        "⏱️ <b>Trade timeframe:</b> Daily bars &nbsp;|&nbsp; "
+        "🎯 <b>Use case:</b> Swing / positional trades (days to weeks)"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
     # ── Controls ──────────────────────────────────────────────────────────────
     all_stocks = sorted({s.replace(".NS", "") for sec in SECTOR_STOCKS.values() for s in sec})
     sel = st.selectbox("Select Stock", all_stocks, key="frvp_stock")
@@ -1673,6 +1693,563 @@ with tab_frvp:
                 f"Value Area (VAH/VAL) expands symmetrically from POC covering 70% of total volume. "
                 f"Signal: price > POC = BUY bias, price < POC = SELL bias. Educational use only."
             )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 5 — FRVP H-M SCANNER
+# Scans all stocks in SECTOR_STOCKS and computes FRVP 4-step levels.
+# Shows Anchor, Cut-1/2/3 dates, LOC / VAH / VAL, and LOC crossing signal.
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_frvp_hm:
+    _frvp_hm_ph.empty()
+
+    import yfinance as yf
+
+    # ── FRVP helper functions (self-contained) ────────────────────────────────
+
+    def _frvp_hm_vp(highs, lows, volumes, n_bins=30, va_pct=0.70):
+        """Uniform-density Volume Profile. Returns (poc, vah, val)."""
+        highs   = np.asarray(highs,   dtype=float)
+        lows    = np.asarray(lows,    dtype=float)
+        volumes = np.asarray(volumes, dtype=float)
+        p_min, p_max = lows.min(), highs.max()
+        if p_max <= p_min:
+            mid = (p_max + p_min) / 2
+            return mid, mid, mid
+        bw   = (p_max - p_min) / n_bins
+        bins = np.zeros(n_bins)
+        for i in range(len(highs)):
+            rng     = max(highs[i] - lows[i], 0.01)
+            density = volumes[i] / rng
+            lb = int(max(0, min((lows[i]  - p_min) / bw, n_bins - 1)))
+            hb = int(max(0, min((highs[i] - p_min) / bw, n_bins - 1)))
+            for b in range(lb, hb + 1):
+                blo     = p_min + b * bw
+                overlap = min(highs[i], blo + bw) - max(lows[i], blo)
+                if overlap > 0:
+                    bins[b] += density * overlap
+        pb  = int(np.argmax(bins))
+        poc = p_min + (pb + 0.5) * bw
+        total  = bins.sum()
+        target = total * va_pct
+        lo = hi = pb
+        acc = bins[pb]
+        for _ in range(n_bins):
+            if acc >= target:
+                break
+            lv = bins[lo - 1] if lo > 0       else 0.0
+            hv = bins[hi + 1] if hi < n_bins-1 else 0.0
+            if lv >= hv:
+                if lo > 0:
+                    lo  -= 1; acc += bins[lo]
+            else:
+                if hi < n_bins - 1:
+                    hi  += 1; acc += bins[hi]
+        return poc, p_min + (hi + 1) * bw, p_min + lo * bw
+
+    def _frvp_hm_cut(poc, df):
+        """Scan newest→oldest (skip today's bar, matching Pine Script f_cut i=1..maxOff)."""
+        for i in range(len(df) - 2, -1, -1):
+            if df["Low"].iloc[i] <= poc <= df["High"].iloc[i]:
+                return i
+        return 0
+
+    def _frvp_hm_anchor(df, lookback=300):
+        """Swing TOP or BOT with largest % from today's close."""
+        cmp = float(df["Close"].iloc[-1])
+        sub = df.iloc[-(lookback + 1):-1]
+        ti  = int(sub["High"].argmax())
+        bi  = int(sub["Low"].argmin())
+        tp  = float(sub["High"].iloc[ti])
+        bp  = float(sub["Low"].iloc[bi])
+        if abs(tp - cmp) / cmp >= abs(bp - cmp) / cmp:
+            return sub.index[ti], "TOP", tp, abs(tp - cmp) / cmp * 100
+        return sub.index[bi], "BOT", bp, abs(bp - cmp) / cmp * 100
+
+    @st.cache_data(ttl=900, show_spinner=False)
+    def _frvp_hm_scan(symbols, lookback, n_bins, va_pct):
+        rows = []
+        for sym in symbols:
+            try:
+                raw = yf.download(sym, period="2y", interval="1d",
+                                  auto_adjust=True, progress=False)
+                if raw is None or len(raw) < 30:
+                    continue
+                if isinstance(raw.columns, pd.MultiIndex):
+                    raw.columns = raw.columns.get_level_values(0)
+                df = raw.dropna(subset=["Close", "High", "Low", "Volume"])
+                if len(df) < 15:
+                    continue
+
+                cmp        = float(df["Close"].iloc[-1])
+                prev_close = float(df["Close"].iloc[-2]) if len(df) > 1 else cmp
+
+                a_date, a_type, a_price, a_pct = _frvp_hm_anchor(df, lookback)
+                a_idx = df.index.get_loc(a_date)
+
+                sub1 = df.iloc[a_idx:]
+                poc1, _, _ = _frvp_hm_vp(sub1["High"], sub1["Low"], sub1["Volume"], n_bins, va_pct)
+                c1i  = _frvp_hm_cut(poc1, sub1)
+                c1_date = sub1.index[c1i]
+
+                c1_abs = df.index.get_loc(c1_date)
+                sub2 = df.iloc[c1_abs:]
+                poc2, _, _ = _frvp_hm_vp(sub2["High"], sub2["Low"], sub2["Volume"], n_bins, va_pct)
+                c2i  = _frvp_hm_cut(poc2, sub2)
+                c2_date = sub2.index[c2i]
+
+                c2_abs = df.index.get_loc(c2_date)
+                sub3 = df.iloc[c2_abs:]
+                poc3, _, _ = _frvp_hm_vp(sub3["High"], sub3["Low"], sub3["Volume"], n_bins, va_pct)
+                c3i  = _frvp_hm_cut(poc3, sub3)
+                c3_date = sub3.index[c3i]
+
+                # Step 4: switch to 15-min intraday bars from c3_date for final LOC/VAH/VAL
+                c3_str = str(c3_date)[:10]
+                raw15 = yf.download(sym, start=c3_str, interval="15m",
+                                    auto_adjust=True, progress=False)
+                if raw15 is not None and len(raw15) >= 5:
+                    if isinstance(raw15.columns, pd.MultiIndex):
+                        raw15.columns = raw15.columns.get_level_values(0)
+                    df15 = raw15.dropna(subset=["High", "Low", "Volume"])
+                    loc, vah, val = _frvp_hm_vp(df15["High"], df15["Low"], df15["Volume"], n_bins, va_pct)
+                else:
+                    c3_abs = df.index.get_loc(c3_date)
+                    sub4   = df.iloc[c3_abs:]
+                    loc, vah, val = _frvp_hm_vp(sub4["High"], sub4["Low"], sub4["Volume"], n_bins, va_pct)
+
+                if prev_close < loc <= cmp:
+                    signal = "🟢 CROSSING UP"
+                elif prev_close > loc > cmp:
+                    signal = "🔴 CROSSING DOWN"
+                elif cmp >= loc:
+                    signal = "Above LOC"
+                else:
+                    signal = "Below LOC"
+
+                rows.append({
+                    "Symbol":       sym.replace(".NS", ""),
+                    "CMP":          round(cmp, 2),
+                    "Anchor":       f"{a_type} ₹{a_price:,.2f} ({a_pct:.1f}%)",
+                    "Anchor Date":  str(a_date)[:10],
+                    "Cut-1 Date":   str(c1_date)[:10],
+                    "Cut-2 Date":   str(c2_date)[:10],
+                    "Cut-3 Date":   str(c3_date)[:10],
+                    "LOC":         round(loc, 2),
+                    "VAH":         round(vah, 2),
+                    "VAL":         round(val, 2),
+                    "Signal":      signal,
+                })
+            except Exception:
+                continue
+
+        if not rows:
+            return pd.DataFrame()
+
+        df_out = pd.DataFrame(rows)
+        order  = {"🟢 CROSSING UP": 0, "🔴 CROSSING DOWN": 1, "Above LOC": 2, "Below LOC": 3}
+        df_out["_s"] = df_out["Signal"].map(order).fillna(4)
+        return df_out.sort_values("_s").drop(columns="_s").reset_index(drop=True)
+
+    # ── UI ────────────────────────────────────────────────────────────────────
+    st.subheader("🔍 FRVP H-M Scanner")
+    st.markdown(
+        "<div style='background:#1e293b;border-left:4px solid #f59e0b;"
+        "padding:10px 16px;border-radius:6px;margin-bottom:12px;font-size:13px'>"
+        "📅 <b>Anchor:</b> Daily swing pivot &nbsp;|&nbsp; "
+        "⏱️ <b>Trade timeframe:</b> Intraday 15-min bars &nbsp;|&nbsp; "
+        "🎯 <b>Use case:</b> Intraday / BTST trades (minutes to 1–2 days)"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "4-Step Fixed Range Volume Profile scanner. "
+        "Computes Anchor → Cut-1 → Cut-2 → Cut-3 on daily bars, "
+        "then derives LOC / VAH / VAL from the final slice. "
+        "LOC crossing = key intraday buy/sell signal."
+    )
+
+    @st.cache_data(ttl=900, show_spinner=False)
+    def _frvp_hm_backtest(syms_tuple, backtest_days, sl_rs, lookback, n_bins, va_pct):
+        """
+        Walk-forward backtest: for each of the last backtest_days trading days,
+        recompute the full FRVP 4-step algorithm using only daily data available
+        up to that day, then simulate the 15-min intraday trade using that day's
+        computed LOC/VAH/VAL. Eliminates look-ahead bias.
+        """
+        import yfinance as yf, datetime as _dt
+        rows, trade_rows = [], []
+
+        for sym in syms_tuple:
+            try:
+                raw_d = yf.download(sym + ".NS", period="2y", interval="1d",
+                                    auto_adjust=True, progress=False)
+                raw_15 = yf.download(sym + ".NS", period="60d", interval="15m",
+                                     auto_adjust=True, progress=False)
+                if raw_d is None or len(raw_d) < 30 or raw_15 is None or len(raw_15) < 10:
+                    continue
+                for r in (raw_d, raw_15):
+                    if isinstance(r.columns, pd.MultiIndex):
+                        r.columns = r.columns.get_level_values(0)
+                daily_df = raw_d.dropna(subset=["Close", "High", "Low", "Volume"])
+                intra_df = raw_15.dropna(subset=["High", "Low", "Close"]).copy()
+                intra_df["_date"] = intra_df.index.date
+
+                all_dates = sorted(intra_df["_date"].unique())[-backtest_days:]
+
+                buy_days = buy_wins = buy_losses = 0
+                sell_days = sell_wins = sell_losses = 0
+                total_pnl = 0.0
+
+                for day in all_dates:
+                    daily_to_day = daily_df[daily_df.index.date <= day]
+                    if len(daily_to_day) < 30:
+                        continue
+
+                    try:
+                        a_date, a_type, a_price, a_pct = _frvp_hm_anchor(daily_to_day, lookback)
+                        a_idx = daily_to_day.index.get_loc(a_date)
+
+                        sub1 = daily_to_day.iloc[a_idx:]
+                        poc1, _, _ = _frvp_hm_vp(sub1["High"], sub1["Low"], sub1["Volume"], n_bins, va_pct)
+                        c1i = _frvp_hm_cut(poc1, sub1)
+                        c1_date = sub1.index[c1i]
+
+                        c1_abs = daily_to_day.index.get_loc(c1_date)
+                        sub2 = daily_to_day.iloc[c1_abs:]
+                        poc2, _, _ = _frvp_hm_vp(sub2["High"], sub2["Low"], sub2["Volume"], n_bins, va_pct)
+                        c2i = _frvp_hm_cut(poc2, sub2)
+                        c2_date = sub2.index[c2i]
+
+                        c2_abs = daily_to_day.index.get_loc(c2_date)
+                        sub3 = daily_to_day.iloc[c2_abs:]
+                        poc3, _, _ = _frvp_hm_vp(sub3["High"], sub3["Low"], sub3["Volume"], n_bins, va_pct)
+                        c3i = _frvp_hm_cut(poc3, sub3)
+                        c3_date = sub3.index[c3i]
+                    except Exception:
+                        continue
+
+                    c3_d = c3_date.date() if hasattr(c3_date, "date") else _dt.date.fromisoformat(str(c3_date)[:10])
+                    intra_slice = intra_df[(intra_df["_date"] >= c3_d) & (intra_df["_date"] <= day)]
+                    if len(intra_slice) < 5:
+                        continue
+                    loc, vah, val = _frvp_hm_vp(
+                        intra_slice["High"], intra_slice["Low"], intra_slice["Volume"], n_bins, va_pct
+                    )
+
+                    day_bars = intra_df[intra_df["_date"] == day].reset_index(drop=True)
+                    if len(day_bars) < 2:
+                        continue
+                    first_close = float(day_bars["Close"].iloc[0])
+
+                    if first_close >= loc:
+                        buy_days += 1
+                        outcome = None
+                        for _, bar in day_bars.iloc[1:].iterrows():
+                            if float(bar["Low"]) <= loc - sl_rs:
+                                outcome = "sl"; break
+                            if float(bar["High"]) >= vah:
+                                outcome = "win"; break
+                        day_end_close = float(day_bars["Close"].iloc[-1])
+                        if outcome == "win":
+                            buy_wins += 1
+                            trade_pnl = round(vah - loc, 2)
+                        elif outcome == "sl":
+                            buy_losses += 1
+                            trade_pnl = round(-sl_rs, 2)
+                        else:
+                            trade_pnl = round(day_end_close - loc, 2)
+                        total_pnl += trade_pnl
+                        trade_rows.append({
+                            "Symbol":      sym,
+                            "Date":        str(day),
+                            "Anchor":      a_type,
+                            "Anchor Date": str(a_date)[:10],
+                            "Cut-1 Date":  str(c1_date)[:10],
+                            "Cut-2 Date":  str(c2_date)[:10],
+                            "Cut-3 Date":  str(c3_date)[:10],
+                            "LOC ₹":       round(loc, 2),
+                            "VAH ₹":       round(vah, 2),
+                            "VAL ₹":       round(val, 2),
+                            "Direction":   "BUY",
+                            "Entry ₹":     round(loc, 2),
+                            "Target ₹":    round(vah, 2),
+                            "SL ₹":        round(loc - sl_rs, 2),
+                            "Outcome":     "✅ Win" if outcome == "win" else ("❌ SL Hit" if outcome == "sl" else "⏸ Open"),
+                            "P&L ₹":       trade_pnl,
+                        })
+                    else:
+                        sell_days += 1
+                        outcome = None
+                        for _, bar in day_bars.iloc[1:].iterrows():
+                            if float(bar["High"]) >= loc + sl_rs:
+                                outcome = "sl"; break
+                            if float(bar["Low"]) <= val:
+                                outcome = "win"; break
+                        day_end_close = float(day_bars["Close"].iloc[-1])
+                        if outcome == "win":
+                            sell_wins += 1
+                            trade_pnl = round(loc - val, 2)
+                        elif outcome == "sl":
+                            sell_losses += 1
+                            trade_pnl = round(-sl_rs, 2)
+                        else:
+                            trade_pnl = round(loc - day_end_close, 2)
+                        total_pnl += trade_pnl
+                        trade_rows.append({
+                            "Symbol":      sym,
+                            "Date":        str(day),
+                            "Anchor":      a_type,
+                            "Anchor Date": str(a_date)[:10],
+                            "Cut-1 Date":  str(c1_date)[:10],
+                            "Cut-2 Date":  str(c2_date)[:10],
+                            "Cut-3 Date":  str(c3_date)[:10],
+                            "LOC ₹":       round(loc, 2),
+                            "VAH ₹":       round(vah, 2),
+                            "VAL ₹":       round(val, 2),
+                            "Direction":   "SELL",
+                            "Entry ₹":     round(loc, 2),
+                            "Target ₹":    round(val, 2),
+                            "SL ₹":        round(loc + sl_rs, 2),
+                            "Outcome":     "✅ Win" if outcome == "win" else ("❌ SL Hit" if outcome == "sl" else "⏸ Open"),
+                            "P&L ₹":       trade_pnl,
+                        })
+
+                total = buy_days + sell_days
+                wins  = buy_wins + sell_wins
+                win_rate = round(wins / total * 100, 1) if total > 0 else 0.0
+                rows.append({
+                    "Symbol":       sym,
+                    "Signal":       None,
+                    "BUY Days":     buy_days,
+                    "BUY Wins ✅":  buy_wins,
+                    "BUY SL ❌":    buy_losses,
+                    "SELL Days":    sell_days,
+                    "SELL Wins ✅": sell_wins,
+                    "SELL SL ❌":   sell_losses,
+                    "Win Rate %":   win_rate,
+                    "P&L ₹":        round(total_pnl, 2),
+                })
+            except Exception:
+                continue
+
+        df_trades = pd.DataFrame(trade_rows) if trade_rows else pd.DataFrame()
+        if not rows:
+            return pd.DataFrame(), df_trades
+        df_bt = pd.DataFrame(rows)
+        return df_bt.sort_values("Win Rate %", ascending=False).reset_index(drop=True), df_trades
+
+    # Settings
+    all_syms_ns      = sorted({s for stocks in SECTOR_STOCKS.values() for s in stocks})
+    all_syms_display = [s.replace(".NS", "") for s in all_syms_ns]
+    c1, c2, c3 = st.columns([2, 1, 1])
+    with c1:
+        selected_display = st.multiselect(
+            "Stocks to scan",
+            options=all_syms_display,
+            default=all_syms_display,
+            help="Leave all selected to scan every stock in the universe.",
+        )
+    selected_syms = [s + ".NS" for s in selected_display]
+    with c2:
+        hm_lookback = st.slider("Anchor Lookback (bars)", 50, 500, 300, 50,
+                                key="frvp_hm_lookback")
+    with c3:
+        hm_va = st.slider("Value Area %", 0.50, 0.95, 0.70, 0.05,
+                          key="frvp_hm_va")
+
+    run_btn = st.button("▶ Run FRVP H-M Scan", type="primary",
+                        key="frvp_hm_run")
+
+    if run_btn:
+        if not selected_syms:
+            st.warning("Select at least one stock.")
+        else:
+            prog = st.progress(0, text="Starting scan…")
+            n    = len(selected_syms)
+            # Show incremental progress using a placeholder while cache computes
+            prog.progress(0.05, text=f"Scanning {n} stocks via FRVP 4-step algorithm…")
+            df_res = _frvp_hm_scan(tuple(selected_syms), hm_lookback, 30, hm_va)
+            prog.progress(1.0, text="✅ Scan complete!")
+            st.session_state["frvp_hm_df"] = df_res
+            st.rerun()
+
+    df_show = st.session_state.get("frvp_hm_df", pd.DataFrame())
+
+    if df_show.empty and not run_btn:
+        st.info("Click **▶ Run FRVP H-M Scan** to compute LOC / VAH / VAL for all stocks.")
+    elif not df_show.empty:
+        # ── Summary metrics ───────────────────────────────────────────────────
+        n_up   = (df_show["Signal"] == "🟢 CROSSING UP").sum()
+        n_dn   = (df_show["Signal"] == "🔴 CROSSING DOWN").sum()
+        n_abv  = (df_show["Signal"] == "Above LOC").sum()
+        n_blw  = (df_show["Signal"] == "Below LOC").sum()
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("🟢 Crossing UP",   n_up)
+        m2.metric("🔴 Crossing DOWN", n_dn)
+        m3.metric("Above LOC",        n_abv)
+        m4.metric("Below LOC",        n_blw)
+
+        # ── Signal filter ─────────────────────────────────────────────────────
+        sig_opts = ["🟢 CROSSING UP", "🔴 CROSSING DOWN", "Above LOC", "Below LOC"]
+        sig_filter = st.multiselect("Filter by Signal", sig_opts, default=[],
+                                    key="frvp_hm_sigfilter")
+        view = df_show if not sig_filter else df_show[df_show["Signal"].isin(sig_filter)]
+
+        # ── Colour-coded table ────────────────────────────────────────────────
+        def _hm_row_colour(row):
+            sig = row["Signal"]
+            if "CROSSING UP"   in sig: c = "background-color:#0d3b0d; color:#ccffcc"
+            elif "CROSSING DOWN" in sig: c = "background-color:#3b0d0d; color:#ffcccc"
+            elif sig == "Above LOC":   c = "background-color:#1a3b1a; color:#ccffcc"
+            else:                      c = "background-color:#2a1a1a; color:#ffcccc"
+            return [c] * len(row)
+
+        def _fmt_dt(v):
+            try:
+                import datetime as _dt
+                if isinstance(v, _dt.date):
+                    return v.strftime("%d-%b-%y")
+                return _dt.date.fromisoformat(str(v)[:10]).strftime("%d-%b-%y")
+            except Exception:
+                return str(v)
+
+        _scan_fmt = {c: _fmt_dt for c in view.columns if "Date" in c}
+        _scan_fmt.update({"CMP": "₹{:.2f}", "LOC": "₹{:.2f}", "VAH": "₹{:.2f}", "VAL": "₹{:.2f}"})
+        styled = (
+            view.style
+            .apply(_hm_row_colour, axis=1)
+            .format(_scan_fmt)
+        )
+        st.dataframe(styled, use_container_width=True, hide_index=True)
+
+        # ── Export ────────────────────────────────────────────────────────────
+        st.download_button(
+            "⬇ Export CSV",
+            view.to_csv(index=False).encode(),
+            file_name="frvp_hm_scanner.csv",
+            mime="text/csv",
+        )
+
+        # ── Backtest ──────────────────────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("📈 Backtest Results")
+        bt_col1, bt_col2 = st.columns(2)
+        with bt_col1:
+            backtest_days = st.slider("Backtest Period (days)", 7, 90, 30, 1,
+                                      key="frvp_hm_bt_days")
+        with bt_col2:
+            sl_rs = st.slider("Stop Loss (₹)", 0.5, 20.0, 2.0, 0.5,
+                              key="frvp_hm_sl_rs")
+
+        st.caption(
+            f"Last **{backtest_days} trading days** · BUY entry = LOC → Target VAH, SL = LOC − ₹{sl_rs:.1f} · "
+            f"SELL entry = LOC → Target VAL, SL = LOC + ₹{sl_rs:.1f} · Each day is an independent scenario."
+        )
+
+        with st.spinner("Running walk-forward backtest…"):
+            bt_syms = tuple(row["Symbol"] for _, row in df_show.iterrows())
+            df_bt, df_trades = _frvp_hm_backtest(bt_syms, backtest_days, sl_rs, hm_lookback, 30, hm_va)
+
+        if df_bt.empty:
+            st.info("No backtest data available.")
+        else:
+            sig_map = df_show.set_index("Symbol")["Signal"].to_dict()
+            df_bt["Signal"] = df_bt["Symbol"].map(sig_map)
+
+            def _bt_pnl_color(val):
+                if not isinstance(val, (int, float)):
+                    return ""
+                return "color:#4ade80;font-weight:700" if val > 0 else (
+                    "color:#f87171;font-weight:700" if val < 0 else "")
+
+            def _bt_wr_color(val):
+                if not isinstance(val, (int, float)):
+                    return ""
+                if val >= 60:
+                    return "color:#4ade80;font-weight:700"
+                if val >= 40:
+                    return "color:#FFD600"
+                return "color:#f87171"
+
+            styled_bt = (
+                df_bt.style
+                .map(_bt_pnl_color, subset=["P&L ₹"])
+                .map(_bt_wr_color,  subset=["Win Rate %"])
+                .format({
+                    "Win Rate %": "{:.1f}%",
+                    "P&L ₹":     lambda v: f"₹{v:+,.2f}" if isinstance(v, (int, float)) else "—",
+                }, na_rep="—")
+            )
+            st.dataframe(styled_bt, use_container_width=True, hide_index=True)
+
+            bm1, bm2, bm3, bm4 = st.columns(4)
+            bm1.metric("Stocks Backtested", len(df_bt))
+            bm2.metric("Avg Win Rate",      f"{df_bt['Win Rate %'].mean():.1f}%")
+            bm3.metric("Total P&L ₹",       f"₹{df_bt['P&L ₹'].sum():+,.2f}")
+            bm4.metric("Best Stock",        df_bt.iloc[0]["Symbol"] if not df_bt.empty else "—")
+
+            # ── Trade Log ─────────────────────────────────────────────────────
+            st.markdown("---")
+            st.subheader("📋 Trade Log")
+
+            syms_in_bt = sorted(df_trades["Symbol"].unique()) if not df_trades.empty else []
+            tl_sym = st.selectbox("View trades for", ["All"] + syms_in_bt, key="frvp_hm_tl_sym")
+
+            if df_trades.empty:
+                st.info("No trade data available.")
+            else:
+                tl_view = df_trades if tl_sym == "All" else df_trades[df_trades["Symbol"] == tl_sym]
+                tl_view = tl_view.sort_values("Date", ascending=False).reset_index(drop=True)
+
+                def _tl_outcome_color(val):
+                    if "Win"    in str(val): return "color:#4ade80;font-weight:700"
+                    if "SL Hit" in str(val): return "color:#f87171;font-weight:700"
+                    return "color:#94a3b8"
+
+                def _tl_pnl_color(val):
+                    if not isinstance(val, (int, float)): return ""
+                    return "color:#4ade80;font-weight:700" if val > 0 else (
+                           "color:#f87171;font-weight:700" if val < 0 else "")
+
+                def _tl_dir_color(val):
+                    return "color:#60a5fa;font-weight:700" if val == "BUY" else "color:#f472b6;font-weight:700"
+
+                def _fmt_date(v):
+                    try:
+                        import datetime as _dt
+                        if isinstance(v, _dt.date):
+                            return v.strftime("%d-%b-%y")
+                        return _dt.date.fromisoformat(str(v)[:10]).strftime("%d-%b-%y")
+                    except Exception:
+                        return str(v)
+
+                _tl_fmt = {c: _fmt_date for c in tl_view.columns if "Date" in c or c == "Date"}
+                _tl_fmt.update({
+                    "LOC ₹":    "₹{:.2f}",
+                    "VAH ₹":    "₹{:.2f}",
+                    "VAL ₹":    "₹{:.2f}",
+                    "Entry ₹":  "₹{:.2f}",
+                    "Target ₹": "₹{:.2f}",
+                    "SL ₹":     "₹{:.2f}",
+                    "P&L ₹":    lambda v: f"₹{v:+,.2f}" if isinstance(v, (int, float)) else "—",
+                })
+                styled_tl = (
+                    tl_view.style
+                    .map(_tl_outcome_color, subset=["Outcome"])
+                    .map(_tl_pnl_color,     subset=["P&L ₹"])
+                    .map(_tl_dir_color,     subset=["Direction"])
+                    .format(_tl_fmt)
+                )
+                st.dataframe(styled_tl, use_container_width=True, hide_index=True)
+
+                st.download_button(
+                    "⬇ Export Trade Log CSV",
+                    tl_view.to_csv(index=False).encode(),
+                    file_name=f"frvp_trade_log_{tl_sym.lower()}.csv",
+                    mime="text/csv",
+                    key="frvp_hm_tl_export",
+                )
 
 from app.utils.disclaimer import show_footer
 show_footer()
