@@ -1804,19 +1804,10 @@ with tab_frvp_hm:
                 c3i  = _frvp_hm_cut(poc3, sub3)
                 c3_date = sub3.index[c3i]
 
-                # Step 4: switch to 15-min intraday bars from c3_date for final LOC/VAH/VAL
-                c3_str = str(c3_date)[:10]
-                raw15 = yf.download(sym, start=c3_str, interval="15m",
-                                    auto_adjust=True, progress=False)
-                if raw15 is not None and len(raw15) >= 5:
-                    if isinstance(raw15.columns, pd.MultiIndex):
-                        raw15.columns = raw15.columns.get_level_values(0)
-                    df15 = raw15.dropna(subset=["High", "Low", "Volume"])
-                    loc, vah, val = _frvp_hm_vp(df15["High"], df15["Low"], df15["Volume"], n_bins, va_pct)
-                else:
-                    c3_abs = df.index.get_loc(c3_date)
-                    sub4   = df.iloc[c3_abs:]
-                    loc, vah, val = _frvp_hm_vp(sub4["High"], sub4["Low"], sub4["Volume"], n_bins, va_pct)
+                # Step 4: daily bars from c3_date to latest (matches standalone scanner logic)
+                c3_abs = df.index.get_loc(c3_date)
+                sub4   = df.iloc[c3_abs:]
+                loc, vah, val = _frvp_hm_vp(sub4["High"], sub4["Low"], sub4["Volume"], n_bins, va_pct)
 
                 if prev_close < loc <= cmp:
                     signal = "🟢 CROSSING UP"
@@ -1857,187 +1848,170 @@ with tab_frvp_hm:
         "<div style='background:#1e293b;border-left:4px solid #f59e0b;"
         "padding:10px 16px;border-radius:6px;margin-bottom:12px;font-size:13px'>"
         "📅 <b>Anchor:</b> Daily swing pivot &nbsp;|&nbsp; "
-        "⏱️ <b>Trade timeframe:</b> Intraday 15-min bars &nbsp;|&nbsp; "
-        "🎯 <b>Use case:</b> Intraday / BTST trades (minutes to 1–2 days)"
+        "⏱️ <b>Trade timeframe:</b> Daily bars &nbsp;|&nbsp; "
+        "🎯 <b>Use case:</b> Swing trades (1–5 days hold)"
         "</div>",
         unsafe_allow_html=True,
     )
     st.caption(
         "4-Step Fixed Range Volume Profile scanner. "
-        "Computes Anchor → Cut-1 → Cut-2 → Cut-3 on daily bars, "
-        "then derives LOC / VAH / VAL from the final slice. "
-        "LOC crossing = key intraday buy/sell signal."
+        "Computes Anchor → Cut-1 → Cut-2 → Cut-3 → LOC / VAH / VAL entirely on daily bars. "
+        "Backtest checks target / SL on the next N daily bars after signal."
     )
 
     @st.cache_data(ttl=900, show_spinner=False)
-    def _frvp_hm_backtest(syms_tuple, backtest_days, sl_rs, lookback, n_bins, va_pct):
+    def _frvp_hm_backtest(syms_tuple, backtest_days, hold_days, sl_points, lookback, n_bins, va_pct):
         """
-        Walk-forward backtest: for each of the last backtest_days trading days,
-        recompute the full FRVP 4-step algorithm using only daily data available
-        up to that day, then simulate the 15-min intraday trade using that day's
-        computed LOC/VAH/VAL. Eliminates look-ahead bias.
+        Walk-forward backtest matching standalone frvp_scanner_with_backtest.py:
+        - All 4 FRVP steps use daily bars only (no 15-min data).
+        - Entry at signal day's close; target/SL checked on next hold_days daily bars.
+        - Results: WIN, LOSS, NO_HIT, OPEN, BOTH_HIT_AMBIGUOUS.
         """
-        import yfinance as yf, datetime as _dt
-        rows, trade_rows = [], []
+        import yfinance as yf, math as _math
+        summary_rows, trade_rows = [], []
 
         for sym in syms_tuple:
             try:
-                raw_d = yf.download(sym + ".NS", period="2y", interval="1d",
-                                    auto_adjust=True, progress=False)
-                raw_15 = yf.download(sym + ".NS", period="60d", interval="15m",
-                                     auto_adjust=True, progress=False)
-                if raw_d is None or len(raw_d) < 30 or raw_15 is None or len(raw_15) < 10:
+                raw = yf.download(sym + ".NS", period="2y", interval="1d",
+                                  auto_adjust=True, progress=False)
+                if raw is None or len(raw) < lookback + 5:
                     continue
-                for r in (raw_d, raw_15):
-                    if isinstance(r.columns, pd.MultiIndex):
-                        r.columns = r.columns.get_level_values(0)
-                daily_df = raw_d.dropna(subset=["Close", "High", "Low", "Volume"])
-                intra_df = raw_15.dropna(subset=["High", "Low", "Close"]).copy()
-                intra_df["_date"] = intra_df.index.date
+                if isinstance(raw.columns, pd.MultiIndex):
+                    raw.columns = raw.columns.get_level_values(0)
+                daily_df = raw.dropna(subset=["Close", "High", "Low", "Volume"])
+                if len(daily_df) < lookback + 5:
+                    continue
 
-                all_dates = sorted(intra_df["_date"].unique())[-backtest_days:]
+                n = len(daily_df)
+                min_bars = lookback + 5
+                start_pos = max(min_bars, n - backtest_days)
 
-                buy_days = buy_wins = buy_losses = 0
-                sell_days = sell_wins = sell_losses = 0
-                total_pnl = 0.0
+                wins = losses = no_hit = open_count = ambiguous = errors = 0
+                pnl_list = []
 
-                for day in all_dates:
-                    daily_to_day = daily_df[daily_df.index.date <= day]
-                    if len(daily_to_day) < 30:
-                        continue
-
+                for signal_pos in range(start_pos, n):
+                    hist = daily_df.iloc[: signal_pos + 1]
                     try:
-                        a_date, a_type, a_price, a_pct = _frvp_hm_anchor(daily_to_day, lookback)
-                        a_idx = daily_to_day.index.get_loc(a_date)
+                        a_date, a_type, a_price, a_pct = _frvp_hm_anchor(hist, lookback)
+                        a_idx = hist.index.get_loc(a_date)
 
-                        sub1 = daily_to_day.iloc[a_idx:]
+                        sub1 = hist.iloc[a_idx:]
                         poc1, _, _ = _frvp_hm_vp(sub1["High"], sub1["Low"], sub1["Volume"], n_bins, va_pct)
                         c1i = _frvp_hm_cut(poc1, sub1)
                         c1_date = sub1.index[c1i]
 
-                        c1_abs = daily_to_day.index.get_loc(c1_date)
-                        sub2 = daily_to_day.iloc[c1_abs:]
+                        c1_abs = hist.index.get_loc(c1_date)
+                        sub2 = hist.iloc[c1_abs:]
                         poc2, _, _ = _frvp_hm_vp(sub2["High"], sub2["Low"], sub2["Volume"], n_bins, va_pct)
                         c2i = _frvp_hm_cut(poc2, sub2)
                         c2_date = sub2.index[c2i]
 
-                        c2_abs = daily_to_day.index.get_loc(c2_date)
-                        sub3 = daily_to_day.iloc[c2_abs:]
+                        c2_abs = hist.index.get_loc(c2_date)
+                        sub3 = hist.iloc[c2_abs:]
                         poc3, _, _ = _frvp_hm_vp(sub3["High"], sub3["Low"], sub3["Volume"], n_bins, va_pct)
                         c3i = _frvp_hm_cut(poc3, sub3)
                         c3_date = sub3.index[c3i]
+
+                        c3_abs = hist.index.get_loc(c3_date)
+                        sub4 = hist.iloc[c3_abs:]
+                        loc, vah, val = _frvp_hm_vp(sub4["High"], sub4["Low"], sub4["Volume"], n_bins, va_pct)
                     except Exception:
+                        errors += 1
                         continue
 
-                    c3_d = c3_date.date() if hasattr(c3_date, "date") else _dt.date.fromisoformat(str(c3_date)[:10])
-                    intra_slice = intra_df[(intra_df["_date"] >= c3_d) & (intra_df["_date"] <= day)]
-                    if len(intra_slice) < 5:
-                        continue
-                    loc, vah, val = _frvp_hm_vp(
-                        intra_slice["High"], intra_slice["Low"], intra_slice["Volume"], n_bins, va_pct
-                    )
+                    entry = float(daily_df["Close"].iloc[signal_pos])
+                    signal = "BUY" if entry >= loc else "SELL"
+                    target = vah if signal == "BUY" else val
+                    sl     = loc - sl_points if signal == "BUY" else loc + sl_points
 
-                    day_bars = intra_df[intra_df["_date"] == day].reset_index(drop=True)
-                    if len(day_bars) < 2:
-                        continue
-                    first_close = float(day_bars["Close"].iloc[0])
-
-                    if first_close >= loc:
-                        buy_days += 1
-                        outcome = None
-                        for _, bar in day_bars.iloc[1:].iterrows():
-                            if float(bar["Low"]) <= loc - sl_rs:
-                                outcome = "sl"; break
-                            if float(bar["High"]) >= vah:
-                                outcome = "win"; break
-                        day_end_close = float(day_bars["Close"].iloc[-1])
-                        if outcome == "win":
-                            buy_wins += 1
-                            trade_pnl = round(vah - loc, 2)
-                        elif outcome == "sl":
-                            buy_losses += 1
-                            trade_pnl = round(-sl_rs, 2)
+                    # Check target/SL on next hold_days bars
+                    result = "OPEN"
+                    exit_date = exit_price = bars_held = ""
+                    max_pos = min(signal_pos + hold_days, n - 1)
+                    if signal_pos < n - 1:
+                        result = "NO_HIT"
+                        for chk in range(signal_pos + 1, max_pos + 1):
+                            h = float(daily_df["High"].iloc[chk])
+                            l = float(daily_df["Low"].iloc[chk])
+                            bars_held = chk - signal_pos
+                            exit_date = str(daily_df.index[chk])[:10]
+                            if signal == "BUY":
+                                t_hit = h >= target
+                                s_hit = l <= sl
+                            else:
+                                t_hit = l <= target
+                                s_hit = h >= sl
+                            if t_hit and s_hit:
+                                result = "BOTH_HIT_AMBIGUOUS"
+                                exit_price = _math.nan
+                                ambiguous += 1
+                                break
+                            if t_hit:
+                                result = "WIN"
+                                exit_price = round(target, 2)
+                                wins += 1
+                                break
+                            if s_hit:
+                                result = "LOSS"
+                                exit_price = round(sl, 2)
+                                losses += 1
+                                break
                         else:
-                            trade_pnl = round(day_end_close - loc, 2)
-                        total_pnl += trade_pnl
-                        trade_rows.append({
-                            "Symbol":      sym,
-                            "Date":        str(day),
-                            "Anchor":      a_type,
-                            "Anchor Date": str(a_date)[:10],
-                            "Cut-1 Date":  str(c1_date)[:10],
-                            "Cut-2 Date":  str(c2_date)[:10],
-                            "Cut-3 Date":  str(c3_date)[:10],
-                            "LOC ₹":       round(loc, 2),
-                            "VAH ₹":       round(vah, 2),
-                            "VAL ₹":       round(val, 2),
-                            "Direction":   "BUY",
-                            "Entry ₹":     round(loc, 2),
-                            "Target ₹":    round(vah, 2),
-                            "SL ₹":        round(loc - sl_rs, 2),
-                            "Outcome":     "✅ Win" if outcome == "win" else ("❌ SL Hit" if outcome == "sl" else "⏸ Open"),
-                            "P&L ₹":       trade_pnl,
-                        })
+                            if result == "NO_HIT":
+                                no_hit += 1
                     else:
-                        sell_days += 1
-                        outcome = None
-                        for _, bar in day_bars.iloc[1:].iterrows():
-                            if float(bar["High"]) >= loc + sl_rs:
-                                outcome = "sl"; break
-                            if float(bar["Low"]) <= val:
-                                outcome = "win"; break
-                        day_end_close = float(day_bars["Close"].iloc[-1])
-                        if outcome == "win":
-                            sell_wins += 1
-                            trade_pnl = round(loc - val, 2)
-                        elif outcome == "sl":
-                            sell_losses += 1
-                            trade_pnl = round(-sl_rs, 2)
-                        else:
-                            trade_pnl = round(loc - day_end_close, 2)
-                        total_pnl += trade_pnl
-                        trade_rows.append({
-                            "Symbol":      sym,
-                            "Date":        str(day),
-                            "Anchor":      a_type,
-                            "Anchor Date": str(a_date)[:10],
-                            "Cut-1 Date":  str(c1_date)[:10],
-                            "Cut-2 Date":  str(c2_date)[:10],
-                            "Cut-3 Date":  str(c3_date)[:10],
-                            "LOC ₹":       round(loc, 2),
-                            "VAH ₹":       round(vah, 2),
-                            "VAL ₹":       round(val, 2),
-                            "Direction":   "SELL",
-                            "Entry ₹":     round(loc, 2),
-                            "Target ₹":    round(val, 2),
-                            "SL ₹":        round(loc + sl_rs, 2),
-                            "Outcome":     "✅ Win" if outcome == "win" else ("❌ SL Hit" if outcome == "sl" else "⏸ Open"),
-                            "P&L ₹":       trade_pnl,
-                        })
+                        open_count += 1
 
-                total = buy_days + sell_days
-                wins  = buy_wins + sell_wins
-                win_rate = round(wins / total * 100, 1) if total > 0 else 0.0
-                rows.append({
-                    "Symbol":       sym,
-                    "Signal":       None,
-                    "BUY Days":     buy_days,
-                    "BUY Wins ✅":  buy_wins,
-                    "BUY SL ❌":    buy_losses,
-                    "SELL Days":    sell_days,
-                    "SELL Wins ✅": sell_wins,
-                    "SELL SL ❌":   sell_losses,
-                    "Win Rate %":   win_rate,
-                    "P&L ₹":        round(total_pnl, 2),
+                    pnl = _math.nan
+                    if isinstance(exit_price, (int, float)) and not _math.isnan(exit_price if isinstance(exit_price, float) else 0.0):
+                        pnl = round((exit_price - entry) if signal == "BUY" else (entry - exit_price), 2)
+                    pnl_list.append(pnl)
+
+                    trade_rows.append({
+                        "Symbol":      sym.replace(".NS", ""),
+                        "SignalDate":  str(daily_df.index[signal_pos])[:10],
+                        "EntryClose":  round(entry, 2),
+                        "Signal":      signal,
+                        "LOC":         round(loc, 2),
+                        "VAH":         round(vah, 2),
+                        "VAL":         round(val, 2),
+                        "Target":      round(target, 2),
+                        "SL":          round(sl, 2),
+                        "Result":      result,
+                        "ExitDate":    exit_date,
+                        "ExitPrice":   exit_price,
+                        "BarsHeld":    bars_held,
+                        "PnLPoints":   pnl,
+                        "AnchorDate":  str(a_date)[:10],
+                        "Cut1Date":    str(c1_date)[:10],
+                        "Cut2Date":    str(c2_date)[:10],
+                        "Cut3Date":    str(c3_date)[:10],
+                    })
+
+                closed = wins + losses
+                wr = round(wins / closed * 100, 1) if closed > 0 else _math.nan
+                valid_pnl = [p for p in pnl_list if isinstance(p, float) and not _math.isnan(p)]
+                avg_pnl = round(sum(valid_pnl) / len(valid_pnl), 2) if valid_pnl else _math.nan
+                summary_rows.append({
+                    "Symbol":            sym.replace(".NS", ""),
+                    "BacktestRows":      wins + losses + no_hit + open_count + ambiguous + errors,
+                    "ClosedTrades":      closed,
+                    "Wins":              wins,
+                    "Losses":            losses,
+                    "WinRate%":          wr,
+                    "AvgPnLPoints":      avg_pnl,
+                    "NoHit":             no_hit,
+                    "Open":              open_count,
+                    "BothHitAmbiguous":  ambiguous,
                 })
             except Exception:
                 continue
 
         df_trades = pd.DataFrame(trade_rows) if trade_rows else pd.DataFrame()
-        if not rows:
+        if not summary_rows:
             return pd.DataFrame(), df_trades
-        df_bt = pd.DataFrame(rows)
-        return df_bt.sort_values("Win Rate %", ascending=False).reset_index(drop=True), df_trades
+        df_bt = pd.DataFrame(summary_rows).sort_values("WinRate%", ascending=False).reset_index(drop=True)
+        return df_bt, df_trades
 
     # Settings
     all_syms_ns      = sorted({s for stocks in SECTOR_STOCKS.values() for s in stocks})
@@ -2134,35 +2108,32 @@ with tab_frvp_hm:
         # ── Backtest ──────────────────────────────────────────────────────────
         st.markdown("---")
         st.subheader("📈 Backtest Results")
-        bt_col1, bt_col2 = st.columns(2)
+        bt_col1, bt_col2, bt_col3 = st.columns(3)
         with bt_col1:
-            backtest_days = st.slider("Backtest Period (days)", 7, 90, 30, 1,
+            backtest_days = st.slider("Backtest Period (trading days)", 10, 90, 30, 1,
                                       key="frvp_hm_bt_days")
         with bt_col2:
-            sl_rs = st.slider("Stop Loss (₹)", 0.5, 20.0, 2.0, 0.5,
-                              key="frvp_hm_sl_rs")
+            sl_points = st.number_input("SL Points from LOC", min_value=0.25, max_value=50.0,
+                                        value=2.0, step=0.25, key="frvp_hm_sl_points")
+        with bt_col3:
+            hold_days = st.slider("Hold Days (max bars to check target/SL)", 1, 10, 1,
+                                  key="frvp_hm_hold_days")
 
         st.caption(
-            f"Last **{backtest_days} trading days** · BUY entry = LOC → Target VAH, SL = LOC − ₹{sl_rs:.1f} · "
-            f"SELL entry = LOC → Target VAL, SL = LOC + ₹{sl_rs:.1f} · Each day is an independent scenario."
+            f"Last **{backtest_days} trading days** · Entry = signal day Close · "
+            f"BUY target=VAH SL=LOC−{sl_points:.2f}pts · SELL target=VAL SL=LOC+{sl_points:.2f}pts · "
+            f"Results checked over next **{hold_days}** daily bar(s). Results: WIN / LOSS / NO_HIT / OPEN / BOTH_HIT_AMBIGUOUS."
         )
 
         with st.spinner("Running walk-forward backtest…"):
             bt_syms = tuple(row["Symbol"] for _, row in df_show.iterrows())
-            df_bt, df_trades = _frvp_hm_backtest(bt_syms, backtest_days, sl_rs, hm_lookback, 30, hm_va)
+            df_bt, df_trades = _frvp_hm_backtest(
+                bt_syms, backtest_days, hold_days, sl_points, hm_lookback, 30, hm_va
+            )
 
         if df_bt.empty:
             st.info("No backtest data available.")
         else:
-            sig_map = df_show.set_index("Symbol")["Signal"].to_dict()
-            df_bt["Signal"] = df_bt["Symbol"].map(sig_map)
-
-            def _bt_pnl_color(val):
-                if not isinstance(val, (int, float)):
-                    return ""
-                return "color:#4ade80;font-weight:700" if val > 0 else (
-                    "color:#f87171;font-weight:700" if val < 0 else "")
-
             def _bt_wr_color(val):
                 if not isinstance(val, (int, float)):
                     return ""
@@ -2172,22 +2143,29 @@ with tab_frvp_hm:
                     return "color:#FFD600"
                 return "color:#f87171"
 
+            def _bt_pnl_color(val):
+                if not isinstance(val, (int, float)):
+                    return ""
+                return "color:#4ade80;font-weight:700" if val > 0 else (
+                    "color:#f87171;font-weight:700" if val < 0 else "")
+
             styled_bt = (
                 df_bt.style
-                .map(_bt_pnl_color, subset=["P&L ₹"])
-                .map(_bt_wr_color,  subset=["Win Rate %"])
+                .map(_bt_wr_color,  subset=["WinRate%"])
+                .map(_bt_pnl_color, subset=["AvgPnLPoints"])
                 .format({
-                    "Win Rate %": "{:.1f}%",
-                    "P&L ₹":     lambda v: f"₹{v:+,.2f}" if isinstance(v, (int, float)) else "—",
+                    "WinRate%":     lambda v: f"{v:.1f}%" if isinstance(v, (int, float)) else "—",
+                    "AvgPnLPoints": lambda v: f"{v:+.2f}" if isinstance(v, (int, float)) else "—",
                 }, na_rep="—")
             )
             st.dataframe(styled_bt, use_container_width=True, hide_index=True)
 
+            avg_wr = df_bt["WinRate%"].dropna().mean()
             bm1, bm2, bm3, bm4 = st.columns(4)
             bm1.metric("Stocks Backtested", len(df_bt))
-            bm2.metric("Avg Win Rate",      f"{df_bt['Win Rate %'].mean():.1f}%")
-            bm3.metric("Total P&L ₹",       f"₹{df_bt['P&L ₹'].sum():+,.2f}")
-            bm4.metric("Best Stock",        df_bt.iloc[0]["Symbol"] if not df_bt.empty else "—")
+            bm2.metric("Avg Win Rate",      f"{avg_wr:.1f}%" if avg_wr == avg_wr else "—")
+            bm3.metric("Total Closed Trades", int(df_bt["ClosedTrades"].sum()))
+            bm4.metric("Best Stock", df_bt.iloc[0]["Symbol"] if not df_bt.empty else "—")
 
             # ── Trade Log ─────────────────────────────────────────────────────
             st.markdown("---")
@@ -2200,12 +2178,14 @@ with tab_frvp_hm:
                 st.info("No trade data available.")
             else:
                 tl_view = df_trades if tl_sym == "All" else df_trades[df_trades["Symbol"] == tl_sym]
-                tl_view = tl_view.sort_values("Date", ascending=False).reset_index(drop=True)
+                tl_view = tl_view.sort_values("SignalDate", ascending=False).reset_index(drop=True)
 
-                def _tl_outcome_color(val):
-                    if "Win"    in str(val): return "color:#4ade80;font-weight:700"
-                    if "SL Hit" in str(val): return "color:#f87171;font-weight:700"
-                    return "color:#94a3b8"
+                def _tl_result_color(val):
+                    v = str(val)
+                    if v == "WIN":               return "color:#4ade80;font-weight:700"
+                    if v == "LOSS":              return "color:#f87171;font-weight:700"
+                    if v == "BOTH_HIT_AMBIGUOUS": return "color:#fb923c;font-weight:700"
+                    return "color:#fbbf24"  # NO_HIT / OPEN
 
                 def _tl_pnl_color(val):
                     if not isinstance(val, (int, float)): return ""
@@ -2224,21 +2204,23 @@ with tab_frvp_hm:
                     except Exception:
                         return str(v)
 
-                _tl_fmt = {c: _fmt_date for c in tl_view.columns if "Date" in c or c == "Date"}
+                date_cols = [c for c in tl_view.columns if "Date" in c]
+                _tl_fmt = {c: _fmt_date for c in date_cols}
                 _tl_fmt.update({
-                    "LOC ₹":    "₹{:.2f}",
-                    "VAH ₹":    "₹{:.2f}",
-                    "VAL ₹":    "₹{:.2f}",
-                    "Entry ₹":  "₹{:.2f}",
-                    "Target ₹": "₹{:.2f}",
-                    "SL ₹":     "₹{:.2f}",
-                    "P&L ₹":    lambda v: f"₹{v:+,.2f}" if isinstance(v, (int, float)) else "—",
+                    "EntryClose":  "₹{:.2f}",
+                    "LOC":         "₹{:.2f}",
+                    "VAH":         "₹{:.2f}",
+                    "VAL":         "₹{:.2f}",
+                    "Target":      "₹{:.2f}",
+                    "SL":          "₹{:.2f}",
+                    "ExitPrice":   lambda v: f"₹{v:.2f}" if isinstance(v, (int, float)) and v == v else "—",
+                    "PnLPoints":   lambda v: f"{v:+.2f}" if isinstance(v, (int, float)) and v == v else "—",
                 })
                 styled_tl = (
                     tl_view.style
-                    .map(_tl_outcome_color, subset=["Outcome"])
-                    .map(_tl_pnl_color,     subset=["P&L ₹"])
-                    .map(_tl_dir_color,     subset=["Direction"])
+                    .map(_tl_result_color, subset=["Result"])
+                    .map(_tl_pnl_color,    subset=["PnLPoints"])
+                    .map(_tl_dir_color,    subset=["Signal"])
                     .format(_tl_fmt)
                 )
                 st.dataframe(styled_tl, use_container_width=True, hide_index=True)

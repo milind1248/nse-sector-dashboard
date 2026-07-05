@@ -415,12 +415,19 @@ with tab_curr:
         text=[f"₹{v:+,.0f}" for v in sorted_curr["net_curr_eq"]],
         textposition="outside",
     ))
+    _xmax = sorted_curr["net_curr_eq"].max()
+    _xmin = sorted_curr["net_curr_eq"].min()
     fig_bar.update_layout(
         template="plotly_dark", height=600,
         title=f"FII Equity Net Investment — {curr_date.strftime('%d %b %Y')} (₹ Crore)",
-        margin=dict(t=50, b=20, l=240, r=130),
-        xaxis_title="₹ Crore", xaxis_zeroline=True,
-        xaxis_zerolinecolor="rgba(255,255,255,0.3)", xaxis_zerolinewidth=1.5,
+        margin=dict(t=50, b=20, l=240, r=20),
+        xaxis=dict(
+            title="₹ Crore",
+            zeroline=True,
+            zerolinecolor="rgba(255,255,255,0.3)",
+            zerolinewidth=1.5,
+            range=[_xmin * 1.18, _xmax * 1.18],
+        ),
     )
     st.plotly_chart(fig_bar, width='stretch')
 
