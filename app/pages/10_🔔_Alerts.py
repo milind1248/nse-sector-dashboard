@@ -2046,7 +2046,8 @@ with tab_frvp_hm:
             df_res = _frvp_hm_scan(tuple(selected_syms), hm_lookback, 30, hm_va)
             prog.progress(1.0, text="✅ Scan complete!")
             st.session_state["frvp_hm_df"] = df_res
-            st.session_state["frvp_hm_fetch_time"] = pd.Timestamp.now()
+            import pytz as _pytz
+            st.session_state["frvp_hm_fetch_time"] = pd.Timestamp.now(tz=_pytz.timezone("Asia/Kolkata"))
             st.rerun()
 
     df_show = st.session_state.get("frvp_hm_df", pd.DataFrame())
@@ -2067,11 +2068,14 @@ with tab_frvp_hm:
 
         fetch_ts = st.session_state.get("frvp_hm_fetch_time")
         if fetch_ts is not None:
-            age_mins = int((pd.Timestamp.now() - fetch_ts).total_seconds() // 60)
+            import pytz as _pytz
+            _ist = _pytz.timezone("Asia/Kolkata")
+            now_ist = pd.Timestamp.now(tz=_ist)
+            age_mins = int((now_ist - fetch_ts).total_seconds() // 60)
             age_str = f"{age_mins} min ago" if age_mins > 0 else "just now"
             st.caption(
                 f"📡 Data fetched at "
-                f"**{fetch_ts.strftime('%d-%b-%Y %H:%M:%S')}** · {age_str} "
+                f"**{fetch_ts.strftime('%d-%b-%Y %H:%M:%S')} IST** · {age_str} "
                 f"· Cache refreshes every 15 min on next Run"
             )
 
