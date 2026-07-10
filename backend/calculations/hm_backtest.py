@@ -132,12 +132,12 @@ def summarize_backtests(trades: pd.DataFrame) -> pd.DataFrame:
         response_score = (wins * 0.35) + (target_rate * 0.25) + (max(avg_ret, -10) * 5) + (median_mfe * 3)
         return pd.Series({
             "signals": len(g),
-            "win_rate_%": round(wins, 2),
-            "target_rate_%": round(target_rate, 2),
-            "avg_return_%": round(avg_ret, 2),
-            "median_mfe_%": round(median_mfe, 2),
-            "avg_score": round(g["score"].mean(), 2),
-            "response_score": round(response_score, 2),
+            "win_rate_%": round(wins, 1),
+            "target_rate_%": round(target_rate, 1),
+            "avg_return_%": round(avg_ret, 1),
+            "median_mfe_%": round(median_mfe, 1),
+            "avg_score": round(g["score"].mean(), 1),
+            "response_score": round(response_score, 1),
         })
 
     summary = trades.groupby("symbol", as_index=False).apply(agg, include_groups=False).reset_index()

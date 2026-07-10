@@ -767,6 +767,45 @@ def _check_gann():
 # ─────────────────────────────────────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────────────────────────────────────
+def _check_hm_scanner():
+    checks = []
+
+    try:
+        from backend.calculations.hm_indicators import add_indicators, generate_signals
+        checks.append(("hm_indicators module", "OK", "add_indicators + generate_signals imported"))
+    except Exception as e:
+        checks.append(("hm_indicators module", "FAIL", f"import error: {e}"))
+
+    try:
+        from backend.calculations.hm_backtest import backtest_signals, summarize_backtests
+        checks.append(("hm_backtest module", "OK", "backtest_signals + summarize_backtests imported"))
+    except Exception as e:
+        checks.append(("hm_backtest module", "FAIL", f"import error: {e}"))
+
+    try:
+        import yfinance as yf
+        import pandas as pd
+        from backend.calculations.hm_indicators import add_indicators, generate_signals
+        raw = yf.download("RELIANCE.NS", period="60d", interval="1d",
+                          auto_adjust=True, progress=False)
+        if raw is None or raw.empty:
+            checks.append(("H-M live data smoke test", "WARN",
+                            "RELIANCE.NS returned no data — market data source may be down"))
+        else:
+            df = add_indicators(raw)
+            df = generate_signals(df, min_score=70, confirmation_mode="Balanced")
+            n_bottom = int(df["BOTTOM_SIGNAL"].sum())
+            n_top = int(df["TOP_SIGNAL"].sum())
+            rsi_last = round(float(df["RSI"].iloc[-1]), 1)
+            checks.append(("H-M live data smoke test", "OK",
+                            f"RELIANCE.NS · {len(df)} bars · RSI={rsi_last} · "
+                            f"{n_bottom} bottom / {n_top} top signals"))
+    except Exception as e:
+        checks.append(("H-M live data smoke test", "FAIL", str(e)))
+
+    return checks
+
+
 _PAGES = [
     ("📡 Market Pulse",     _check_market_pulse),
     ("📈 Sector Analysis",  _check_sector_analysis),
@@ -777,6 +816,7 @@ _PAGES = [
     ("💰 Smart Money",      _check_smart_money),
     ("📊 FII Accumulation", _check_fii_accumulation),
     ("🔔 Alerts",           _check_alerts),
+    ("🔭 H-M Scanner",      _check_hm_scanner),
     ("🤖 AI Forecast",      _check_ai_forecast),
     ("📤 Export",           _check_export),
     ("🔢 Gann Analysis",    _check_gann),

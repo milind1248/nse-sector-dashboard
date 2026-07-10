@@ -156,18 +156,18 @@ def _run_scan(symbols: tuple, interval: str, min_score: int, mode: str, use_htf:
 
             rows.append({
                 "Symbol": sym.replace(".NS", ""),
-                "Close": round(float(last["Close"]), 2),
+                "Close": round(float(last["Close"]), 1),
                 "RSI": round(float(last["RSI"]), 1) if not pd.isna(last["RSI"]) else None,
                 "HM_EMA": round(float(last["HM_EMA"]), 1) if not pd.isna(last["HM_EMA"]) else None,
                 "HM_WMA": round(float(last["HM_WMA"]), 1) if not pd.isna(last["HM_WMA"]) else None,
-                "Bottom Score": round(float(last["BOTTOM_SCORE"]), 0),
-                "Top Score": round(float(last["TOP_SCORE"]), 0),
+                "Bottom Score": round(float(last["BOTTOM_SCORE"]), 1),
+                "Top Score": round(float(last["TOP_SCORE"]), 1),
                 "Signal": sig,
                 "Type": sig_type,
                 "Last Bottom": last_bot_date.strftime("%d-%b-%y") if last_bot_date is not None else "—",
                 "Last Top": last_top_date.strftime("%d-%b-%y") if last_top_date is not None else "—",
-                "Range Pos": round(float(last["RANGE_POS"]), 2) if not pd.isna(last.get("RANGE_POS", float("nan"))) else None,
-                "Vol Ratio": round(float(last["VOL_RATIO"]), 2) if not pd.isna(last.get("VOL_RATIO", float("nan"))) else None,
+                "Range Pos": round(float(last["RANGE_POS"]), 1) if not pd.isna(last.get("RANGE_POS", float("nan"))) else None,
+                "Vol Ratio": round(float(last["VOL_RATIO"]), 1) if not pd.isna(last.get("VOL_RATIO", float("nan"))) else None,
                 "Reason": str(last.get("SIGNAL_REASON", "")),
             })
         except Exception:
@@ -394,7 +394,10 @@ with tab_scan:
             key=lambda col: col.map({"BOTTOM": 0, "TOP": 1, "—": 2}) if col.name == "Signal" else col,
             ascending=[True, False],
         )
-        styled = show_df.style.apply(_color_signal_row, axis=1)
+        _fmt = {c: "{:.1f}" for c in ["Close", "RSI", "HM_EMA", "HM_WMA",
+                                        "Bottom Score", "Top Score", "Range Pos", "Vol Ratio"]
+                if c in show_df.columns}
+        styled = show_df.style.apply(_color_signal_row, axis=1).format(_fmt, na_rep="—")
         st.dataframe(styled, use_container_width=True, hide_index=True)
 
 
@@ -434,8 +437,8 @@ with tab_single:
 
         last = df_s.iloc[-1]
         m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("Bottom Score", f"{last.get('BOTTOM_SCORE', 0):.0f}")
-        m2.metric("Top Score", f"{last.get('TOP_SCORE', 0):.0f}")
+        m1.metric("Bottom Score", f"{last.get('BOTTOM_SCORE', 0):.1f}")
+        m2.metric("Top Score", f"{last.get('TOP_SCORE', 0):.1f}")
         m3.metric("RSI(9)", f"{last.get('RSI', 0):.1f}")
         m4.metric("HM_EMA", f"{last.get('HM_EMA', 0):.1f}")
         m5.metric("HM_WMA", f"{last.get('HM_WMA', 0):.1f}")
@@ -467,7 +470,9 @@ with tab_single:
             bot_sigs.index = bot_sigs.index.strftime("%d-%b-%y")
             bot_sigs.columns = ["Close", "RSI", "EMA3", "WMA21", "Score", "Reason"]
             if not bot_sigs.empty:
-                st.dataframe(bot_sigs.sort_index(ascending=False), use_container_width=True)
+                _fmt_s = {c: "{:.1f}" for c in bot_sigs.columns if bot_sigs[c].dtype.kind == "f"}
+                st.dataframe(bot_sigs.sort_index(ascending=False).style.format(_fmt_s, na_rep="—"),
+                             use_container_width=True)
             else:
                 st.info("No bottom signals in this period.")
 
@@ -479,7 +484,9 @@ with tab_single:
             top_sigs.index = top_sigs.index.strftime("%d-%b-%y")
             top_sigs.columns = ["Close", "RSI", "EMA3", "WMA21", "Score", "Reason"]
             if not top_sigs.empty:
-                st.dataframe(top_sigs.sort_index(ascending=False), use_container_width=True)
+                _fmt_s = {c: "{:.1f}" for c in top_sigs.columns if top_sigs[c].dtype.kind == "f"}
+                st.dataframe(top_sigs.sort_index(ascending=False).style.format(_fmt_s, na_rep="—"),
+                             use_container_width=True)
             else:
                 st.info("No top signals in this period.")
     elif run_single:
@@ -557,7 +564,8 @@ with tab_bt:
             "avg_score": "Avg Score", "response_score": "Response Score",
         }
         show_summary = bt_summary[disp_cols].rename(columns=cols_rename)
-        st.dataframe(show_summary, use_container_width=True, hide_index=True)
+        _fmt_sum = {c: "{:.1f}" for c in show_summary.columns if show_summary[c].dtype.kind == "f"}
+        st.dataframe(show_summary.style.format(_fmt_sum, na_rep="—"), use_container_width=True, hide_index=True)
 
         # Trade log
         with st.expander("📋 Trade Log (Bottom Signals)", expanded=False):
@@ -566,9 +574,9 @@ with tab_bt:
                 tl["signal_time"] = pd.to_datetime(tl["signal_time"]).dt.strftime("%d-%b-%y")
                 tl["entry_time"] = pd.to_datetime(tl["entry_time"]).dt.strftime("%d-%b-%y")
                 tl["exit_time"] = pd.to_datetime(tl["exit_time"]).dt.strftime("%d-%b-%y")
-                tl["return_pct"] = tl["return_pct"].round(2)
-                tl["mfe_pct"] = tl["mfe_pct"].round(2)
-                tl["mae_pct"] = tl["mae_pct"].round(2)
+                for col in ["entry", "exit", "return_pct", "mfe_pct", "mae_pct", "score", "rsi"]:
+                    if col in tl.columns:
+                        tl[col] = tl[col].round(1)
                 tl = tl.rename(columns={
                     "symbol": "Symbol", "signal_time": "Signal Date",
                     "entry_time": "Entry Date", "exit_time": "Exit Date",
@@ -576,7 +584,8 @@ with tab_bt:
                     "return_pct": "Return%", "mfe_pct": "MFE%", "mae_pct": "MAE%",
                     "outcome": "Outcome", "score": "Score", "rsi": "RSI", "reason": "Reason",
                 })
-                styled_tl = tl.style.map(_color_outcome, subset=["Outcome"])
+                _fmt_tl = {c: "{:.1f}" for c in tl.columns if tl[c].dtype.kind == "f"}
+                styled_tl = tl.style.map(_color_outcome, subset=["Outcome"]).format(_fmt_tl, na_rep="—")
                 st.dataframe(styled_tl, use_container_width=True, hide_index=True)
                 csv_data = tl.to_csv(index=False).encode("utf-8")
                 st.download_button("⬇ Download CSV", csv_data, "hm_bottom_backtest.csv", "text/csv")
@@ -619,7 +628,8 @@ with tab_bt:
                     "return_pct": "Return%", "mfe_pct": "MFE%", "mae_pct": "MAE%",
                     "outcome": "Outcome", "score": "Score", "rsi": "RSI", "reason": "Reason",
                 })
-                styled_tl = tl.style.map(_color_outcome, subset=["Outcome"])
+                _fmt_tl = {c: "{:.1f}" for c in tl.columns if tl[c].dtype.kind == "f"}
+                styled_tl = tl.style.map(_color_outcome, subset=["Outcome"]).format(_fmt_tl, na_rep="—")
                 st.dataframe(styled_tl, use_container_width=True, hide_index=True)
                 csv_data = tl.to_csv(index=False).encode("utf-8")
                 st.download_button("⬇ Download CSV", csv_data, "hm_top_backtest.csv", "text/csv")
