@@ -19,13 +19,12 @@ show_logo()
 
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import yfinance as yf
 import pytz as _pytz
 
 from backend.calculations.hm_indicators import add_indicators, generate_signals, attach_htf_regime
 from backend.calculations.hm_backtest import backtest_signals, backtest_top_signals, summarize_backtests
+from backend.calculations.hm_tv_chart import render_tv_chart, tv_chart_url, to_tv_symbol
 
 _IST = _pytz.timezone("Asia/Kolkata")
 
@@ -169,6 +168,7 @@ def _run_scan(symbols: tuple, interval: str, min_score: int, mode: str, use_htf:
                 "Range Pos": round(float(last["RANGE_POS"]), 1) if not pd.isna(last.get("RANGE_POS", float("nan"))) else None,
                 "Vol Ratio": round(float(last["VOL_RATIO"]), 1) if not pd.isna(last.get("VOL_RATIO", float("nan"))) else None,
                 "Reason": str(last.get("SIGNAL_REASON", "")),
+                "Chart": tv_chart_url(sym, interval),
             })
         except Exception:
             continue
@@ -265,75 +265,6 @@ def _color_outcome(val):
     return ""
 
 
-def _build_chart(df: pd.DataFrame, symbol: str) -> go.Figure:
-    fig = make_subplots(
-        rows=2, cols=1, shared_xaxes=True,
-        row_heights=[0.65, 0.35],
-        vertical_spacing=0.05,
-    )
-
-    # Candlestick
-    fig.add_trace(go.Candlestick(
-        x=df.index, open=df["Open"], high=df["High"],
-        low=df["Low"], close=df["Close"],
-        name="Price", increasing_line_color="#4ade80",
-        decreasing_line_color="#f87171",
-    ), row=1, col=1)
-
-    # SMA20
-    if "SMA20" in df.columns:
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df["SMA20"], name="SMA20",
-            line=dict(color="#60a5fa", width=1), opacity=0.7,
-        ), row=1, col=1)
-
-    # Bottom signal markers
-    bot_mask = df["BOTTOM_SIGNAL"].fillna(False)
-    if bot_mask.any():
-        fig.add_trace(go.Scatter(
-            x=df.index[bot_mask], y=df["Low"][bot_mask] * 0.995,
-            mode="markers", name="Bottom Signal",
-            marker=dict(symbol="triangle-up", color="#4ade80", size=10),
-        ), row=1, col=1)
-
-    # Top signal markers
-    top_mask = df["TOP_SIGNAL"].fillna(False)
-    if top_mask.any():
-        fig.add_trace(go.Scatter(
-            x=df.index[top_mask], y=df["High"][top_mask] * 1.005,
-            mode="markers", name="Top Signal",
-            marker=dict(symbol="triangle-down", color="#f87171", size=10),
-        ), row=1, col=1)
-
-    # RSI pane
-    fig.add_trace(go.Scatter(
-        x=df.index, y=df["RSI"], name="RSI(9)",
-        line=dict(color="#e2e8f0", width=1.5),
-    ), row=2, col=1)
-    fig.add_trace(go.Scatter(
-        x=df.index, y=df["HM_WMA"], name="WMA21",
-        line=dict(color="#f87171", width=1.2),
-    ), row=2, col=1)
-    fig.add_trace(go.Scatter(
-        x=df.index, y=df["HM_EMA"], name="EMA3",
-        line=dict(color="#4ade80", width=1.2),
-    ), row=2, col=1)
-
-    for lvl, color in [(30, "#ef4444"), (50, "#94a3b8"), (70, "#ef4444")]:
-        fig.add_hline(y=lvl, line_dash="dot", line_color=color, opacity=0.5, row=2, col=1)
-
-    fig.update_layout(
-        title=f"{symbol} — H-M Signals",
-        xaxis_rangeslider_visible=False,
-        template="plotly_dark",
-        height=620,
-        legend=dict(orientation="h", y=-0.08),
-        margin=dict(l=10, r=10, t=40, b=10),
-    )
-    fig.update_yaxes(title_text="Price", row=1, col=1)
-    fig.update_yaxes(title_text="RSI", row=2, col=1, range=[0, 100])
-    return fig
-
 
 # ─── Page title & disclaimer ─────────────────────────────────────────────────
 st.title("🔭 H-M Scanner")
@@ -394,11 +325,29 @@ with tab_scan:
             key=lambda col: col.map({"BOTTOM": 0, "TOP": 1, "—": 2}) if col.name == "Signal" else col,
             ascending=[True, False],
         )
-        _fmt = {c: "{:.1f}" for c in ["Close", "RSI", "HM_EMA", "HM_WMA",
-                                        "Bottom Score", "Top Score", "Range Pos", "Vol Ratio"]
+        _fmt = {c: "{:.1f}" for c in ["Close", "RSI", "HM_EMA", "HM_WMA", "Range Pos", "Vol Ratio"]
                 if c in show_df.columns}
-        styled = show_df.style.apply(_color_signal_row, axis=1).format(_fmt, na_rep="—")
-        st.dataframe(styled, use_container_width=True, hide_index=True)
+        _fmt.update({c: "{:.0f}" for c in ["Bottom Score", "Top Score"] if c in show_df.columns})
+        styled = show_df.drop(columns=["Chart"], errors="ignore").style.apply(_color_signal_row, axis=1).format(_fmt, na_rep="—")
+        st.dataframe(
+            styled, use_container_width=True, hide_index=True,
+            column_config={
+                "Symbol": st.column_config.LinkColumn(
+                    "Symbol",
+                    help="Click to open TradingView chart",
+                    display_text="([A-Z&]+)",
+                ) if "Chart" not in show_df.columns else None,
+            },
+        )
+        # TradingView links — one button per signal row (Chart column built above)
+        if "Chart" in show_df.columns:
+            sig_rows = show_df[show_df["Signal"] != "—"]
+            if not sig_rows.empty:
+                st.markdown("**📈 Open on TradingView:**")
+                cols_tv = st.columns(min(len(sig_rows), 8))
+                for i, (_, row) in enumerate(sig_rows.iterrows()):
+                    icon = "🟢" if row["Signal"] == "BOTTOM" else "🔴"
+                    cols_tv[i % 8].link_button(f"{icon} {row['Symbol']}", row["Chart"])
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -455,10 +404,12 @@ with tab_single:
         with st.expander("📅 Signals per Year", expanded=False):
             st.dataframe(per_year, use_container_width=True, hide_index=True)
 
-        # Chart
-        display_len = min(len(df_s), 500)
-        fig = _build_chart(df_s.iloc[-display_len:], sym_s)
-        st.plotly_chart(fig, use_container_width=True)
+        # TradingView link
+        tv_url = tv_chart_url(sym_s, interval_s)
+        st.link_button("📈 Open on TradingView", tv_url)
+
+        # TradingView Lightweight Chart
+        render_tv_chart(df_s, sym_s, main_height=460, osc_height=200, max_bars=500)
 
         # Recent signal tables
         col_l, col_r = st.columns(2)
@@ -470,7 +421,7 @@ with tab_single:
             bot_sigs.index = bot_sigs.index.strftime("%d-%b-%y")
             bot_sigs.columns = ["Close", "RSI", "EMA3", "WMA21", "Score", "Reason"]
             if not bot_sigs.empty:
-                _fmt_s = {c: "{:.1f}" for c in bot_sigs.columns if bot_sigs[c].dtype.kind == "f"}
+                _fmt_s = {c: ("{:.0f}" if c == "Score" else "{:.1f}") for c in bot_sigs.columns if bot_sigs[c].dtype.kind == "f"}
                 st.dataframe(bot_sigs.sort_index(ascending=False).style.format(_fmt_s, na_rep="—"),
                              use_container_width=True)
             else:
@@ -564,7 +515,7 @@ with tab_bt:
             "avg_score": "Avg Score", "response_score": "Response Score",
         }
         show_summary = bt_summary[disp_cols].rename(columns=cols_rename)
-        _fmt_sum = {c: "{:.1f}" for c in show_summary.columns if show_summary[c].dtype.kind == "f"}
+        _fmt_sum = {c: ("{:.0f}" if c == "Signals" else "{:.1f}") for c in show_summary.columns if show_summary[c].dtype.kind in ("f", "i") and c != "Symbol"}
         st.dataframe(show_summary.style.format(_fmt_sum, na_rep="—"), use_container_width=True, hide_index=True)
 
         # Trade log
