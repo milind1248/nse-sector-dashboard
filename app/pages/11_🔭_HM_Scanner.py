@@ -154,7 +154,7 @@ def _run_scan(symbols: tuple, interval: str, min_score: int, mode: str, use_htf:
                 sig_type = "—"
 
             rows.append({
-                "Symbol": sym.replace(".NS", ""),
+                "Symbol": tv_chart_url(sym, interval),
                 "Close": round(float(last["Close"]), 1),
                 "RSI": round(float(last["RSI"]), 1) if not pd.isna(last["RSI"]) else None,
                 "HM_EMA": round(float(last["HM_EMA"]), 1) if not pd.isna(last["HM_EMA"]) else None,
@@ -168,7 +168,6 @@ def _run_scan(symbols: tuple, interval: str, min_score: int, mode: str, use_htf:
                 "Range Pos": round(float(last["RANGE_POS"]), 1) if not pd.isna(last.get("RANGE_POS", float("nan"))) else None,
                 "Vol Ratio": round(float(last["VOL_RATIO"]), 1) if not pd.isna(last.get("VOL_RATIO", float("nan"))) else None,
                 "Reason": str(last.get("SIGNAL_REASON", "")),
-                "Chart": tv_chart_url(sym, interval),
             })
         except Exception:
             continue
@@ -328,17 +327,18 @@ with tab_scan:
         _fmt = {c: "{:.1f}" for c in ["Close", "RSI", "HM_EMA", "HM_WMA", "Range Pos", "Vol Ratio"]
                 if c in show_df.columns}
         _fmt.update({c: "{:.0f}" for c in ["Bottom Score", "Top Score"] if c in show_df.columns})
-        styled = show_df.drop(columns=["Chart"], errors="ignore").style.apply(_color_signal_row, axis=1).format(_fmt, na_rep="—")
-        st.dataframe(styled, use_container_width=True, hide_index=True)
-        # TradingView links — one button per signal row (Chart column built above)
-        if "Chart" in show_df.columns:
-            sig_rows = show_df[show_df["Signal"] != "—"]
-            if not sig_rows.empty:
-                st.markdown("**📈 Open on TradingView:**")
-                cols_tv = st.columns(min(len(sig_rows), 8))
-                for i, (_, row) in enumerate(sig_rows.iterrows()):
-                    icon = "🟢" if row["Signal"] == "BOTTOM" else "🔴"
-                    cols_tv[i % 8].link_button(f"{icon} {row['Symbol']}", row["Chart"])
+        styled = show_df.style.apply(_color_signal_row, axis=1).format(_fmt, na_rep="—")
+        st.dataframe(
+            styled,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Symbol": st.column_config.LinkColumn(
+                    "Symbol",
+                    display_text=r"symbol=NSE:([^&]+)",
+                ),
+            },
+        )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
