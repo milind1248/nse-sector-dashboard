@@ -329,16 +329,7 @@ with tab_scan:
                 if c in show_df.columns}
         _fmt.update({c: "{:.0f}" for c in ["Bottom Score", "Top Score"] if c in show_df.columns})
         styled = show_df.drop(columns=["Chart"], errors="ignore").style.apply(_color_signal_row, axis=1).format(_fmt, na_rep="—")
-        st.dataframe(
-            styled, use_container_width=True, hide_index=True,
-            column_config={
-                "Symbol": st.column_config.LinkColumn(
-                    "Symbol",
-                    help="Click to open TradingView chart",
-                    display_text="([A-Z&]+)",
-                ) if "Chart" not in show_df.columns else None,
-            },
-        )
+        st.dataframe(styled, use_container_width=True, hide_index=True)
         # TradingView links — one button per signal row (Chart column built above)
         if "Chart" in show_df.columns:
             sig_rows = show_df[show_df["Signal"] != "—"]
