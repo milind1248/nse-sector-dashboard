@@ -120,6 +120,14 @@ PAGE_SEO = {
         "description": "Step-by-step guide to every page of the NSE Market Sector Analysis dashboard — FII flow, sector screeners, AI forecast, Gann analysis and more.",
         "keywords":    "NSE dashboard guide, FII tracker tutorial, sector analysis help, market sector analysis how to",
     },
+    "HMScanner": {
+        "title":       "H-M Scanner | Hilega-Milega RSI Signal Scanner | Market Sector Analysis",
+        "description": "Scan Nifty 50 and Nifty 500 stocks for Hilega-Milega (H-M) bottom and top signals. "
+                       "RSI(9), WMA(21), EMA(3) crossover scoring system with ATR-based backtest. "
+                       "For educational and research purposes only. Not investment advice.",
+        "keywords":    "Hilega-Milega scanner NSE, H-M bottom signal India, RSI WMA EMA crossover NSE, "
+                       "NKStockTalk H-M indicator, bottom reversal scanner NSE, ATR backtest NSE stocks",
+    },
     "Export": {
         "title":       "Export FII Sector Data | Download NSDL Data CSV | Market Sector Analysis",
         "description": "Download historical FII/FPI sector-wise investment data as CSV or Excel. "
