@@ -9,6 +9,16 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Streamlit app
+      - name: Install Chromium
+        run: sudo apt-get install -y chromium-browser
+
+      - name: Wake Streamlit app via headless browser
         run: |
-          curl -L --max-time 30 https://marketsector.streamlit.app/ || true
+          chromium-browser \
+            --headless \
+            --disable-gpu \
+            --no-sandbox \
+            --disable-dev-shm-usage \
+            --timeout=25000 \
+            https://marketsector.streamlit.app/ || true
+          echo "Ping done"
