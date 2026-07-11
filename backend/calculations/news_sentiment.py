@@ -52,6 +52,14 @@ def _load_finbert():
     global _FINBERT, _FINBERT_FAILED
     if _FINBERT is not None or _FINBERT_FAILED:
         return _FINBERT
+    # find_spec probes without executing module code — a broken/partial
+    # torch install would segfault the process on import, so never import
+    # unless both packages are actually present.
+    import importlib.util
+    if (importlib.util.find_spec("torch") is None
+            or importlib.util.find_spec("transformers") is None):
+        _FINBERT_FAILED = True
+        return None
     try:
         from transformers import pipeline
         _FINBERT = pipeline("sentiment-analysis", model="ProsusAI/finbert",

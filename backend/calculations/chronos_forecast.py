@@ -15,6 +15,12 @@ MODEL_NAME = "amazon/chronos-bolt-small"
 
 
 def is_available() -> bool:
+    # find_spec probes without executing module code — importing a broken
+    # torch install can segfault the whole process, so check presence first.
+    import importlib.util
+    if (importlib.util.find_spec("torch") is None
+            or importlib.util.find_spec("chronos") is None):
+        return False
     try:
         import torch  # noqa: F401
         import chronos  # noqa: F401
