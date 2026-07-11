@@ -1,7 +1,7 @@
 streamlit>=1.35.0
 yfinance>=0.2.40
 pandas>=2.2.0
-numpy>=1.26.0,<2.0
+numpy>=1.26.0
 
 sqlalchemy>=2.0.0
 apscheduler>=3.10.0
@@ -17,11 +17,4 @@ prophet>=1.1.5
 xgboost>=2.0.0
 scikit-learn>=1.4.0
 pmdarima>=2.0.0
-feedparser>=6.0.0
-vaderSentiment>=3.3.0
 networkx>=3.0
-# arch intentionally NOT listed: its wheel pulls numpy 2.x which segfaults
-# pmdarima on Streamlit Cloud. Volatility tab falls back to EWMA there.
-# torch / transformers / chronos-forecasting intentionally NOT listed:
-# too heavy for Streamlit Cloud. Sentiment falls back to VADER and the
-# Chronos tab degrades gracefully when they are absent.
