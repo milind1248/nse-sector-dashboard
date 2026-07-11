@@ -499,7 +499,10 @@ def analyze_stock(
 
     # Compute indicators
     mas = compute_mas(df, types=ma_types, periods=ma_periods)
-    atr_s = compute_atr(df, length=14)
+    atr_s = compute_atr(
+        df.rename(columns={"high": "High", "low": "Low", "close": "Close"}),
+        length=14,
+    )
 
     # Detect touches
     touches = detect_touches(
@@ -527,6 +530,7 @@ def analyze_stock(
         metrics.successful_touches = sum(1 for t in ma_touches if t.outcome == "success")
         metrics.failed_touches = sum(1 for t in ma_touches if t.outcome == "failure")
         metrics.neutral_touches = sum(1 for t in ma_touches if t.outcome == "neutral")
+        metrics.raw_hold_rate = metrics.successful_touches / metrics.total_touches if metrics.total_touches > 0 else 0.0
 
         if metrics.successful_touches + metrics.failed_touches > 0:
             metrics.wilson_hold_rate = wilson_lower(

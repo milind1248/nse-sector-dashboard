@@ -11,7 +11,8 @@ import plotly.graph_objects as go
 from config import SECTOR_STOCKS
 from backend.data_ingestion.yfinance_fetcher import _get_close
 from backend.calculations.indicators import ema_signal
-from backend.calculations.ma_respect import analyze_stock
+from backend.calculations.ma_respect import analyze_stock, compute_mas
+from backend.calculations.hm_indicators import atr as compute_atr
 
 st.set_page_config(page_title="Alerts & Scanners | NSE Swing Trading | Market Sector Analysis", layout="wide")
 from app.utils.guard import enforce_deployment_gate
@@ -2300,255 +2301,266 @@ with tab_best_ma:
     if st.button("▶ Analyze", type="primary", use_container_width=False):
         ticker = f"{selected_stock}.NS"
         direction_lower = direction_type.lower()
-        cache_key = (ticker, period_str, direction_lower, round(tol_atr, 2), round(fail_atr, 2))
 
         @st.cache_data(ttl=3600, show_spinner=False)
-        def fetch_and_analyze(_ticker, _period, _direction, _tol, _fail):
+        def fetch_ohlcv(_ticker, _period):
             import yfinance as yf
-            try:
-                raw = yf.download(_ticker, period=_period, interval="1d", progress=False, auto_adjust=True)
-                if raw is None or raw.empty or len(raw) < 60:
-                    return {"error": "Insufficient historical data (need ≥60 bars)"}
+            raw = yf.download(_ticker, period=_period, interval="1d", progress=False, auto_adjust=True)
+            if raw is None or raw.empty or len(raw) < 60:
+                return None
 
-                raw.index = pd.to_datetime(raw.index).date
+            # Normalize OHLCV (handle multi-index columns from auto_adjust)
+            cols = {}
+            for src, dst in [("Open", "open"), ("High", "high"), ("Low", "low"),
+                              ("Close", "close"), ("Volume", "volume")]:
+                if src in raw.columns:
+                    series = raw[src]
+                    if isinstance(series, pd.DataFrame):
+                        series = series.iloc[:, 0]
+                    cols[dst] = series
 
-                # Normalize OHLCV (handle multi-index columns from auto_adjust)
-                ohlc_dict = {}
-                for col in ["Open", "High", "Low", "Close", "Volume"]:
-                    if col in raw.columns:
-                        series = raw[col]
-                        if isinstance(series, pd.DataFrame):
-                            series = series.iloc[:, 0]
-                        ohlc_dict[col] = series
+            if not all(k in cols for k in ["open", "high", "low", "close"]):
+                return None
 
-                if not all(k in ohlc_dict for k in ["Open", "High", "Low", "Close"]):
-                    return {"error": "Missing OHLC columns in data"}
+            df = pd.DataFrame(cols)
+            df["date"] = pd.to_datetime(raw.index)
+            return df.reset_index(drop=True)
 
-                df = pd.DataFrame(ohlc_dict)
+        with st.spinner("Fetching data & analyzing…"):
+            df = fetch_ohlcv(ticker, period_str)
 
-                # Run analysis
-                result = analyze_stock(
-                    df,
-                    ma_types=("EMA", "SMA", "RMA", "WMA"),
-                    ma_periods=(5, 8, 9, 10, 13, 20, 21, 34, 50, 55, 100, 150, 200),
-                    direction=_direction,
-                    tol_atr=_tol,
-                    fail_atr=_fail,
-                    rebound_atr=rebound_atr,
-                    look_forward=10,
-                    min_touches=8,
-                    recent_bars=252
-                )
-                return result
-            except Exception as e:
-                return {"error": f"Analysis failed: {str(e)}"}
+            if df is None or len(df) < 60:
+                result = None
+            else:
+                try:
+                    result = analyze_stock(
+                        df,
+                        ma_types=("EMA", "SMA", "RMA", "WMA"),
+                        ma_periods=(5, 8, 9, 10, 13, 20, 21, 34, 50, 55, 100, 150, 200),
+                        direction=direction_lower,
+                        tol_atr=tol_atr,
+                        fail_atr=fail_atr,
+                        rebound_atr=rebound_atr,
+                        look_forward=10,
+                        min_touches=8,
+                        recent_bars=252,
+                    )
+                except Exception as e:
+                    st.error(f"Analysis failed: {e}")
+                    result = None
 
-        with st.spinner("Analyzing…"):
-            result = fetch_and_analyze(ticker, period_str, direction_lower, tol_atr, fail_atr)
-
-        if "error" in result:
-            st.error(result["error"])
+        if df is None or len(df) < 60:
+            st.error("Insufficient historical data (need ≥60 bars). Try a longer history period.")
+        elif result is None:
+            pass  # error already shown above
+        elif result["primary"] is None:
+            st.warning(
+                "No MA candidates found with a stable, statistically sufficient preference. "
+                "Try a longer history, switch direction, or relax the tolerance settings."
+            )
         else:
+            primary = result["primary"]
+            secondary = result["secondary"]
+            long_term = result["long_term"]
+            candidates = result["candidates"]  # dict[(type, period)] -> RespectMetrics
+            touches = result["touches"]        # list[TouchEvent]
+
+            ma_label = f"{primary.ma_type} {primary.ma_period}"
+
             # ── Summary cards ──────────────────────────────────────────────────
-            if result.get("selected_primary"):
-                prim = result["selected_primary"]
-                m1, m2, m3, m4 = st.columns(4)
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("🎯 Primary MA", ma_label, f"Score: {primary.final_score:.0f}")
+            m2.metric("📊 Current Status", primary.current_status, primary.confidence)
+            m3.metric("✅ Hold Rate (Wilson)", f"{primary.wilson_hold_rate * 100:.1f}%",
+                       f"raw {primary.raw_hold_rate * 100:.1f}%")
+            m4.metric("📍 Touches", str(primary.total_touches),
+                       f"{primary.successful_touches}W / {primary.failed_touches}L")
 
-                ma_label = f"{prim['ma_type']} {prim['ma_period']}"
-                score = prim.get("score", 0)
-                confidence = prim.get("confidence", "N/A")
+            st.markdown("---")
 
-                m1.metric(
-                    "🎯 Primary MA",
-                    ma_label,
-                    f"Score: {score:.0f}"
-                )
+            # ── Candlestick chart with MAs ───────────────────────────────────────
+            mas = compute_mas(
+                df,
+                types=("EMA", "SMA", "RMA", "WMA"),
+                periods=(5, 8, 9, 10, 13, 20, 21, 34, 50, 55, 100, 150, 200),
+            )
+            atr_s = compute_atr(
+                df.rename(columns={"high": "High", "low": "Low", "close": "Close"}),
+                length=14,
+            )
 
-                status = result.get("status", {})
-                current_status = status.get("status", "N/A")
-                m2.metric("📊 Current Status", current_status, "")
+            df_chart = df.tail(504).copy()  # ~2y view
+            chart_start_idx = df_chart.index[0]
 
-                distance_pct = status.get("distance_pct", 0)
-                m3.metric("📏 Distance (%)", f"{distance_pct:.2f}%", "from MA")
+            fig = go.Figure()
+            fig.add_trace(go.Candlestick(
+                x=df_chart["date"], open=df_chart["open"], high=df_chart["high"],
+                low=df_chart["low"], close=df_chart["close"], name="Price"
+            ))
 
-                n_touches = prim.get("touch_count", 0)
-                m4.metric("📍 Touches (Sample Size)", str(n_touches), "events")
+            primary_ma_s = mas.get((primary.ma_type, primary.ma_period))
+            if primary_ma_s is not None:
+                ma_chart = primary_ma_s.loc[chart_start_idx:]
+                fig.add_trace(go.Scatter(
+                    x=df_chart["date"], y=ma_chart.values,
+                    mode="lines", name=ma_label, line=dict(color="orange", width=2)
+                ))
+                atr_chart = atr_s.loc[chart_start_idx:]
+                upper_band = ma_chart + 2 * atr_chart
+                lower_band = ma_chart - 2 * atr_chart
+                fig.add_trace(go.Scatter(x=df_chart["date"], y=upper_band.values, mode="lines",
+                                          line=dict(color="rgba(255,165,0,0.15)"), showlegend=False))
+                fig.add_trace(go.Scatter(x=df_chart["date"], y=lower_band.values, mode="lines",
+                                          line=dict(color="rgba(255,165,0,0.15)"), fill="tonexty",
+                                          name="±2 ATR Band"))
 
-                st.markdown("---")
-
-                # ── Candlestick chart with MAs ─────────────────────────────────
-                df_chart = result.get("df_for_chart", pd.DataFrame())
-                if not df_chart.empty:
-                    df_chart = df_chart.tail(252)  # 1y default view
-
-                    fig = go.Figure()
-
-                    # Candlesticks
-                    fig.add_trace(go.Candlestick(
-                        x=df_chart.index,
-                        open=df_chart["Open"],
-                        high=df_chart["High"],
-                        low=df_chart["Low"],
-                        close=df_chart["Close"],
-                        name="Price"
+            if secondary is not None:
+                sec_ma_s = mas.get((secondary.ma_type, secondary.ma_period))
+                if sec_ma_s is not None:
+                    fig.add_trace(go.Scatter(
+                        x=df_chart["date"], y=sec_ma_s.loc[chart_start_idx:].values,
+                        mode="lines", name=f"{secondary.ma_type} {secondary.ma_period} (secondary)",
+                        line=dict(color="cyan", width=1.5, dash="dot")
                     ))
 
-                    # Primary MA
-                    if "ma_primary" in result:
-                        ma_s = result["ma_primary"]
-                        fig.add_trace(go.Scatter(
-                            x=ma_s.index, y=ma_s.values,
-                            mode="lines", name=ma_label, line=dict(color="orange", width=2)
-                        ))
+            if long_term is not None:
+                lt_ma_s = mas.get((long_term.ma_type, long_term.ma_period))
+                if lt_ma_s is not None:
+                    fig.add_trace(go.Scatter(
+                        x=df_chart["date"], y=lt_ma_s.loc[chart_start_idx:].values,
+                        mode="lines", name=f"{long_term.ma_type} {long_term.ma_period} (long-term)",
+                        line=dict(color="violet", width=1.5, dash="dash")
+                    ))
 
-                    # ATR tolerance band (±2 ATR around primary MA)
-                    if "atr" in result:
-                        atr_s = result["atr"]
-                        ma_s = result.get("ma_primary", pd.Series())
-                        if not ma_s.empty:
-                            upper_band = ma_s + (2 * atr_s)
-                            lower_band = ma_s - (2 * atr_s)
+            # Touch/outcome markers for primary MA, restricted to the visible window
+            prim_touches = [t for t in touches
+                             if t.ma_type == primary.ma_type and t.ma_period == primary.ma_period
+                             and t.date >= df_chart["date"].iloc[0]]
+            marker_map = {
+                "success": ("triangle-up", "#00C853", "Rebound"),
+                "failure": ("x", "#FF1744", "Failure"),
+                "neutral": ("diamond", "#FFD600", "Neutral"),
+            }
+            for outcome, (symbol, color, label) in marker_map.items():
+                pts = [t for t in prim_touches if t.outcome == outcome]
+                if pts:
+                    fig.add_trace(go.Scatter(
+                        x=[t.date for t in pts], y=[t.low if direction_lower == "support" else t.high for t in pts],
+                        mode="markers", name=label,
+                        marker=dict(symbol=symbol, size=9, color=color, line=dict(width=1, color="white")),
+                        hovertext=[f"{outcome.title()} · {t.date} · bars: {t.bars_to_outcome}" for t in pts],
+                        hoverinfo="text"
+                    ))
 
-                            fig.add_trace(go.Scatter(
-                                x=upper_band.index, y=upper_band.values,
-                                mode="lines", name="Upper Band (±2 ATR)",
-                                line=dict(color="rgba(255,165,0,0.2)"), showlegend=False
-                            ))
-                            fig.add_trace(go.Scatter(
-                                x=lower_band.index, y=lower_band.values,
-                                mode="lines", name="Lower Band (±2 ATR)",
-                                line=dict(color="rgba(255,165,0,0.2)"), fill="tonexty",
-                                showlegend=False
-                            ))
+            fig.update_xaxes(
+                rangeslider=dict(visible=False),
+                rangeselector=dict(buttons=[
+                    dict(count=3, label="3m", step="month"),
+                    dict(count=6, label="6m", step="month"),
+                    dict(count=1, label="1y", step="year"),
+                    dict(count=2, label="2y", step="year"),
+                    dict(step="all", label="All"),
+                ])
+            )
+            fig.update_layout(title=f"{selected_stock} — Price & Best-Respected MA", height=480,
+                               template="plotly_dark", legend=dict(orientation="h", y=1.08))
+            st.plotly_chart(fig, use_container_width=True)
 
-                    fig.update_xaxes(
-                        rangeslider=dict(visible=False),
-                        rangeselector=dict(buttons=[
-                            dict(count=3, label="3m", step="month"),
-                            dict(count=6, label="6m", step="month"),
-                            dict(count=1, label="1y", step="year"),
-                            dict(count=2, label="2y", step="year"),
-                            dict(step="all", label="All")
-                        ])
-                    )
-                    fig.update_layout(title="Stock Price & Primary MA", height=450, template="plotly_dark")
-                    st.plotly_chart(fig, use_container_width=True)
+            st.markdown("---")
 
-                st.markdown("---")
+            # ── Ranked candidates table ────────────────────────────────────────
+            st.subheader("📊 Ranked MA Candidates")
+            candidates_data = []
+            for m in candidates.values():
+                candidates_data.append({
+                    "MA": f"{m.ma_type} {m.ma_period}",
+                    "Touches": m.total_touches,
+                    "Win/Loss/Neutral": f"{m.successful_touches}/{m.failed_touches}/{m.neutral_touches}",
+                    "Hold Rate (%)": round(m.raw_hold_rate * 100, 1),
+                    "Wilson Hold (%)": round(m.wilson_hold_rate * 100, 1),
+                    "Consistency": round(m.consistency_score, 2),
+                    "Neighbor Stab.": round(m.neighbor_stability_score, 2),
+                    "Score": m.final_score,
+                    "Confidence": m.confidence,
+                    "Status": m.current_status,
+                })
+            df_cand = (pd.DataFrame(candidates_data)
+                       .sort_values("Score", ascending=False)
+                       .reset_index(drop=True))
+            st.dataframe(
+                df_cand.style.format({"Score": "{:.1f}"}),
+                use_container_width=True,
+                hide_index=True
+            )
 
-                # ── Ranked candidates table ────────────────────────────────────
-                if result.get("candidates"):
-                    st.subheader("📊 Ranked MA Candidates")
+            st.markdown("---")
 
-                    candidates_data = []
-                    for c in result["candidates"]:
-                        candidates_data.append({
-                            "MA": f"{c['ma_type']} {c['ma_period']}",
-                            "Touches": c.get("touch_count", 0),
-                            "Hold Rate (%)": round(c.get("hold_rate", 0) * 100, 1),
-                            "Score": round(c.get("score", 0), 1),
-                            "Confidence": c.get("confidence", "N/A"),
-                            "Status": c.get("current_status", "N/A")
-                        })
+            # ── Why selected explanation ───────────────────────────────────────
+            st.subheader("💡 Why Selected")
+            st.info(
+                f"**{ma_label}** was selected as the primary MA with a score of "
+                f"**{primary.final_score:.0f}/100** ({primary.confidence} confidence) based on "
+                f"{primary.total_touches} qualifying touches — a Wilson-adjusted hold rate of "
+                f"{primary.wilson_hold_rate * 100:.1f}%, out-of-time consistency of "
+                f"{primary.consistency_score:.2f}, and neighbor-period stability of "
+                f"{primary.neighbor_stability_score:.2f}. Currently the stock is **{primary.current_status}** "
+                f"this MA."
+            )
+            if secondary is not None:
+                st.caption(f"Secondary candidate: {secondary.ma_type} {secondary.ma_period} "
+                           f"(score {secondary.final_score:.0f}, {secondary.total_touches} touches)")
+            if long_term is not None:
+                st.caption(f"Long-term candidate: {long_term.ma_type} {long_term.ma_period} "
+                           f"(score {long_term.final_score:.0f}, {long_term.total_touches} touches)")
 
-                    df_cand = pd.DataFrame(candidates_data)
-                    st.dataframe(
-                        df_cand.style.format({"Score": "{:.1f}"}),
-                        use_container_width=True,
-                        hide_index=True
-                    )
+            # ── Touch events table ───────────────────────────────────────────────
+            if touches:
+                with st.expander("📍 Touch Events Detail (primary MA)"):
+                    touches_data = [{
+                        "Date": str(t.date),
+                        "MA": f"{t.ma_type} {t.ma_period}",
+                        "Low": round(t.low, 2),
+                        "MA Value": round(t.ma_value, 2),
+                        "Outcome": t.outcome or "—",
+                        "Bars to Outcome": t.bars_to_outcome if t.bars_to_outcome is not None else "—",
+                    } for t in prim_touches[-100:]]
+                    if touches_data:
+                        st.dataframe(pd.DataFrame(touches_data), use_container_width=True, hide_index=True)
 
-                st.markdown("---")
+            st.markdown("---")
 
-                # ── Why selected explanation ───────────────────────────────────
-                st.subheader("💡 Why Selected")
-                if prim.get("reason"):
-                    st.info(prim["reason"])
-
-                # ── Touch events table ─────────────────────────────────────────
-                if result.get("touches"):
-                    with st.expander("📍 Touch Events Detail"):
-                        touches_data = []
-                        for t in result["touches"][:50]:  # Show last 50
-                            touches_data.append({
-                                "Date": str(t.get("date", "")),
-                                "MA": f"{t['ma_type']} {t['ma_period']}",
-                                "Low": round(t.get("low", 0), 2),
-                                "MA Value": round(t.get("ma_value", 0), 2),
-                                "Outcome": t.get("outcome", "N/A"),
-                                "Bars to Outcome": t.get("bars_to_outcome", "—")
-                            })
-
-                        if touches_data:
-                            df_touches = pd.DataFrame(touches_data)
-                            st.dataframe(df_touches, use_container_width=True, hide_index=True)
-
-                st.markdown("---")
-
-                # ── Downloads ──────────────────────────────────────────────────
-                col_d1, col_d2 = st.columns(2)
-
-                with col_d1:
-                    if result.get("candidates"):
-                        csv_cand = pd.DataFrame([
-                            {
-                                "MA Type": c["ma_type"],
-                                "Period": c["ma_period"],
-                                "Touches": c.get("touch_count", 0),
-                                "Hold Rate": round(c.get("hold_rate", 0), 4),
-                                "Score": round(c.get("score", 0), 2),
-                                "Confidence": c.get("confidence", "")
-                            }
-                            for c in result["candidates"]
-                        ]).to_csv(index=False)
-
-                        st.download_button(
-                            "⬇ Candidates CSV",
-                            csv_cand.encode(),
-                            file_name=f"ma_candidates_{selected_stock.lower()}.csv",
-                            mime="text/csv",
-                            key="best_ma_candidates_csv"
-                        )
-
-                with col_d2:
-                    if result.get("touches"):
-                        csv_touches = pd.DataFrame([
-                            {
-                                "Date": str(t.get("date", "")),
-                                "MA Type": t["ma_type"],
-                                "MA Period": t["ma_period"],
-                                "Low": round(t.get("low", 0), 2),
-                                "MA Value": round(t.get("ma_value", 0), 2),
-                                "Outcome": t.get("outcome", ""),
-                                "Bars to Outcome": t.get("bars_to_outcome", "")
-                            }
-                            for t in result["touches"]
-                        ]).to_csv(index=False)
-
-                        st.download_button(
-                            "⬇ Touch Events CSV",
-                            csv_touches.encode(),
-                            file_name=f"ma_touches_{selected_stock.lower()}.csv",
-                            mime="text/csv",
-                            key="best_ma_touches_csv"
-                        )
-
-                st.markdown("---")
-
-                # ── Warnings ───────────────────────────────────────────────────
-                warnings = result.get("warnings", [])
-                if warnings:
-                    for w in warnings:
-                        st.warning(w)
-
-                # ── Disclaimer ─────────────────────────────────────────────────
-                st.caption(
-                    "⚠️ **Disclaimer:** This analysis identifies historically most-respected moving averages based on statistical patterns. "
-                    "It does not predict future price action or guarantee the stock will continue to respect any MA. "
-                    "Past performance is not indicative of future results. For educational purposes only."
+            # ── Downloads ─────────────────────────────────────────────────────
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                csv_cand = df_cand.to_csv(index=False)
+                st.download_button(
+                    "⬇ Candidates CSV", csv_cand.encode(),
+                    file_name=f"ma_candidates_{selected_stock.lower()}.csv",
+                    mime="text/csv", key="best_ma_candidates_csv"
                 )
-            else:
-                st.warning("No MA candidates found with sufficient touches. Try a longer history or adjust parameters.")
+            with col_d2:
+                csv_touches = pd.DataFrame([{
+                    "Date": str(t.date), "MA Type": t.ma_type, "MA Period": t.ma_period,
+                    "Low": round(t.low, 2), "MA Value": round(t.ma_value, 2),
+                    "Outcome": t.outcome or "", "Bars to Outcome": t.bars_to_outcome,
+                } for t in touches]).to_csv(index=False)
+                st.download_button(
+                    "⬇ All Touch Events CSV", csv_touches.encode(),
+                    file_name=f"ma_touches_{selected_stock.lower()}.csv",
+                    mime="text/csv", key="best_ma_touches_csv"
+                )
+
+            st.markdown("---")
+
+            for w in result.get("warnings", []):
+                st.warning(w)
+
+            st.caption(
+                "⚠️ **Disclaimer:** This analysis identifies historically most-respected moving averages based "
+                "on statistical patterns. It does not predict future price action or guarantee the stock will "
+                "continue to respect any MA. Past performance is not indicative of future results. "
+                "For educational purposes only."
+            )
 
 from app.utils.disclaimer import show_footer
 show_footer()
