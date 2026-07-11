@@ -211,6 +211,48 @@ with col_info:
 st.markdown("---")
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SECTOR NETWORK MAP — cluster diagram: NSE Market → sectors → stocks
+# ══════════════════════════════════════════════════════════════════════════════
+with st.expander("🕸️ Sector Network Map — market structure at a glance", expanded=False):
+    from config import SECTOR_STOCKS as _SEC_STOCKS
+    from backend.calculations.sector_network import build_network_figure
+
+    nc1, nc2 = st.columns([3, 2])
+    net_scope = nc1.radio("View", ["🌐 Whole Market", f"🔍 {selected_sector} only"],
+                          horizontal=True, key="net_scope")
+    show_names = nc2.checkbox("🏷️ Show stock names", value=False, key="net_labels",
+                              help="Label every stock node (whole-market view can get dense)")
+
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def _stock_info_map() -> dict:
+        """{(sector, symbol): {weight, mcap, name}} from sector_intelligence."""
+        info: dict = {}
+        for _, r in df_all.iterrows():
+            key = (r["sector"], str(r["symbol"]))
+            cur = info.get(key, {})
+            w = r.get("weightage_pct")
+            if pd.notna(w) and (cur.get("weight") or 0) < float(w):
+                cur["weight"] = float(w)
+            mc = r.get("market_cap_cr")
+            if pd.notna(mc) and not cur.get("mcap"):
+                cur["mcap"] = float(mc)
+            if r.get("company_name") and not cur.get("name"):
+                cur["name"] = str(r["company_name"])
+            info[key] = cur
+        return info
+
+    _net_fig = build_network_figure(
+        _SEC_STOCKS,
+        stock_info=_stock_info_map(),
+        selected_sector=None if net_scope.startswith("🌐") else selected_sector,
+        height=720 if net_scope.startswith("🌐") else 560,
+        show_stock_labels=show_names,
+    )
+    st.plotly_chart(_net_fig, width='stretch')
+    st.caption("Node size = index weight / market cap · one color per sector · "
+               "hover a node for details · click a sector in the legend to hide/show it.")
+
+# ══════════════════════════════════════════════════════════════════════════════
 # INDEX SELECTION — tab per index (handles multiple indices per sector)
 # ══════════════════════════════════════════════════════════════════════════════
 if not indices_in_sector:

@@ -254,6 +254,13 @@ if use_cache:
     ema = cached_result.get("ema", {})
 
     actual_6m = _to_series(c6m.get("dates", []), c6m.get("prices", []))
+    # OHLC for candlestick view (present in caches written after this feature)
+    if c6m.get("open") and c6m.get("high") and c6m.get("low"):
+        open_6m = _to_series(c6m["dates"], c6m["open"])
+        high_6m = _to_series(c6m["dates"], c6m["high"])
+        low_6m  = _to_series(c6m["dates"], c6m["low"])
+    else:
+        open_6m = high_6m = low_6m = None
     ema20_6m  = _to_series(ema.get("ema20",  {}).get("dates", []), ema.get("ema20",  {}).get("values", []))
     ema50_6m  = _to_series(ema.get("ema50",  {}).get("dates", []), ema.get("ema50",  {}).get("values", []))
     ema200_6m = _to_series(ema.get("ema200", {}).get("dates", []), ema.get("ema200", {}).get("values", []))
@@ -283,6 +290,17 @@ else:
     ema50_6m  = close.rolling(50, min_periods=1).mean().tail(126)
     ema200_6m = close.ewm(span=200, adjust=False).mean().tail(126)
 
+    def _ohlc_col(name: str):
+        try:
+            col = raw[name]
+            if hasattr(col, "columns"):  # yfinance multi-index
+                col = col.iloc[:, 0]
+            return col.reindex(actual_6m.index).astype(float)
+        except Exception:
+            return None
+
+    open_6m, high_6m, low_6m = _ohlc_col("Open"), _ohlc_col("High"), _ohlc_col("Low")
+
     # Store to cache so next visit is instant
     if prophet_res and not prophet_res.get("error") and xgb_res and not xgb_res.get("error"):
         try:
@@ -310,10 +328,15 @@ else:
                     "yhat":           prophet_res["yhat"],
                     "yhat_lower":     prophet_res["yhat_lower"],
                     "yhat_upper":     prophet_res["yhat_upper"],
+                    "backtest_dates": [str(d) for d in prophet_res.get("backtest_dates", [])],
+                    "backtest_yhat":  prophet_res.get("backtest_yhat", []),
                 },
                 "close_6m": {
                     "dates":  [str(d) for d in actual_6m.index],
                     "prices": [float(v) for v in actual_6m.values],
+                    "open":   [float(v) for v in open_6m.values] if open_6m is not None else [],
+                    "high":   [float(v) for v in high_6m.values] if high_6m is not None else [],
+                    "low":    [float(v) for v in low_6m.values]  if low_6m  is not None else [],
                 },
                 "ema": {
                     "ema20":  {"dates": [str(d) for d in ema20_6m.index],  "values": [float(v) for v in ema20_6m.values]},
@@ -427,6 +450,15 @@ if prophet_ok:
     fcast_lower  = prophet_res["yhat_lower"][:horizon_days]
     fcast_upper  = prophet_res["yhat_upper"][:horizon_days]
 
+    _has_ohlc = open_6m is not None and high_6m is not None and low_6m is not None and len(actual_6m) > 0
+    chart_style = st.radio("Chart style", ["📈 Line", "🕯️ Candlestick"],
+                           horizontal=True, key="ai_chart_style")
+    use_candles = chart_style.endswith("Candlestick")
+    if use_candles and not _has_ohlc:
+        st.info("Candlestick needs OHLC data — not in this cached forecast yet. "
+                "Click **▶ Run Forecast** once (or wait for tonight's cache refresh). Showing line chart.")
+        use_candles = False
+
     fig = go.Figure()
 
     # Confidence band (shaded)
@@ -434,18 +466,45 @@ if prophet_ok:
         x=fcast_dates + fcast_dates[::-1],
         y=fcast_upper + fcast_lower[::-1],
         fill="toself",
-        fillcolor="rgba(30,136,229,0.15)",
+        fillcolor="rgba(255,145,0,0.12)",
         line=dict(width=0), showlegend=False, hoverinfo="skip",
         name="80% Confidence Band",
     ))
 
-    # Actual price
-    fig.add_trace(go.Scatter(
-        x=list(actual_6m.index),
-        y=list(actual_6m.values),
-        name="Actual Price",
-        line=dict(color="#90CAF9", width=1.8),
-    ))
+    # Actual price — line or candles
+    if use_candles:
+        fig.add_trace(go.Candlestick(
+            x=list(actual_6m.index),
+            open=list(open_6m.values), high=list(high_6m.values),
+            low=list(low_6m.values), close=list(actual_6m.values),
+            name="Actual Price",
+            increasing_line_color="#26a69a", decreasing_line_color="#ef5350",
+        ))
+    else:
+        fig.add_trace(go.Scatter(
+            x=list(actual_6m.index),
+            y=list(actual_6m.values),
+            name="Actual Price",
+            line=dict(color="#90CAF9", width=1.8),
+            hovertemplate="₹%{y:,.1f}<extra>%{fullData.name}</extra>",
+        ))
+
+    # Actual price lookup for forecast-vs-actual hover difference
+    _actual_by_date = {str(d): float(v) for d, v in zip(actual_6m.index, actual_6m.values)}
+
+    def _diff_customdata(dates, values):
+        """[(forecast-actual ₹, forecast-actual %), ...] pre-rounded, aligned to dates."""
+        out = []
+        for d, v in zip(dates, values):
+            a = _actual_by_date.get(str(d))
+            if a and a != 0:
+                diff = v - a
+                out.append([f"{diff:+,.1f}", f"{diff / a * 100:+.1f}"])
+            else:
+                out.append(["—", "—"])
+        return out
+
+    _diff_hover = "₹%{y:,.1f} · Δ vs Actual: %{customdata[0]} (%{customdata[1]}%)<extra>%{fullData.name}</extra>"
 
     # Prophet fitted line on history
     fig.add_trace(go.Scatter(
@@ -454,28 +513,50 @@ if prophet_ok:
         name="Prophet Trend",
         line=dict(color="#E040FB", width=1.5, dash="dot"),
         opacity=0.7,
+        customdata=_diff_customdata(prophet_res["history_dates"], prophet_res["history_prices"]),
+        hovertemplate=_diff_hover,
     ))
 
-    # Forecast line
+    # Forecast line — amber dash-dot, same style as Past Forecast so the
+    # model's line reads as one consistent color before and after Today
     fig.add_trace(go.Scatter(
         x=fcast_dates,
         y=fcast_yhat,
         name=f"Forecast ({horizon_days}d)",
-        line=dict(color="#1E88E5", width=2.5),
+        line=dict(color="#FF9100", width=2.2, dash="dashdot"),
+        hovertemplate="₹%{y:,.1f}<extra>%{fullData.name}</extra>",
     ))
 
+    # Past forecast (walk-forward backtest): what the model predicted for the
+    # last 30 days WITHOUT seeing them — compare directly against Actual Price
+    bt_dates = prophet_res.get("backtest_dates") or []
+    bt_yhat  = prophet_res.get("backtest_yhat") or []
+    if bt_dates and bt_yhat:
+        fig.add_trace(go.Scatter(
+            x=[str(d) for d in bt_dates],
+            y=bt_yhat,
+            name="Past Forecast (backtest)",
+            line=dict(color="#FF9100", width=2.2, dash="dashdot"),
+            customdata=_diff_customdata(bt_dates, bt_yhat),
+            hovertemplate=_diff_hover,
+        ))
+
     # EMA overlays
+    _ma_hover = "₹%{y:,.1f}<extra>%{fullData.name}</extra>"
     fig.add_trace(go.Scatter(
         x=list(ema20_6m.index), y=list(ema20_6m.values),
         name="20 EMA", line=dict(color="#FFD600", width=1.5),
+        hovertemplate=_ma_hover,
     ))
     fig.add_trace(go.Scatter(
         x=list(ema50_6m.index), y=list(ema50_6m.values),
         name="50 SMA", line=dict(color="#FF7043", width=1.5, dash="dash"),
+        hovertemplate=_ma_hover,
     ))
     fig.add_trace(go.Scatter(
         x=list(ema200_6m.index), y=list(ema200_6m.values),
         name="200 EMA", line=dict(color="#EF5350", width=1.5, dash="dot"),
+        hovertemplate=_ma_hover,
     ))
 
     # Vertical "today" line
@@ -490,7 +571,7 @@ if prophet_ok:
         fig.add_annotation(
             x=end_x, y=end_y,
             text=f"  ₹{end_y:,.0f}",
-            showarrow=False, font=dict(color="#1E88E5", size=13),
+            showarrow=False, font=dict(color="#FF9100", size=13),
         )
 
     fig.update_layout(
@@ -727,6 +808,187 @@ with col_right:
         else:
             st.warning("Backtest unavailable.")
 
+# ── Advanced Analytics: Sentiment · Volatility · Foundation Model ────────────
+st.markdown("---")
+st.subheader("🧪 Advanced Analytics")
+
+@st.cache_data(ttl=21600, show_spinner=False)
+def _fetch_close_2y(_ticker_ns: str) -> pd.Series:
+    import yfinance as yf
+    raw2 = yf.download(_ticker_ns, period="2y", interval="1d",
+                       progress=False, auto_adjust=True)
+    if raw2 is None or raw2.empty:
+        return pd.Series(dtype=float)
+    c = raw2["Close"]
+    if hasattr(c, "columns"):
+        c = c.iloc[:, 0]
+    c.index = pd.to_datetime(c.index).date
+    return c.dropna().astype(float)
+
+tab_sent, tab_vol, tab_chronos = st.tabs(
+    ["📰 News Sentiment", "📉 Volatility & Risk (GARCH)", "🧠 Chronos AI (Zero-Shot)"])
+
+# ── Tab: News Sentiment ───────────────────────────────────────────────────────
+with tab_sent:
+    st.caption(f"Latest India news headlines for **{ticker_name}**, scored by FinBERT "
+               "(finance-tuned language model) with VADER fallback. Educational use only.")
+    if st.button("🔍 Analyze News Sentiment", key="btn_sent"):
+        from backend.calculations.news_sentiment import analyze_stock_news
+        with st.spinner("Fetching headlines and scoring (first run downloads the FinBERT model)…"):
+            try:
+                st.session_state["sent_result"] = (ticker_name, analyze_stock_news(ticker_name))
+            except Exception as e:
+                st.session_state["sent_result"] = (ticker_name, {"error": str(e)})
+
+    _sr = st.session_state.get("sent_result")
+    if _sr and _sr[0] == ticker_name:
+        res = _sr[1]
+        if res.get("error"):
+            st.error(f"Sentiment analysis failed: {res['error']}")
+        else:
+            summ = res["summary"]
+            s_color = ("#00C853" if summ["label"] == "Bullish"
+                       else "#D50000" if summ["label"] == "Bearish" else "#FFD600")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.markdown(f"""<div style='{_card};border-left:4px solid {s_color}'>
+              <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>News Sentiment</div>
+              <div style='color:{s_color};font-size:30px;font-weight:700'>{summ['label']}</div>
+              <div style='color:#ccc;font-size:13px;margin-top:4px'>score {summ['score']:+.2f} (−1 to +1)</div>
+            </div>""", unsafe_allow_html=True)
+            c2.metric("Headlines analyzed", summ["n"])
+            c3.metric("🟢 Positive / 🔴 Negative", f"{summ['pos']} / {summ['neg']}")
+            c4.metric("Engine", summ["engine"])
+
+            hl = res["headlines"]
+            if not hl.empty:
+                show = hl.copy()
+                show["published"] = pd.to_datetime(show["published"]).dt.strftime("%d-%b %H:%M")
+                st.dataframe(
+                    show[["published", "sentiment", "score", "headline", "source"]],
+                    width='stretch', hide_index=True,
+                    column_config={"score": st.column_config.NumberColumn("Score", format="%.2f")},
+                )
+            st.caption("Recency-weighted: newest headlines count more. "
+                       "Score > +0.15 = Bullish · < −0.15 = Bearish.")
+    else:
+        st.info("Click the button to fetch and score the latest news for this stock.")
+
+# ── Tab: GARCH Volatility ─────────────────────────────────────────────────────
+with tab_vol:
+    st.caption("GARCH(1,1) forecasts **volatility** (not direction) — volatility is genuinely "
+               "predictable and drives stop distance & position size.")
+    if st.button("📉 Run Volatility Forecast", key="btn_vol"):
+        from backend.calculations.volatility_forecast import garch_forecast
+        with st.spinner("Fetching 2y prices and fitting GARCH(1,1)…"):
+            close2 = _fetch_close_2y(ticker_ns)
+            st.session_state["vol_result"] = (ticker_name,
+                garch_forecast(close2) if not close2.empty else {"error": "No price data"})
+
+    _vr = st.session_state.get("vol_result")
+    if _vr and _vr[0] == ticker_name:
+        v = _vr[1]
+        if v.get("error"):
+            st.error(f"Volatility model failed: {v['error']}")
+        else:
+            r_color = ("#D50000" if v["vol_regime"] == "HIGH"
+                       else "#00C853" if v["vol_regime"] == "LOW" else "#FFD600")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.markdown(f"""<div style='{_card};border-left:4px solid {r_color}'>
+              <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Volatility Regime</div>
+              <div style='color:{r_color};font-size:30px;font-weight:700'>{v['vol_regime']}</div>
+              <div style='color:#ccc;font-size:13px;margin-top:4px'>trend: {v['vol_trend']}</div>
+            </div>""", unsafe_allow_html=True)
+            c2.metric("Current Ann. Vol", f"{v['current_ann_vol']}%",
+                      help="Annualized volatility forecast for tomorrow")
+            c3.metric("30-Day Forecast Vol", f"{v['forecast_end_vol']}%")
+            c4.metric("Expected 1-Day Move (1σ)", f"₹{v['exp_daily_move']}")
+
+            fig_v = go.Figure()
+            fig_v.add_trace(go.Scatter(
+                y=v["ann_vol_path"], x=list(range(1, len(v["ann_vol_path"]) + 1)),
+                name="Forecast Ann. Vol %", line=dict(color="#FF9100", width=2.2),
+                hovertemplate="Day %{x}: %{y:.1f}%<extra></extra>",
+            ))
+            fig_v.add_hline(y=v["hist_vol_full"], line_dash="dash", line_color="#90CAF9",
+                            annotation_text=f"2y average {v['hist_vol_full']}%")
+            fig_v.update_layout(template="plotly_dark", height=300,
+                                title=f"{ticker_name} — {v['engine']} · 30-Day Volatility Path",
+                                xaxis_title="Days ahead", yaxis_title="Annualized Vol %",
+                                margin=dict(t=50, b=40))
+            st.plotly_chart(fig_v, width='stretch')
+
+            st.markdown("**📐 Volatility-Adjusted Position Size (2% risk rule)**")
+            pc1, pc2 = st.columns(2)
+            capital = pc1.number_input("Capital (₹)", 10000, 100000000, 500000, step=50000, key="vol_cap")
+            risk_pct = pc2.slider("Risk per trade (%)", 0.5, 5.0, 2.0, 0.5, key="vol_risk")
+            from backend.calculations.volatility_forecast import position_size
+            ps = position_size(capital, risk_pct, v["last_price"], v["exp_daily_move"])
+            s1, s2, s3, s4 = st.columns(4)
+            s1.metric("Quantity", f"{ps['qty']:,}")
+            s2.metric("Stop Price (2σ)", f"₹{ps['stop_price']:,}")
+            s3.metric("Risk Amount", f"₹{ps['risk_amount']:,.0f}")
+            s4.metric("Position Value", f"₹{ps['position_value']:,.0f}")
+    else:
+        st.info("Click the button to fit a GARCH volatility model on 2 years of prices.")
+
+# ── Tab: Chronos foundation model ─────────────────────────────────────────────
+with tab_chronos:
+    st.caption("**Amazon Chronos-Bolt** — a pre-trained time-series foundation model. "
+               "Zero-shot: no training on this stock; it reads the recent price path and "
+               "outputs a probabilistic forecast. A 4th independent opinion vs Prophet/ARIMA/XGB.")
+    from backend.calculations.chronos_forecast import is_available as _chronos_ok
+    if not _chronos_ok():
+        st.warning("Chronos needs the `torch` + `chronos-forecasting` packages — not installed "
+                   "on this deployment. Available on local runs.")
+    elif st.button("🧠 Run Chronos Forecast", key="btn_chronos"):
+        from backend.calculations.chronos_forecast import chronos_price_forecast
+        with st.spinner("Running Chronos-Bolt (first run downloads ~190 MB model)…"):
+            close2 = _fetch_close_2y(ticker_ns)
+            st.session_state["chronos_result"] = (ticker_name,
+                chronos_price_forecast(close2) if not close2.empty else {"error": "No price data"})
+
+    _cr = st.session_state.get("chronos_result")
+    if _cr and _cr[0] == ticker_name:
+        c = _cr[1]
+        if c.get("error"):
+            st.error(f"Chronos failed: {c['error']}")
+        else:
+            d_color = ("#00C853" if c["direction"] == "Bullish"
+                       else "#D50000" if c["direction"] == "Bearish" else "#FFD600")
+            m1, m2, m3 = st.columns(3)
+            m1.markdown(f"""<div style='{_card};border-left:4px solid {d_color}'>
+              <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Chronos 30d Trend</div>
+              <div style='color:{d_color};font-size:30px;font-weight:700'>{c['direction']}</div>
+              <div style='color:#ccc;font-size:13px;margin-top:4px'>{c['trend_pct']:+.2f}% projected</div>
+            </div>""", unsafe_allow_html=True)
+            m2.metric("30d Median Target", f"₹{c['yhat'][-1]:,}")
+            m3.metric("80% Range (day 30)", f"₹{c['yhat_lower'][-1]:,} – ₹{c['yhat_upper'][-1]:,}")
+
+            close2 = _fetch_close_2y(ticker_ns)
+            hist = close2.tail(126)
+            fdates = [str(d) for d in c["forecast_dates"]]
+            fig_c = go.Figure()
+            fig_c.add_trace(go.Scatter(
+                x=fdates + fdates[::-1], y=c["yhat_upper"] + c["yhat_lower"][::-1],
+                fill="toself", fillcolor="rgba(255,145,0,0.12)",
+                line=dict(width=0), showlegend=False, hoverinfo="skip"))
+            fig_c.add_trace(go.Scatter(
+                x=[str(d) for d in hist.index], y=list(hist.values), name="Actual Price",
+                line=dict(color="#90CAF9", width=1.8),
+                hovertemplate="₹%{y:,.1f}<extra>Actual</extra>"))
+            fig_c.add_trace(go.Scatter(
+                x=fdates, y=c["yhat"], name="Chronos Median Forecast",
+                line=dict(color="#FF9100", width=2.2, dash="dashdot"),
+                hovertemplate="₹%{y:,.1f}<extra>Chronos</extra>"))
+            fig_c.update_layout(template="plotly_dark", height=380,
+                                title=f"{ticker_name} — Chronos-Bolt 30-Day Zero-Shot Forecast · 10–90% band",
+                                yaxis=dict(tickprefix="₹"), legend=dict(orientation="h", y=1.06),
+                                hovermode="x unified", margin=dict(t=55, b=30))
+            st.plotly_chart(fig_c, width='stretch')
+            st.caption(f"Model: {c['model']} · context {c['context_bars']} bars · no per-stock training")
+    elif _chronos_ok():
+        st.info("Click the button to run the Chronos foundation model on this stock.")
+
 # ── Methodology note ──────────────────────────────────────────────────────────
 st.markdown("---")
 with st.expander("📖 Model Methodology"):
@@ -736,6 +998,16 @@ with st.expander("📖 Model Methodology"):
 - Facebook/Meta time-series model with weekly + yearly seasonality and Indian market holidays
 - Outputs 30-day price path with 80% confidence band
 - Best interpreted as a trend direction indicator, not a precise price target
+- **Past Forecast (backtest) line**: the model is re-trained on data ending 30 days ago and
+  predicts the held-out window — an honest view of what it *would* have forecast vs what
+  actually happened. Hover shows Δ vs Actual in ₹ and %.
+- Chart supports **Line / Candlestick** toggle (candles need OHLC — available after a live
+  run or the next nightly cache refresh)
+
+**ARIMA (Statistical Forecast)**
+- Auto-selected order (p,d,q) fitted on daily log-returns, converted back to price levels
+- 95% prediction intervals; Neutral (0%) on stable large-caps is normal — their returns
+  are near random-walk
 
 **XGBoost Direction Classifier**
 - Gradient-boosted trees trained on 60+ features per trading day
@@ -780,10 +1052,37 @@ with st.expander("📖 Model Methodology"):
 
 Best setups: XGB and Prophet **agree** AND backtest accuracy **> 60%**.
 
+**🧪 Advanced Analytics (bottom of page)**
+
+**📰 News Sentiment**
+- Fetches the latest ~25 India news headlines for the stock (Google News RSS, last 10 days)
+- Each headline scored by **FinBERT** — a language model fine-tuned on financial text
+  (falls back to VADER + finance lexicon when FinBERT isn't available on the deployment)
+- Aggregate score is **recency-weighted** (newest headlines count ~3× more):
+  &gt; +0.15 = Bullish · &lt; −0.15 = Bearish · otherwise Neutral
+- Use as a catalyst check on top of technical signals — news edge decays within days
+
+**📉 Volatility &amp; Risk — GARCH(1,1)**
+- Fits on 2 years of daily returns (Student-t errors); forecasts the 30-day volatility path
+- Volatility is far more predictable than direction — use it for **risk management, not calls**
+- Regime: HIGH = current vol &gt; 1.25× the 2-year average · LOW = &lt; 0.75×
+- Position sizer: stop = 2σ expected daily move; quantity = (capital × risk%) ÷ stop distance
+- Falls back to EWMA (RiskMetrics λ=0.94) if the arch package is missing
+
+**🧠 Chronos AI (Zero-Shot)**
+- **Amazon Chronos-Bolt** time-series foundation model — pre-trained on millions of series
+- Zero-shot: reads the last ~2 years of prices with **no training on this stock** and outputs
+  a probabilistic 30-day forecast (median + 10–90% band)
+- Independent of Prophet/ARIMA/XGBoost — a genuine 4th vote; agreement across all four
+  is a stronger signal than any single model
+- Runs locally (needs torch); unavailable on lightweight cloud deployments
+
 **Realistic Expectations**
 - Typical accuracy range on liquid NSE stocks: **55–67%**
 - Accuracy > 50% = model has edge over coin flip
 - Higher accuracy on trending stocks (ADX > 20); lower on sideways markets
+- News sentiment typically adds 3–7% direction accuracy; volatility models improve
+  P&amp;L through sizing rather than prediction
 - Past backtest accuracy does not guarantee future results
 
 </div>""", unsafe_allow_html=True)

@@ -16,3 +16,10 @@ prophet>=1.1.5
 xgboost>=2.0.0
 scikit-learn>=1.4.0
 pmdarima>=2.0.0
+feedparser>=6.0.0
+vaderSentiment>=3.3.0
+arch>=7.0.0
+networkx>=3.0
+# torch / transformers / chronos-forecasting intentionally NOT listed:
+# too heavy for Streamlit Cloud. Sentiment falls back to VADER and the
+# Chronos tab degrades gracefully when they are absent.

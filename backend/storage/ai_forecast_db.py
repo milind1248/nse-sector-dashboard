@@ -157,6 +157,8 @@ def load_forecast(symbol: str) -> tuple[dict | None, str | None]:
                 "yhat":            pf.get("yhat", []),
                 "yhat_lower":      pf.get("yhat_lower", pf.get("yhat", [])),
                 "yhat_upper":      pf.get("yhat_upper", pf.get("yhat", [])),
+                "backtest_dates":  pf.get("backtest_dates", []),
+                "backtest_yhat":   pf.get("backtest_yhat", []),
                 "trend_direction": row[10],
                 "trend_pct":       row[11],
                 "last_price":      row[1],

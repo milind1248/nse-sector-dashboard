@@ -264,7 +264,37 @@ def run_prophet_forecast(close_series: pd.Series, horizon_days: int = 30) -> dic
         yhat_lower = fcast.get("yhat_lower", fcast["yhat"]).tolist()
         yhat_upper = fcast.get("yhat_upper", fcast["yhat"]).tolist()
 
+        # Walk-forward backtest: refit on data up to `horizon_days` ago and
+        # predict the held-out window, so the chart can show what the model
+        # WOULD have forecast vs what actually happened (true past accuracy).
+        backtest_dates, backtest_yhat = [], []
+        try:
+            train = df_p.iloc[:-horizon_days]
+            if len(train) >= 180:
+                m_bt = Prophet(
+                    daily_seasonality=False,
+                    weekly_seasonality=True,
+                    yearly_seasonality=True,
+                    changepoint_prior_scale=0.15,
+                    seasonality_prior_scale=10,
+                    interval_width=0.80,
+                    mcmc_samples=0,
+                    uncertainty_samples=0,
+                )
+                m_bt.add_country_holidays(country_name="IN")
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    m_bt.fit(train)
+                held_out = df_p["ds"].iloc[-horizon_days:]
+                pred_bt = m_bt.predict(pd.DataFrame({"ds": held_out}))
+                backtest_dates = pred_bt["ds"].dt.date.tolist()
+                backtest_yhat = pred_bt["yhat"].tolist()
+        except Exception:
+            pass  # backtest overlay is optional — never break the main forecast
+
         return {
+            "backtest_dates":  backtest_dates,
+            "backtest_yhat":   backtest_yhat,
             "error":           None,
             "history_dates":   hist["ds"].dt.date.tolist(),
             "history_prices":  hist["yhat"].tolist(),
@@ -591,12 +621,24 @@ def run_full_stock_forecast(ticker_ns: str, forward_days: int = 5,
         def _series_to_dict(s: pd.Series) -> dict:
             return {"dates": [str(d) for d in s.index], "values": [float(v) for v in s.values]}
 
+        def _get_ohlc_col(name: str) -> list:
+            try:
+                col = raw[name]
+                if hasattr(col, "columns"):  # yfinance multi-index
+                    col = col.iloc[:, 0]
+                return [float(v) for v in col.reindex(close_6m.index).values]
+            except Exception:
+                return []
+
         result: dict = {
             "price":       float(close.iloc[-1]),
             "computed_at": datetime.utcnow().isoformat(),
             "close_6m": {
                 "dates":  [str(d) for d in close_6m.index],
                 "prices": [float(v) for v in close_6m.values],
+                "open":   _get_ohlc_col("Open"),
+                "high":   _get_ohlc_col("High"),
+                "low":    _get_ohlc_col("Low"),
             },
             "ema": {
                 "ema20":  _series_to_dict(ema20),
@@ -630,6 +672,8 @@ def run_full_stock_forecast(ticker_ns: str, forward_days: int = 5,
                     "yhat":           prophet_res["yhat"],
                     "yhat_lower":     prophet_res["yhat_lower"],
                     "yhat_upper":     prophet_res["yhat_upper"],
+                    "backtest_dates": [str(d) for d in prophet_res.get("backtest_dates", [])],
+                    "backtest_yhat":  prophet_res.get("backtest_yhat", []),
                 },
             })
 
