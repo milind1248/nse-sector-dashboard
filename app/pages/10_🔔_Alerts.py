@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 from config import SECTOR_STOCKS
 from backend.data_ingestion.yfinance_fetcher import _get_close
 from backend.calculations.indicators import ema_signal
+from backend.calculations.ma_respect import analyze_stock
 
 st.set_page_config(page_title="Alerts & Scanners | NSE Swing Trading | Market Sector Analysis", layout="wide")
 from app.utils.guard import enforce_deployment_gate
@@ -26,12 +27,13 @@ show_sebi_notice()
 st.caption("Technical scanners and alerts across all NSE sectors. For informational and educational purposes only.")
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_breakout, tab_ema, tab_hm, tab_frvp, tab_frvp_hm = st.tabs([
+tab_breakout, tab_ema, tab_hm, tab_frvp, tab_frvp_hm, tab_best_ma = st.tabs([
     "📡 Breakout Alerts",
     "📈 20 EMA Pullback Scanner",
     "🎯 H-M Scanner",
     "📊 FRVP Signal",
     "🔍 FRVP H-M Scanner",
+    "📏 Best MA",
 ])
 
 # Pre-render loading skeletons into tabs 2 and 3 BEFORE any scanner starts.
@@ -81,6 +83,13 @@ with tab_frvp_hm:
 <div class="_scan-bar" style="width:70%"></div>
 <div class="_scan-bar" style="width:55%"></div>
 <div class="_scan-bar" style="width:80%"></div>""", unsafe_allow_html=True)
+
+with tab_best_ma:
+    _best_ma_ph = st.empty()
+    _best_ma_ph.markdown(_LOADING_CSS + """
+<div class="_scan-loading">⏳ <strong>Best MA Analyzer</strong> — select a stock to analyze…</div>
+<div class="_scan-bar" style="width:70%"></div>
+<div class="_scan-bar" style="width:50%"></div>""", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2247,6 +2256,299 @@ with tab_frvp_hm:
                     mime="text/csv",
                     key="frvp_hm_tl_export",
                 )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 6 — BEST MA ANALYZER
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_best_ma:
+    _best_ma_ph.empty()
+    st.subheader("📏 Best Moving Average — MA Respect Analyzer")
+    st.caption(
+        "Identifies which moving average a stock respects most consistently using "
+        "ATR-normalized touch detection, Wilson-adjusted scoring, and out-of-time consistency validation. "
+        "For educational and historical analysis only."
+    )
+
+    # ── Input controls ─────────────────────────────────────────────────────────
+    col1, col2, col3 = st.columns([2, 2, 2])
+    with col1:
+        sector_options = sorted(SECTOR_STOCKS.keys())
+        selected_sector = st.selectbox("Sector", sector_options, key="best_ma_sector")
+    with col2:
+        stocks = SECTOR_STOCKS.get(selected_sector, [])
+        stock_names = [s.replace(".NS", "") for s in stocks]
+        selected_stock = st.selectbox("Stock", stock_names, key="best_ma_stock")
+    with col3:
+        period_options = {"3 Years": "3y", "5 Years": "5y", "10 Years": "10y"}
+        selected_period = st.selectbox("History", list(period_options.keys()), index=1, key="best_ma_period")
+        period_str = period_options[selected_period]
+
+    # ── Advanced parameters ────────────────────────────────────────────────────
+    with st.expander("⚙ Advanced Settings"):
+        col_a1, col_a2, col_a3, col_a4 = st.columns(4)
+        with col_a1:
+            direction_type = st.radio("Direction", ["Support", "Resistance"], horizontal=True, key="best_ma_direction")
+        with col_a2:
+            tol_atr = st.slider("Touch Tolerance (ATR units)", 0.05, 1.0, 0.25, 0.05, key="best_ma_tol")
+        with col_a3:
+            fail_atr = st.slider("Failure Threshold (ATR units)", 0.2, 2.0, 0.5, 0.1, key="best_ma_fail")
+        with col_a4:
+            rebound_atr = st.slider("Rebound Target (ATR units)", 0.5, 3.0, 1.0, 0.1, key="best_ma_rebound")
+
+    # ── Analyze button ─────────────────────────────────────────────────────────
+    if st.button("▶ Analyze", type="primary", use_container_width=False):
+        ticker = f"{selected_stock}.NS"
+        direction_lower = direction_type.lower()
+        cache_key = (ticker, period_str, direction_lower, round(tol_atr, 2), round(fail_atr, 2))
+
+        @st.cache_data(ttl=3600, show_spinner=False)
+        def fetch_and_analyze(_ticker, _period, _direction, _tol, _fail):
+            import yfinance as yf
+            try:
+                raw = yf.download(_ticker, period=_period, interval="1d", progress=False, auto_adjust=True)
+                if raw is None or raw.empty or len(raw) < 60:
+                    return {"error": "Insufficient historical data (need ≥60 bars)"}
+
+                raw.index = pd.to_datetime(raw.index).date
+
+                # Normalize OHLCV (handle multi-index columns from auto_adjust)
+                ohlc_dict = {}
+                for col in ["Open", "High", "Low", "Close", "Volume"]:
+                    if col in raw.columns:
+                        series = raw[col]
+                        if isinstance(series, pd.DataFrame):
+                            series = series.iloc[:, 0]
+                        ohlc_dict[col] = series
+
+                if not all(k in ohlc_dict for k in ["Open", "High", "Low", "Close"]):
+                    return {"error": "Missing OHLC columns in data"}
+
+                df = pd.DataFrame(ohlc_dict)
+
+                # Run analysis
+                result = analyze_stock(
+                    df,
+                    ma_types=("EMA", "SMA", "RMA", "WMA"),
+                    ma_periods=(5, 8, 9, 10, 13, 20, 21, 34, 50, 55, 100, 150, 200),
+                    direction=_direction,
+                    tol_atr=_tol,
+                    fail_atr=_fail,
+                    rebound_atr=rebound_atr,
+                    look_forward=10,
+                    min_touches=8,
+                    recent_bars=252
+                )
+                return result
+            except Exception as e:
+                return {"error": f"Analysis failed: {str(e)}"}
+
+        with st.spinner("Analyzing…"):
+            result = fetch_and_analyze(ticker, period_str, direction_lower, tol_atr, fail_atr)
+
+        if "error" in result:
+            st.error(result["error"])
+        else:
+            # ── Summary cards ──────────────────────────────────────────────────
+            if result.get("selected_primary"):
+                prim = result["selected_primary"]
+                m1, m2, m3, m4 = st.columns(4)
+
+                ma_label = f"{prim['ma_type']} {prim['ma_period']}"
+                score = prim.get("score", 0)
+                confidence = prim.get("confidence", "N/A")
+
+                m1.metric(
+                    "🎯 Primary MA",
+                    ma_label,
+                    f"Score: {score:.0f}"
+                )
+
+                status = result.get("status", {})
+                current_status = status.get("status", "N/A")
+                m2.metric("📊 Current Status", current_status, "")
+
+                distance_pct = status.get("distance_pct", 0)
+                m3.metric("📏 Distance (%)", f"{distance_pct:.2f}%", "from MA")
+
+                n_touches = prim.get("touch_count", 0)
+                m4.metric("📍 Touches (Sample Size)", str(n_touches), "events")
+
+                st.markdown("---")
+
+                # ── Candlestick chart with MAs ─────────────────────────────────
+                df_chart = result.get("df_for_chart", pd.DataFrame())
+                if not df_chart.empty:
+                    df_chart = df_chart.tail(252)  # 1y default view
+
+                    fig = go.Figure()
+
+                    # Candlesticks
+                    fig.add_trace(go.Candlestick(
+                        x=df_chart.index,
+                        open=df_chart["Open"],
+                        high=df_chart["High"],
+                        low=df_chart["Low"],
+                        close=df_chart["Close"],
+                        name="Price"
+                    ))
+
+                    # Primary MA
+                    if "ma_primary" in result:
+                        ma_s = result["ma_primary"]
+                        fig.add_trace(go.Scatter(
+                            x=ma_s.index, y=ma_s.values,
+                            mode="lines", name=ma_label, line=dict(color="orange", width=2)
+                        ))
+
+                    # ATR tolerance band (±2 ATR around primary MA)
+                    if "atr" in result:
+                        atr_s = result["atr"]
+                        ma_s = result.get("ma_primary", pd.Series())
+                        if not ma_s.empty:
+                            upper_band = ma_s + (2 * atr_s)
+                            lower_band = ma_s - (2 * atr_s)
+
+                            fig.add_trace(go.Scatter(
+                                x=upper_band.index, y=upper_band.values,
+                                mode="lines", name="Upper Band (±2 ATR)",
+                                line=dict(color="rgba(255,165,0,0.2)"), showlegend=False
+                            ))
+                            fig.add_trace(go.Scatter(
+                                x=lower_band.index, y=lower_band.values,
+                                mode="lines", name="Lower Band (±2 ATR)",
+                                line=dict(color="rgba(255,165,0,0.2)"), fill="tonexty",
+                                showlegend=False
+                            ))
+
+                    fig.update_xaxes(
+                        rangeslider=dict(visible=False),
+                        rangeselector=dict(buttons=[
+                            dict(count=3, label="3m", step="month"),
+                            dict(count=6, label="6m", step="month"),
+                            dict(count=1, label="1y", step="year"),
+                            dict(count=2, label="2y", step="year"),
+                            dict(step="all", label="All")
+                        ])
+                    )
+                    fig.update_layout(title="Stock Price & Primary MA", height=450, template="plotly_dark")
+                    st.plotly_chart(fig, use_container_width=True)
+
+                st.markdown("---")
+
+                # ── Ranked candidates table ────────────────────────────────────
+                if result.get("candidates"):
+                    st.subheader("📊 Ranked MA Candidates")
+
+                    candidates_data = []
+                    for c in result["candidates"]:
+                        candidates_data.append({
+                            "MA": f"{c['ma_type']} {c['ma_period']}",
+                            "Touches": c.get("touch_count", 0),
+                            "Hold Rate (%)": round(c.get("hold_rate", 0) * 100, 1),
+                            "Score": round(c.get("score", 0), 1),
+                            "Confidence": c.get("confidence", "N/A"),
+                            "Status": c.get("current_status", "N/A")
+                        })
+
+                    df_cand = pd.DataFrame(candidates_data)
+                    st.dataframe(
+                        df_cand.style.format({"Score": "{:.1f}"}),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                st.markdown("---")
+
+                # ── Why selected explanation ───────────────────────────────────
+                st.subheader("💡 Why Selected")
+                if prim.get("reason"):
+                    st.info(prim["reason"])
+
+                # ── Touch events table ─────────────────────────────────────────
+                if result.get("touches"):
+                    with st.expander("📍 Touch Events Detail"):
+                        touches_data = []
+                        for t in result["touches"][:50]:  # Show last 50
+                            touches_data.append({
+                                "Date": str(t.get("date", "")),
+                                "MA": f"{t['ma_type']} {t['ma_period']}",
+                                "Low": round(t.get("low", 0), 2),
+                                "MA Value": round(t.get("ma_value", 0), 2),
+                                "Outcome": t.get("outcome", "N/A"),
+                                "Bars to Outcome": t.get("bars_to_outcome", "—")
+                            })
+
+                        if touches_data:
+                            df_touches = pd.DataFrame(touches_data)
+                            st.dataframe(df_touches, use_container_width=True, hide_index=True)
+
+                st.markdown("---")
+
+                # ── Downloads ──────────────────────────────────────────────────
+                col_d1, col_d2 = st.columns(2)
+
+                with col_d1:
+                    if result.get("candidates"):
+                        csv_cand = pd.DataFrame([
+                            {
+                                "MA Type": c["ma_type"],
+                                "Period": c["ma_period"],
+                                "Touches": c.get("touch_count", 0),
+                                "Hold Rate": round(c.get("hold_rate", 0), 4),
+                                "Score": round(c.get("score", 0), 2),
+                                "Confidence": c.get("confidence", "")
+                            }
+                            for c in result["candidates"]
+                        ]).to_csv(index=False)
+
+                        st.download_button(
+                            "⬇ Candidates CSV",
+                            csv_cand.encode(),
+                            file_name=f"ma_candidates_{selected_stock.lower()}.csv",
+                            mime="text/csv",
+                            key="best_ma_candidates_csv"
+                        )
+
+                with col_d2:
+                    if result.get("touches"):
+                        csv_touches = pd.DataFrame([
+                            {
+                                "Date": str(t.get("date", "")),
+                                "MA Type": t["ma_type"],
+                                "MA Period": t["ma_period"],
+                                "Low": round(t.get("low", 0), 2),
+                                "MA Value": round(t.get("ma_value", 0), 2),
+                                "Outcome": t.get("outcome", ""),
+                                "Bars to Outcome": t.get("bars_to_outcome", "")
+                            }
+                            for t in result["touches"]
+                        ]).to_csv(index=False)
+
+                        st.download_button(
+                            "⬇ Touch Events CSV",
+                            csv_touches.encode(),
+                            file_name=f"ma_touches_{selected_stock.lower()}.csv",
+                            mime="text/csv",
+                            key="best_ma_touches_csv"
+                        )
+
+                st.markdown("---")
+
+                # ── Warnings ───────────────────────────────────────────────────
+                warnings = result.get("warnings", [])
+                if warnings:
+                    for w in warnings:
+                        st.warning(w)
+
+                # ── Disclaimer ─────────────────────────────────────────────────
+                st.caption(
+                    "⚠️ **Disclaimer:** This analysis identifies historically most-respected moving averages based on statistical patterns. "
+                    "It does not predict future price action or guarantee the stock will continue to respect any MA. "
+                    "Past performance is not indicative of future results. For educational purposes only."
+                )
+            else:
+                st.warning("No MA candidates found with sufficient touches. Try a longer history or adjust parameters.")
 
 from app.utils.disclaimer import show_footer
 show_footer()
