@@ -954,54 +954,108 @@ with tab_stock:
                 unsafe_allow_html=True,
             )
 
-            # ── Fair Value row ────────────────────────────────────────────────
-            with st.spinner("Loading fair value estimates…"):
-                fv = _fetch_fair_value(symbol)
+            # ── Fair Value panel (multi-model) ────────────────────────────────
+            with st.expander("📐 Fair Value — multi-model valuation", expanded=False):
+                from config import SECTOR_STOCKS as _FV_SECTORS
+                from backend.calculations.fair_value import compute_fair_value, fetch_peer_multiples
 
-            if fv and fv.get("current"):
-                cmp       = fv["current"]
-                graham    = fv.get("graham")
-                pe_val    = fv.get("pe_value")
-                dcf_val   = fv.get("dcf")
-                eps_val   = fv.get("eps")
-                bv_val    = fv.get("book_value")
-                pe_used   = fv.get("pe")
+                @st.cache_data(ttl=21600, show_spinner=False)
+                def _fv_peers(sector: str, sym: str) -> dict:
+                    return fetch_peer_multiples(_FV_SECTORS.get(sector, []), sym)
 
-                def _fv_card(label, formula, value):
-                    if value is None or cmp is None:
-                        return (f"<div style='text-align:center;padding:0 12px'>"
-                                f"<div style='color:#aaa;font-size:10px'>{label}</div>"
-                                f"<div style='color:#666;font-size:10px'>{formula}</div>"
-                                f"<div style='color:#555;font-size:16px'>N/A</div></div>")
-                    pct   = (value - cmp) / cmp * 100
-                    arrow = "▲" if value >= cmp else "▼"
-                    col   = "#00C853" if value >= cmp else "#FF5252"
-                    return (f"<div style='text-align:center;padding:0 12px;border-left:1px solid #2a2a3e'>"
-                            f"<div style='color:#aaa;font-size:10px'>{label}</div>"
-                            f"<div style='color:#888;font-size:9px'>{formula}</div>"
-                            f"<div style='color:#CE93D8;font-size:20px;font-weight:700'>₹{value:,.0f}</div>"
-                            f"<div style='color:{col};font-size:11px'>{arrow} {pct:+.1f}% vs CMP</div></div>")
+                @st.cache_data(ttl=21600, show_spinner=False)
+                def _fv_full(sym: str, sector: str) -> dict:
+                    return compute_fair_value(sym, peer_multiples=_fv_peers(sector, sym))
 
-                meta = []
-                if eps_val: meta.append(f"EPS ₹{eps_val:.1f}")
-                if bv_val:  meta.append(f"BV ₹{bv_val:.1f}")
-                if pe_used: meta.append(f"P/E {pe_used:.1f}x")
-                meta_str = " · ".join(meta) if meta else ""
+                _fv_sector = _get_symbol_sector(symbol)
+                with st.spinner("Computing fair value across models (first run fetches sector peers)…"):
+                    fv = _fv_full(symbol, _fv_sector)
 
-                st.markdown(
-                    f"<div style='background:#1a1f2e;border-radius:8px;padding:10px 20px;"
-                    f"display:flex;gap:0;flex-wrap:wrap;margin-bottom:8px;align-items:center'>"
-                    f"<div style='min-width:90px;padding-right:16px'>"
-                    f"<div style='color:#CE93D8;font-size:11px;font-weight:700'>📐 FAIR VALUE</div>"
-                    f"<div style='color:#555;font-size:9px'>CMP ₹{cmp:,.0f}</div>"
-                    f"<div style='color:#444;font-size:9px'>{meta_str}</div></div>"
-                    + _fv_card("Graham Number", "√(22.5×EPS×BV)", graham)
-                    + _fv_card("P/E Intrinsic", f"EPS × P/E (capped 40)", pe_val)
-                    + _fv_card("DCF (Graham)", "EPS×(8.5+2g)×4.4/7", dcf_val)
-                    + "</div>",
-                    unsafe_allow_html=True,
-                )
-                st.caption("⚖️ Fair value estimates are mathematical models for reference only — not investment advice.")
+                if fv.get("error"):
+                    st.info(f"Fair value unavailable: {fv['error']}")
+                else:
+                    cmp_p = fv["cmp"]
+                    up_col = "#00C853" if fv["upside_pct"] > 0 else "#FF5252"
+                    unc_col = {"LOW": "#00C853", "MEDIUM": "#FFD600", "HIGH": "#FF5252"}[fv["uncertainty"]]
+                    f1, f2, f3, f4 = st.columns(4)
+                    f1.markdown(f"<div style='background:#1a2236;border-radius:8px;padding:12px;text-align:center'>"
+                                f"<div style='color:#8899bb;font-size:12px'>Average Fair Value</div>"
+                                f"<div style='color:#CE93D8;font-size:26px;font-weight:700'>₹{fv['average']:,.0f}</div>"
+                                f"<div style='color:#888;font-size:11px'>CMP ₹{cmp_p:,.0f} · {fv['n_models']} models</div></div>",
+                                unsafe_allow_html=True)
+                    f2.markdown(f"<div style='background:#1a2236;border-radius:8px;padding:12px;text-align:center'>"
+                                f"<div style='color:#8899bb;font-size:12px'>Upside</div>"
+                                f"<div style='color:{up_col};font-size:26px;font-weight:700'>{fv['upside_pct']:+.1f}%</div>"
+                                f"<div style='color:#888;font-size:11px'>vs current price</div></div>",
+                                unsafe_allow_html=True)
+                    f3.markdown(f"<div style='background:#1a2236;border-radius:8px;padding:12px;text-align:center'>"
+                                f"<div style='color:#8899bb;font-size:12px'>Uncertainty</div>"
+                                f"<div style='color:{unc_col};font-size:26px;font-weight:700'>{fv['uncertainty']}</div>"
+                                f"<div style='color:#888;font-size:11px'>model dispersion</div></div>",
+                                unsafe_allow_html=True)
+                    f4.markdown(f"<div style='background:#1a2236;border-radius:8px;padding:12px;text-align:center'>"
+                                f"<div style='color:#8899bb;font-size:12px'>Spread</div>"
+                                f"<div style='color:#e0e0e0;font-size:20px;font-weight:700'>₹{fv['spread_low']:,.0f} – ₹{fv['spread_high']:,.0f}</div>"
+                                f"<div style='color:#888;font-size:11px'>lowest – highest model</div></div>",
+                                unsafe_allow_html=True)
+
+                    # Range bars: 52-week, analyst targets, model spread — dumbbell chart
+                    fig_rng = go.Figure()
+                    rows_rng = []
+                    if fv.get("wk52_low") and fv.get("wk52_high"):
+                        rows_rng.append(("Market Range (52w)", fv["wk52_low"], fv["wk52_high"], cmp_p, "#90CAF9"))
+                    if fv.get("target_low") and fv.get("target_high"):
+                        lbl = f"Analyst Targets ({fv['n_analysts'] or '–'})"
+                        rows_rng.append((lbl, fv["target_low"], fv["target_high"], fv.get("target_mean"), "#FFD600"))
+                    rows_rng.append((f"Investing Models ({fv['n_models']})",
+                                     fv["spread_low"], fv["spread_high"], fv["average"], "#CE93D8"))
+                    for name, lo, hi, marker, color in rows_rng:
+                        fig_rng.add_trace(go.Scatter(x=[lo, hi], y=[name, name], mode="lines",
+                                                     line=dict(color=color, width=6), opacity=0.35,
+                                                     showlegend=False, hoverinfo="skip"))
+                        fig_rng.add_trace(go.Scatter(x=[lo, hi], y=[name, name], mode="markers+text",
+                                                     marker=dict(color=color, size=8),
+                                                     text=[f"₹{lo:,.0f}", f"₹{hi:,.0f}"],
+                                                     textposition=["middle left", "middle right"],
+                                                     textfont=dict(size=10, color="#aaa"),
+                                                     showlegend=False, hoverinfo="skip"))
+                        if marker:
+                            fig_rng.add_trace(go.Scatter(x=[marker], y=[name], mode="markers",
+                                                         marker=dict(color=color, size=14, symbol="diamond",
+                                                                     line=dict(color="#fff", width=1)),
+                                                         showlegend=False,
+                                                         hovertemplate=f"₹{marker:,.1f}<extra>{name}</extra>"))
+                    fig_rng.add_vline(x=cmp_p, line_dash="dash", line_color="#888",
+                                      annotation_text=f"CMP ₹{cmp_p:,.0f}", annotation_font_size=10)
+                    fig_rng.update_layout(template="plotly_dark", height=200,
+                                          margin=dict(t=20, b=10, l=10, r=10),
+                                          xaxis=dict(tickprefix="₹"), yaxis=dict(autorange="reversed"))
+                    st.plotly_chart(fig_rng, width='stretch')
+
+                    # Per-model breakdown — horizontal lollipop vs CMP
+                    mdl = fv["models"]
+                    names = [m["model"] for m in mdl]
+                    vals = [m["value"] for m in mdl]
+                    basis = [m["basis"] for m in mdl]
+                    colors = ["#00C853" if v >= cmp_p else "#FF5252" for v in vals]
+                    fig_m = go.Figure()
+                    for n, v, b, c in zip(names, vals, basis, colors):
+                        fig_m.add_trace(go.Scatter(x=[cmp_p, v], y=[n, n], mode="lines",
+                                                   line=dict(color=c, width=2), opacity=0.5,
+                                                   showlegend=False, hoverinfo="skip"))
+                        fig_m.add_trace(go.Scatter(x=[v], y=[n], mode="markers+text",
+                                                   marker=dict(color=c, size=10),
+                                                   text=[f" ₹{v:,.0f}"], textposition="middle right",
+                                                   textfont=dict(size=11, color=c), showlegend=False,
+                                                   hovertemplate=f"₹{v:,.1f} ({(v-cmp_p)/cmp_p*100:+.1f}%)<br>{b}<extra>{n}</extra>"))
+                    fig_m.add_vline(x=cmp_p, line_dash="dash", line_color="#888")
+                    fig_m.update_layout(template="plotly_dark", height=60 + 34 * len(mdl),
+                                        margin=dict(t=15, b=10, l=10, r=60),
+                                        xaxis=dict(tickprefix="₹"))
+                    st.plotly_chart(fig_m, width='stretch')
+
+                    st.caption(f"Assumptions: {fv['assumptions']} · Multiples use sector-peer medians. "
+                               "⚖️ Mathematical models for reference only — not investment advice or a price target.")
 
             # ── Charts ────────────────────────────────────────────────────────
             col_ch1, col_ch2 = st.columns(2)
