@@ -14,6 +14,42 @@ from backend.calculations.indicators import ema_signal
 from backend.calculations.ma_respect import analyze_stock, compute_mas
 from backend.calculations.hm_indicators import atr as compute_atr
 
+
+def _batch_download(symbols: list, period: str = "3mo", interval: str = "1d") -> dict:
+    """
+    Fetch OHLCV for many symbols in one/few yf.download calls instead of one call
+    per symbol — cuts HTTP + memory overhead dramatically on constrained hosts.
+    Chunked to keep any single request reasonably sized. Returns {symbol: df}.
+    """
+    import yfinance as yf
+    out = {}
+    uniq = list(dict.fromkeys(symbols))
+    chunk_size = 75
+    for i in range(0, len(uniq), chunk_size):
+        chunk = uniq[i:i + chunk_size]
+        try:
+            batch = yf.download(chunk, period=period, interval=interval,
+                                group_by="ticker", threads=False,
+                                progress=False, auto_adjust=True)
+        except Exception:
+            batch = None
+        if batch is None or batch.empty:
+            continue
+        multi = isinstance(batch.columns, pd.MultiIndex)
+        for sym in chunk:
+            try:
+                if multi:
+                    if sym not in batch.columns.get_level_values(0):
+                        continue
+                    df = batch[sym].dropna(how="all")
+                else:
+                    df = batch
+                if df is not None and not df.empty:
+                    out[sym] = df
+            except Exception:
+                continue
+    return out
+
 st.set_page_config(page_title="Alerts & Scanners | NSE Swing Trading | Market Sector Analysis", layout="wide")
 from app.utils.guard import enforce_deployment_gate
 enforce_deployment_gate()
@@ -102,12 +138,13 @@ with tab_breakout:
 
     @st.cache_data(ttl=3600, show_spinner=False)
     def scan_all_breakouts():
-        import yfinance as yf
         alerts = []
+        all_syms = [sym for stocks in SECTOR_STOCKS.values() for sym in stocks]
+        batch = _batch_download(all_syms, period="3mo", interval="1d")
         for sector, stocks in SECTOR_STOCKS.items():
             for sym in stocks:
                 try:
-                    raw = yf.download(sym, period="3mo", interval="1d", progress=False, auto_adjust=True)
+                    raw = batch.get(sym)
                     if raw is None or raw.empty:
                         continue
                     raw.index = pd.to_datetime(raw.index).date
@@ -260,11 +297,13 @@ with tab_ema:
 
         results = []
 
+        all_syms = [sym for stocks in SECTOR_STOCKS.values() for sym in stocks]
+        batch = _batch_download(all_syms, period="12mo", interval="1d")
+
         for sector, stocks in SECTOR_STOCKS.items():
             for sym in stocks:
                 try:
-                    raw = yf.download(sym, period="12mo", interval="1d",
-                                      progress=False, auto_adjust=True)
+                    raw = batch.get(sym)
                     if raw is None or raw.empty or len(raw) < 60:
                         continue
 
@@ -760,10 +799,14 @@ with tab_hm:
 
         results = []
 
+        all_syms = [sym for stocks in SECTOR_STOCKS.values() for sym in stocks]
+        daily_batch  = _batch_download(all_syms, period="12mo", interval="1d")
+        weekly_batch = _batch_download(all_syms, period="2y",  interval="1wk")
+
         for sector, stocks in SECTOR_STOCKS.items():
             for sym in stocks:
                 try:
-                    raw = yf.download(sym, period="12mo", interval="1d", progress=False, auto_adjust=True)
+                    raw = daily_batch.get(sym)
                     if raw is None or raw.empty or len(raw) < 60:
                         continue
                     raw.index = pd.to_datetime(raw.index).date
@@ -861,8 +904,8 @@ with tab_hm:
                     # ── NK Rule C: Weekly RSI(9) > 50 (higher TF trend) ───────
                     weekly_rsi_ok = None
                     try:
-                        wk_raw   = yf.download(sym, period="2y", interval="1wk", progress=False, auto_adjust=True)
-                        wk_close = _get_close(wk_raw)
+                        wk_raw   = weekly_batch.get(sym)
+                        wk_close = _get_close(wk_raw) if wk_raw is not None else None
                         if wk_close is not None and len(wk_close) >= 12:
                             wk_rsi9  = _calc_rsi9(wk_close)
                             if not wk_rsi9.empty:
@@ -1779,10 +1822,10 @@ with tab_frvp_hm:
     @st.cache_data(ttl=900, show_spinner=False)
     def _frvp_hm_scan(symbols, lookback, n_bins, va_pct):
         rows = []
+        batch = _batch_download(list(symbols), period="2y", interval="1d")
         for sym in symbols:
             try:
-                raw = yf.download(sym, period="2y", interval="1d",
-                                  auto_adjust=True, progress=False)
+                raw = batch.get(sym)
                 if raw is None or len(raw) < 30:
                     continue
                 if isinstance(raw.columns, pd.MultiIndex):
