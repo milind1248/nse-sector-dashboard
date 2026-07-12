@@ -540,7 +540,7 @@ with st.expander("🧪 Page Test Runner", expanded=False):
         try:
             _proc = subprocess.Popen(
                 [sys.executable, str(_cli), str(_pt_rid)],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, cwd=str(_ROOT),
             )
             for _line in _proc.stdout:
@@ -553,6 +553,7 @@ with st.expander("🧪 Page Test Runner", expanded=False):
                     _pt_bar.progress(int(_idx) / int(_tot),
                                      text=f"[{_idx}/{_tot}] {_name} — {_icon} {_st}")
                     _live_table()
+            _stderr_out = _proc.stderr.read()
             _proc.wait()
 
             if _proc.returncode == 0:
@@ -563,8 +564,21 @@ with st.expander("🧪 Page Test Runner", expanded=False):
                 _pt_table.empty()
                 _render_test_report(_pt_results)
             else:
-                log_finish(_pt_rid, "failed", error_msg="Subprocess exited non-zero")
-                st.error("Page test subprocess failed — check logs.")
+                _err_detail = (_stderr_out or "").strip()[-3000:]
+                log_finish(_pt_rid, "failed",
+                          error_msg=f"Subprocess exited {_proc.returncode}: {_err_detail[:500]}")
+                st.error(f"Page test subprocess failed (exit code {_proc.returncode}).")
+                if _err_detail:
+                    with st.expander("Subprocess stderr", expanded=True):
+                        st.code(_err_detail, language="text")
+                else:
+                    st.caption(
+                        "No stderr captured — likely killed by the host (e.g. out-of-memory) "
+                        "rather than a Python exception. Running a second full AppTest process "
+                        "(re-imports pandas/numpy/xgboost/prophet/psycopg2 etc.) alongside the "
+                        "already-running app can exceed Streamlit Cloud's free-tier memory limit. "
+                        "This tester is best run locally; consider that if it keeps failing only on Cloud."
+                    )
         except Exception as _pt_e:
             log_finish(_pt_rid, "failed", error_msg=str(_pt_e))
             st.error(f"Page test runner failed: {_pt_e}")
