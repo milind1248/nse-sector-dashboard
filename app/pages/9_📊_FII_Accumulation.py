@@ -3,7 +3,6 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -12,6 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from app.utils.auth import is_admin
+from backend.storage.db import get_conn
 
 st.set_page_config(
     page_title="FII Accumulation Screener | Quarterly Shareholding | Market Sector Analysis",
@@ -29,10 +29,8 @@ show_logo()
 from app.utils.disclaimer import show_sebi_notice, show_footer
 
 # ── DB ────────────────────────────────────────────────────────────────────────
-from config import DB_PATH as _DB_PATH
-
 def _db():
-    return sqlite3.connect(_DB_PATH)
+    return get_conn()
 
 
 # ── Sector map ────────────────────────────────────────────────────────────────
@@ -130,21 +128,6 @@ def _fetch_shareholding(symbol: str) -> list[dict]:
     return []
 
 
-def _ensure_meta_table():
-    """Create shareholding_refresh_meta table if absent."""
-    con = _db()
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS shareholding_refresh_meta (
-            key        TEXT PRIMARY KEY,
-            value      TEXT NOT NULL
-        )
-    """)
-    con.commit()
-    con.close()
-
-_ensure_meta_table()
-
-
 def _get_last_refresh() -> str | None:
     try:
         con = _db()
@@ -162,7 +145,8 @@ def _set_last_refresh():
     ts = datetime.utcnow().isoformat()
     con = _db()
     con.execute(
-        "INSERT OR REPLACE INTO shareholding_refresh_meta (key, value) VALUES ('last_full_refresh', ?)",
+        "INSERT INTO shareholding_refresh_meta (key, value) VALUES ('last_full_refresh', %s) "
+        "ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
         (ts,)
     )
     con.commit()
@@ -195,9 +179,14 @@ def _save_shareholding(rows: list[dict]):
         return
     con = _db()
     con.executemany("""
-        INSERT OR REPLACE INTO shareholding_pattern
+        INSERT INTO shareholding_pattern
         (symbol, quarter, promoter, fii, dii, government, public_retail, fetched_at)
-        VALUES (:symbol, :quarter, :promoter, :fii, :dii, :government, :public_retail, :fetched_at)
+        VALUES (%(symbol)s, %(quarter)s, %(promoter)s, %(fii)s, %(dii)s,
+                %(government)s, %(public_retail)s, %(fetched_at)s)
+        ON CONFLICT (symbol, quarter) DO UPDATE SET
+            promoter=EXCLUDED.promoter, fii=EXCLUDED.fii, dii=EXCLUDED.dii,
+            government=EXCLUDED.government, public_retail=EXCLUDED.public_retail,
+            fetched_at=EXCLUDED.fetched_at
     """, rows)
     con.commit()
     con.close()
@@ -339,7 +328,7 @@ def _color_signal(val):
 def _trend_chart(symbol_full: str):
     con = _db()
     df = pd.read_sql_query(
-        "SELECT quarter, promoter, fii, dii FROM shareholding_pattern WHERE symbol=?",
+        "SELECT quarter, promoter, fii, dii FROM shareholding_pattern WHERE symbol=%s",
         con, params=(symbol_full,)
     )
     con.close()

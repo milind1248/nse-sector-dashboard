@@ -1,6 +1,7 @@
 """
-SQLite persistence for full AI forecast results (Prophet + XGBoost + chart data).
-Cook-once pattern: nightly pipeline writes; page reads instantly from DB.
+Supabase (Postgres) persistence for full AI forecast results (Prophet + XGBoost
++ chart data). Cook-once pattern: nightly pipeline writes; page reads instantly
+from DB. Schema lives in scripts/supabase_schema.sql.
 
 Tables
 ------
@@ -8,66 +9,14 @@ ai_forecast_cache : one row per (symbol, scan_date)
                     stores full Prophet forecast, XGBoost prediction + backtest,
                     and last-6-months chart data so the page never calls Yahoo Finance.
 """
-import sqlite3
 import json
 from datetime import date
-from config import DB_PATH
+
+from backend.storage.db import get_conn
 
 
 def _conn():
-    return sqlite3.connect(DB_PATH)
-
-
-def ensure_table():
-    con = _conn()
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS ai_forecast_cache (
-            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol                  TEXT    NOT NULL,
-            sector                  TEXT,
-            scan_date               TEXT    NOT NULL,
-            price                   REAL,
-            -- XGBoost
-            xgb_prob                REAL,
-            xgb_direction           TEXT,
-            xgb_signal              TEXT,
-            xgb_accuracy            REAL,
-            n_train_bars            INTEGER,
-            n_features              INTEGER,
-            backtest_monthly_json   TEXT,
-            feature_importance_json TEXT,
-            -- Prophet
-            prophet_trend           TEXT,
-            prophet_trend_pct       REAL,
-            prophet_forecast_json   TEXT,
-            -- Chart data (last 6 months so page needs no Yahoo call)
-            close_6m_json           TEXT,
-            ema_json                TEXT,
-            -- ARIMA
-            arima_direction         TEXT,
-            arima_trend_pct         REAL,
-            arima_forecast_json     TEXT,
-            -- Meta
-            computed_at             TEXT,
-            UNIQUE(symbol, scan_date)
-        )
-    """)
-    con.commit()
-    # Add ARIMA columns if upgrading existing DB (ALTER TABLE is idempotent via try/except)
-    for col_def in [
-        "arima_direction TEXT",
-        "arima_trend_pct REAL",
-        "arima_forecast_json TEXT",
-    ]:
-        try:
-            con.execute(f"ALTER TABLE ai_forecast_cache ADD COLUMN {col_def}")
-            con.commit()
-        except Exception:
-            pass  # column already exists
-    con.close()
-
-
-ensure_table()
+    return get_conn()
 
 
 def store_forecast(symbol: str, sector: str, result: dict,
@@ -76,7 +25,7 @@ def store_forecast(symbol: str, sector: str, result: dict,
     today = scan_date or date.today().isoformat()
     con = _conn()
     con.execute("""
-        INSERT OR REPLACE INTO ai_forecast_cache
+        INSERT INTO ai_forecast_cache
             (symbol, sector, scan_date, price,
              xgb_prob, xgb_direction, xgb_signal, xgb_accuracy,
              n_train_bars, n_features, backtest_monthly_json, feature_importance_json,
@@ -84,7 +33,19 @@ def store_forecast(symbol: str, sector: str, result: dict,
              close_6m_json, ema_json,
              arima_direction, arima_trend_pct, arima_forecast_json,
              computed_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (symbol, scan_date) DO UPDATE SET
+            sector=EXCLUDED.sector, price=EXCLUDED.price,
+            xgb_prob=EXCLUDED.xgb_prob, xgb_direction=EXCLUDED.xgb_direction,
+            xgb_signal=EXCLUDED.xgb_signal, xgb_accuracy=EXCLUDED.xgb_accuracy,
+            n_train_bars=EXCLUDED.n_train_bars, n_features=EXCLUDED.n_features,
+            backtest_monthly_json=EXCLUDED.backtest_monthly_json,
+            feature_importance_json=EXCLUDED.feature_importance_json,
+            prophet_trend=EXCLUDED.prophet_trend, prophet_trend_pct=EXCLUDED.prophet_trend_pct,
+            prophet_forecast_json=EXCLUDED.prophet_forecast_json,
+            close_6m_json=EXCLUDED.close_6m_json, ema_json=EXCLUDED.ema_json,
+            arima_direction=EXCLUDED.arima_direction, arima_trend_pct=EXCLUDED.arima_trend_pct,
+            arima_forecast_json=EXCLUDED.arima_forecast_json, computed_at=EXCLUDED.computed_at
     """, (
         symbol, sector, today,
         result.get("price"),
@@ -133,7 +94,7 @@ def load_forecast(symbol: str) -> tuple[dict | None, str | None]:
                    close_6m_json, ema_json,
                    arima_direction, arima_trend_pct, arima_forecast_json
             FROM ai_forecast_cache
-            WHERE symbol = ?
+            WHERE symbol = %s
             ORDER BY scan_date DESC LIMIT 1
         """, (symbol,)).fetchone()
         if not row:
@@ -204,7 +165,7 @@ def load_forecast(symbol: str) -> tuple[dict | None, str | None]:
             "ema":         ema,
             "price":       row[1],
         }
-        return result, scan_date
+        return result, str(scan_date)
     finally:
         con.close()
 
@@ -225,7 +186,7 @@ def load_all_latest() -> list[dict]:
             SELECT symbol, sector, price, xgb_prob, xgb_direction,
                    xgb_signal, xgb_accuracy, prophet_trend, arima_direction, scan_date
             FROM ai_forecast_cache
-            WHERE scan_date = ?
+            WHERE scan_date = %s
             ORDER BY xgb_prob DESC
         """, (latest,)).fetchall()
         return [
@@ -239,7 +200,7 @@ def load_all_latest() -> list[dict]:
                 "Accuracy %":    r[6],
                 "Prophet Trend": r[7],
                 "ARIMA Trend":   r[8],
-                "scan_date":     r[9],
+                "scan_date":     str(r[9]),
             }
             for r in rows
         ]
@@ -256,7 +217,7 @@ def cache_age_days() -> int | None:
         ).fetchone()
         if not row or not row[0]:
             return None
-        return (date.today() - date.fromisoformat(row[0])).days
+        return (date.today() - row[0]).days
     finally:
         con.close()
 
@@ -266,11 +227,11 @@ def stock_cache_age_days(symbol: str) -> int | None:
     con = _conn()
     try:
         row = con.execute(
-            "SELECT MAX(scan_date) FROM ai_forecast_cache WHERE symbol=?", (symbol,)
+            "SELECT MAX(scan_date) FROM ai_forecast_cache WHERE symbol=%s", (symbol,)
         ).fetchone()
         if not row or not row[0]:
             return None
-        return (date.today() - date.fromisoformat(row[0])).days
+        return (date.today() - row[0]).days
     finally:
         con.close()
 

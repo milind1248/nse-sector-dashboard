@@ -9,9 +9,9 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-import sqlite3
 
 from backend.data_ingestion.sector_sync import sync_all, get_last_sync
+from backend.storage.db import get_conn
 
 st.set_page_config(
     page_title="Index Stocks | NSE Constituents & Weightage",
@@ -49,11 +49,9 @@ INDEX_DISPLAY = {
 }
 
 # ── Data ──────────────────────────────────────────────────────────────────────
-from config import DB_PATH as _DB
-
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_data() -> pd.DataFrame:
-    con = sqlite3.connect(str(_DB))
+    con = get_conn()
     df = pd.read_sql(
         "SELECT * FROM sector_intelligence ORDER BY sector, index_name, weightage_pct DESC", con
     )
@@ -80,7 +78,7 @@ st.caption("Select a sector → choose an index → view constituent stocks with
 # DATA SYNC PANEL
 # ══════════════════════════════════════════════════════════════════════════════
 with st.expander("🔄 Data Sync — NSE India + Market Price Feeds", expanded=False):
-    last = get_last_sync(_DB)
+    last = get_last_sync()
     sc1, sc2, sc3 = st.columns([3, 3, 2])
 
     with sc1:
@@ -126,7 +124,7 @@ with st.expander("🔄 Data Sync — NSE India + Market Price Feeds", expanded=F
         _rid = log_start("index_stocks_sync", "Index Stocks Sync (NSE + Yahoo Finance)", "admin")
         with st.spinner("Syncing data from NSE India + market price feeds…"):
             try:
-                result = sync_all(str(_DB), progress_cb=_progress)
+                result = sync_all(progress_cb=_progress)
                 prog_bar.progress(1.0)
                 prog_text.empty()
 

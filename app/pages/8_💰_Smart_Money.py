@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 import sqlite3
 from datetime import date, timedelta, datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from backend.storage.db import get_conn
 
 st.set_page_config(
     page_title="Smart Money Tracker | FII/DII OI + Delivery | Market Sector Analysis",
@@ -24,10 +25,8 @@ from app.utils.logo import show_logo
 show_logo()
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
-from config import DB_PATH as _DB_PATH
-
 def _db():
-    return sqlite3.connect(_DB_PATH)
+    return get_conn()
 
 # ── FII historical trade DB (separate, read-only) ─────────────────────────────
 _FII_DB = Path(__file__).parent.parent.parent / "data" / "fii_data.db"
@@ -72,49 +71,6 @@ def _fii_trades(symbol: str, start_int: int, end_int: int, direction: str) -> pd
     )
     conn.close()
     return df
-
-def _init_tables():
-    con = _db()
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS smart_money_history (
-            symbol        TEXT NOT NULL,
-            trade_date    TEXT NOT NULL,
-            close_price   REAL,
-            pct_price_chg REAL,
-            trade_qty     REAL,
-            tot_trade     REAL,
-            action        REAL,
-            dlv_pct       REAL,
-            futures_oi    REAL,
-            oi_change     REAL,
-            pct_oi_chg    REAL,
-            PRIMARY KEY (symbol, trade_date)
-        )
-    """)
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS fno_symbols (
-            symbol      TEXT PRIMARY KEY,
-            updated_at  TEXT NOT NULL
-        )
-    """)
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS shareholding_pattern (
-            symbol           TEXT NOT NULL,
-            quarter          TEXT NOT NULL,
-            promoter         REAL,
-            fii              REAL,
-            dii              REAL,
-            government       REAL,
-            public_retail    REAL,
-            fetched_at       TEXT NOT NULL,
-            PRIMARY KEY (symbol, quarter)
-        )
-    """)
-    con.commit()
-    con.close()
-
-_init_tables()
-
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _build_sector_map() -> dict:
@@ -183,10 +139,10 @@ def _trading_dates_for_90d() -> list[date]:
 def _stored_dates(symbol: str) -> set[str]:
     con = _db()
     rows = con.execute(
-        "SELECT trade_date FROM smart_money_history WHERE symbol=?", (symbol,)
+        "SELECT trade_date FROM smart_money_history WHERE symbol=%s", (symbol,)
     ).fetchall()
     con.close()
-    return {r[0] for r in rows}
+    return {str(r[0]) for r in rows}
 
 
 def _purge_old(symbol: str):
@@ -194,7 +150,7 @@ def _purge_old(symbol: str):
     cutoff = _trading_dates_for_90d()[-1].isoformat()
     con = _db()
     con.execute(
-        "DELETE FROM smart_money_history WHERE symbol=? AND trade_date < ?",
+        "DELETE FROM smart_money_history WHERE symbol=%s AND trade_date < %s",
         (symbol, cutoff),
     )
     con.commit()
@@ -206,11 +162,16 @@ def _save_rows(rows: list[dict]):
         return
     con = _db()
     con.executemany("""
-        INSERT OR REPLACE INTO smart_money_history
+        INSERT INTO smart_money_history
         (symbol,trade_date,close_price,pct_price_chg,trade_qty,tot_trade,
          action,dlv_pct,futures_oi,oi_change,pct_oi_chg)
-        VALUES (:symbol,:trade_date,:close_price,:pct_price_chg,:trade_qty,:tot_trade,
-                :action,:dlv_pct,:futures_oi,:oi_change,:pct_oi_chg)
+        VALUES (%(symbol)s,%(trade_date)s,%(close_price)s,%(pct_price_chg)s,%(trade_qty)s,%(tot_trade)s,
+                %(action)s,%(dlv_pct)s,%(futures_oi)s,%(oi_change)s,%(pct_oi_chg)s)
+        ON CONFLICT (symbol, trade_date) DO UPDATE SET
+            close_price=EXCLUDED.close_price, pct_price_chg=EXCLUDED.pct_price_chg,
+            trade_qty=EXCLUDED.trade_qty, tot_trade=EXCLUDED.tot_trade, action=EXCLUDED.action,
+            dlv_pct=EXCLUDED.dlv_pct, futures_oi=EXCLUDED.futures_oi,
+            oi_change=EXCLUDED.oi_change, pct_oi_chg=EXCLUDED.pct_oi_chg
     """, rows)
     con.commit()
     con.close()
@@ -219,7 +180,7 @@ def _save_rows(rows: list[dict]):
 def _load_from_db(symbol: str) -> pd.DataFrame:
     con = _db()
     df = pd.read_sql_query(
-        "SELECT * FROM smart_money_history WHERE symbol=? ORDER BY trade_date DESC",
+        "SELECT * FROM smart_money_history WHERE symbol=%s ORDER BY trade_date DESC",
         con, params=(symbol,),
     )
     con.close()
@@ -362,7 +323,8 @@ def _refresh_fno_list_from_nse() -> list[str]:
             con = _db()
             con.execute("DELETE FROM fno_symbols")
             con.executemany(
-                "INSERT INTO fno_symbols (symbol, updated_at) VALUES (?, ?)",
+                "INSERT INTO fno_symbols (symbol, updated_at) VALUES (%s, %s) "
+                "ON CONFLICT (symbol) DO UPDATE SET updated_at=EXCLUDED.updated_at",
                 [(s, now) for s in syms],
             )
             con.commit()
@@ -516,9 +478,14 @@ def _save_shareholding(rows: list[dict]):
         return
     con = _db()
     con.executemany("""
-        INSERT OR REPLACE INTO shareholding_pattern
+        INSERT INTO shareholding_pattern
         (symbol, quarter, promoter, fii, dii, government, public_retail, fetched_at)
-        VALUES (:symbol, :quarter, :promoter, :fii, :dii, :government, :public_retail, :fetched_at)
+        VALUES (%(symbol)s, %(quarter)s, %(promoter)s, %(fii)s, %(dii)s,
+                %(government)s, %(public_retail)s, %(fetched_at)s)
+        ON CONFLICT (symbol, quarter) DO UPDATE SET
+            promoter=EXCLUDED.promoter, fii=EXCLUDED.fii, dii=EXCLUDED.dii,
+            government=EXCLUDED.government, public_retail=EXCLUDED.public_retail,
+            fetched_at=EXCLUDED.fetched_at
     """, rows)
     con.commit()
     con.close()
@@ -528,7 +495,7 @@ def _load_shareholding(symbol: str) -> pd.DataFrame:
     con = _db()
     df = pd.read_sql_query(
         """SELECT quarter, promoter, fii, dii, government, public_retail, fetched_at
-           FROM shareholding_pattern WHERE symbol=?""",
+           FROM shareholding_pattern WHERE symbol=%s""",
         con, params=(symbol,),
     )
     con.close()
@@ -547,7 +514,8 @@ def _get_shareholding(symbol: str) -> pd.DataFrame:
     needs_refresh = df.empty
     if not needs_refresh and not df.empty:
         try:
-            fetched = datetime.fromisoformat(df["fetched_at"].iloc[0])
+            fetched_raw = df["fetched_at"].iloc[0]
+            fetched = fetched_raw if isinstance(fetched_raw, datetime) else datetime.fromisoformat(str(fetched_raw))
             if fetched.tzinfo is None:
                 fetched = fetched.replace(tzinfo=timezone.utc)
             needs_refresh = (datetime.now(timezone.utc) - fetched) > timedelta(days=7)
@@ -699,7 +667,7 @@ def _bulk_refresh_history(symbols: list[str], progress_cb=None):
         # Which symbols already have this date in DB?
         con = _db()
         stored_for_date = {r[0] for r in con.execute(
-            "SELECT symbol FROM smart_money_history WHERE trade_date=?",
+            "SELECT symbol FROM smart_money_history WHERE trade_date=%s",
             (dt.isoformat(),),
         ).fetchall()}
         con.close()
@@ -720,7 +688,7 @@ def _bulk_refresh_history(symbols: list[str], progress_cb=None):
     # Global purge — remove any rows older than the 90-day window
     cutoff = all_90d[-1].isoformat()
     con = _db()
-    con.execute("DELETE FROM smart_money_history WHERE trade_date < ?", (cutoff,))
+    con.execute("DELETE FROM smart_money_history WHERE trade_date < %s", (cutoff,))
     con.commit()
     con.close()
 
@@ -1276,10 +1244,20 @@ with tab_screener:
             "their 90-day history will be saved automatically and appear here."
         )
     else:
-        # For each symbol: load all rows, compute 90d avg, check last business day signal
+        # Bulk-load every symbol's history in ONE query (avoids a per-symbol round-trip
+        # to Supabase — with 185 symbols that was the screener's whole load time).
+        con = _db()
+        all_hist = pd.read_sql_query(
+            "SELECT * FROM smart_money_history WHERE symbol = ANY(%s)",
+            con, params=(all_syms_in_db,),
+        )
+        con.close()
+        hist_by_symbol = {sym: grp for sym, grp in all_hist.groupby("symbol")}
+
+        # For each symbol: compute 90d avg, check last business day signal
         screener_rows = []
         for sym in all_syms_in_db:
-            hist_s = _load_from_db(sym).dropna(subset=["close_price"])
+            hist_s = hist_by_symbol.get(sym, pd.DataFrame()).dropna(subset=["close_price"])
             if hist_s.empty:
                 continue
 
@@ -1290,8 +1268,9 @@ with tab_screener:
             avg_dlv_s = hist_s["dlv_pct"].mean()
             avg_act_s = hist_s["action"].mean()
 
-            # Get last business day row
-            last_row = hist_s[hist_s["trade_date"] == last_bd]
+            # Get last business day row (trade_date may come back as a native date
+            # object from Postgres rather than the ISO string last_bd is)
+            last_row = hist_s[hist_s["trade_date"].astype(str) == last_bd]
             if last_row.empty:
                 # Try the most recent available date
                 last_row = hist_s.sort_values("trade_date", ascending=False).head(1)
@@ -1444,7 +1423,7 @@ def _load_delivery_matrix(month: int, year: int) -> pd.DataFrame:
     df = pd.read_sql("""
         SELECT symbol, trade_date, dlv_pct, close_price, pct_price_chg, trade_qty
         FROM smart_money_history
-        WHERE strftime('%Y-%m', trade_date) = ?
+        WHERE TO_CHAR(trade_date, 'YYYY-MM') = %s
         ORDER BY symbol, trade_date
     """, con, params=(f"{year:04d}-{month:02d}",))
     con.close()

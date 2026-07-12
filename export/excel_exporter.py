@@ -1,6 +1,5 @@
 """One-click Excel export — all dashboard data in one workbook."""
 import io
-import sqlite3
 from datetime import date
 from pathlib import Path
 
@@ -9,7 +8,7 @@ import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils.dataframe import dataframe_to_rows
 
-from config import DB_PATH as _DB
+from backend.storage.db import get_conn
 
 GREEN_FILL  = PatternFill("solid", fgColor="1B5E20")
 RED_FILL    = PatternFill("solid", fgColor="B71C1C")
@@ -55,7 +54,7 @@ def _write_sheet(wb: openpyxl.Workbook, name: str, df: pd.DataFrame,
 
 def _db(query: str, params=()) -> pd.DataFrame:
     try:
-        con = sqlite3.connect(str(_DB))
+        con = get_conn()
         df = pd.read_sql_query(query, con, params=params)
         con.close()
         return df

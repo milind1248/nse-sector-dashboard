@@ -5,17 +5,15 @@ symbols and stores to smart_money_history (90 trading days rolling window).
 Called by Admin "▶ Run" button or scheduler.
 """
 import logging
-import sqlite3
 import zipfile
 import io as _io
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
-from pathlib import Path
 
 import pandas as pd
 import requests
 
-from config import DB_PATH
+from backend.storage.db import get_conn
 
 logger = logging.getLogger(__name__)
 
@@ -25,35 +23,7 @@ _HDR = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
 def _db():
-    return sqlite3.connect(DB_PATH)
-
-
-def _ensure_tables():
-    con = _db()
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS smart_money_history (
-            symbol        TEXT NOT NULL,
-            trade_date    TEXT NOT NULL,
-            close_price   REAL,
-            pct_price_chg REAL,
-            trade_qty     REAL,
-            tot_trade     REAL,
-            action        REAL,
-            dlv_pct       REAL,
-            futures_oi    REAL,
-            oi_change     REAL,
-            pct_oi_chg    REAL,
-            PRIMARY KEY (symbol, trade_date)
-        )
-    """)
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS fno_symbols (
-            symbol      TEXT PRIMARY KEY,
-            updated_at  TEXT NOT NULL
-        )
-    """)
-    con.commit()
-    con.close()
+    return get_conn()
 
 
 # ── Date helpers ──────────────────────────────────────────────────────────────
@@ -174,10 +144,10 @@ def _fetch_one_day(symbol: str, dt: date) -> dict | None:
 def _stored_dates(symbol: str) -> set[str]:
     con = _db()
     rows = con.execute(
-        "SELECT trade_date FROM smart_money_history WHERE symbol=?", (symbol,)
+        "SELECT trade_date FROM smart_money_history WHERE symbol=%s", (symbol,)
     ).fetchall()
     con.close()
-    return {r[0] for r in rows}
+    return {str(r[0]) for r in rows}
 
 
 def _save_rows(rows: list[dict]):
@@ -185,11 +155,16 @@ def _save_rows(rows: list[dict]):
         return
     con = _db()
     con.executemany("""
-        INSERT OR REPLACE INTO smart_money_history
+        INSERT INTO smart_money_history
         (symbol,trade_date,close_price,pct_price_chg,trade_qty,tot_trade,
          action,dlv_pct,futures_oi,oi_change,pct_oi_chg)
-        VALUES (:symbol,:trade_date,:close_price,:pct_price_chg,:trade_qty,:tot_trade,
-                :action,:dlv_pct,:futures_oi,:oi_change,:pct_oi_chg)
+        VALUES (%(symbol)s,%(trade_date)s,%(close_price)s,%(pct_price_chg)s,%(trade_qty)s,%(tot_trade)s,
+                %(action)s,%(dlv_pct)s,%(futures_oi)s,%(oi_change)s,%(pct_oi_chg)s)
+        ON CONFLICT (symbol, trade_date) DO UPDATE SET
+            close_price=EXCLUDED.close_price, pct_price_chg=EXCLUDED.pct_price_chg,
+            trade_qty=EXCLUDED.trade_qty, tot_trade=EXCLUDED.tot_trade, action=EXCLUDED.action,
+            dlv_pct=EXCLUDED.dlv_pct, futures_oi=EXCLUDED.futures_oi,
+            oi_change=EXCLUDED.oi_change, pct_oi_chg=EXCLUDED.pct_oi_chg
     """, rows)
     con.commit()
     con.close()
@@ -201,7 +176,7 @@ def _purge_old(symbol: str, trading_dates: list[date]):
     cutoff = trading_dates[-1].isoformat()
     con = _db()
     con.execute(
-        "DELETE FROM smart_money_history WHERE symbol=? AND trade_date < ?",
+        "DELETE FROM smart_money_history WHERE symbol=%s AND trade_date < %s",
         (symbol, cutoff),
     )
     con.commit()
@@ -232,7 +207,8 @@ def _refresh_fno_list() -> list[str]:
         con = _db()
         con.execute("DELETE FROM fno_symbols")
         con.executemany(
-            "INSERT OR REPLACE INTO fno_symbols (symbol, updated_at) VALUES (?, ?)",
+            "INSERT INTO fno_symbols (symbol, updated_at) VALUES (%s, %s) "
+            "ON CONFLICT (symbol) DO UPDATE SET updated_at=EXCLUDED.updated_at",
             [(s, now_ts) for s in symbols],
         )
         con.commit()
@@ -278,7 +254,6 @@ def run_smart_money_pipeline(triggered_by: str = "admin",
     """
     import time
     t0 = time.time()
-    _ensure_tables()
 
     logger.info(f"Smart Money pipeline started (triggered_by={triggered_by})")
 

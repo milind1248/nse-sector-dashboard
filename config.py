@@ -11,6 +11,13 @@ _TMP_DB   = Path("/tmp/nse_dashboard.db")
 
 def _resolve_db_path() -> Path:
     """
+    Legacy SQLite path resolver. The live app now reads/writes Supabase
+    Postgres exclusively via backend.storage.db.get_conn() — nothing in
+    app/ or backend/ imports DB_PATH anymore. This is kept only as the
+    *source* path for the one-time scripts/migrate_sqlite_to_supabase.py
+    backfill and for local historical reference; safe to delete once that
+    script is no longer needed.
+
     Streamlit Cloud always mounts the repo under /mount/src/ (read-only at
     the SQLite write-lock level — os.access and open() both succeed but
     SQLite SQLITE_READONLY is raised on first write). Detect this by path

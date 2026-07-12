@@ -23,23 +23,26 @@ _log = logging.getLogger(__name__)
 # tabs  : number of st.tabs() tabs on the page (for reporting only)
 # timeout: seconds to wait for the page to render (cpu-heavy pages need more)
 PAGE_REGISTRY: list[dict] = [
-    {"name": "Home",             "file": "app/Home.py",                        "tabs": 3,  "timeout": 25},
+    {"name": "Home",             "file": "app/Home.py",                        "tabs": 3,  "timeout": 60},
     {"name": "Market Pulse",     "file": "app/pages/1_📡_Market_Pulse.py",     "tabs": 0,  "timeout": 45},
     {"name": "Sector Analysis",  "file": "app/pages/2_📈_Sector_Analysis.py",  "tabs": 4,  "timeout": 30},
     {"name": "Index Stocks",     "file": "app/pages/3_🏛️_Index_Stocks.py",    "tabs": 3,  "timeout": 30},
     {"name": "FII DII Flow",     "file": "app/pages/4_🏦_FII_DII_Flow.py",     "tabs": 2,  "timeout": 20},
-    {"name": "FII Sectors",      "file": "app/pages/5_🏢_FII_Sectors.py",      "tabs": 2,  "timeout": 20},
+    {"name": "FII Sectors",      "file": "app/pages/5_🏢_FII_Sectors.py",      "tabs": 2,  "timeout": 30},
     {"name": "FPI Sectors",      "file": "app/pages/6_🌏_FPI_Sectors.py",      "tabs": 6,  "timeout": 20},
     {"name": "Stock Picker",     "file": "app/pages/7_🎯_Stock_Picker.py",     "tabs": 2,  "timeout": 30},
     {"name": "Smart Money",      "file": "app/pages/8_💰_Smart_Money.py",      "tabs": 3,  "timeout": 40},
     {"name": "FII Accumulation", "file": "app/pages/9_📊_FII_Accumulation.py", "tabs": 0,  "timeout": 30},
-    {"name": "Alerts",           "file": "app/pages/10_🔔_Alerts.py",          "tabs": 3,  "timeout": 180},
-    {"name": "AI Forecast",      "file": "app/pages/11_🤖_AI_Forecast.py",     "tabs": 0,  "timeout": 30},
-    {"name": "Gann Analysis",    "file": "app/pages/12_🔢_Gann_Analysis.py",   "tabs": 0,  "timeout": 20},
-    {"name": "Export",           "file": "app/pages/13_📤_Export.py",          "tabs": 0,  "timeout": 20},
-    {"name": "Contact",          "file": "app/pages/14_📧_Contact.py",         "tabs": 0,  "timeout": 15},
-    {"name": "Disclaimer",       "file": "app/pages/15_⚖️_Disclaimer.py",     "tabs": 0,  "timeout": 15},
-    # Admin (16_🔐_Admin.py) excluded — it's the test runner itself
+    {"name": "Alerts",           "file": "app/pages/10_🔔_Alerts.py",          "tabs": 3,  "timeout": 240},
+    {"name": "HM Scanner",       "file": "app/pages/11_🔭_HM_Scanner.py",      "tabs": 0,  "timeout": 90},
+    {"name": "AI Forecast",      "file": "app/pages/12_🤖_AI_Forecast.py",     "tabs": 0,  "timeout": 30},
+    {"name": "Gann Analysis",    "file": "app/pages/13_🔢_Gann_Analysis.py",   "tabs": 0,  "timeout": 45},
+    {"name": "Export",           "file": "app/pages/14_📤_Export.py",          "tabs": 0,  "timeout": 20},
+    {"name": "Contact",          "file": "app/pages/15_📧_Contact.py",         "tabs": 0,  "timeout": 15},
+    {"name": "Disclaimer",       "file": "app/pages/16_⚖️_Disclaimer.py",     "tabs": 0,  "timeout": 15},
+    {"name": "Paper Trading",    "file": "app/pages/19_💹_Paper_Trading.py",   "tabs": 3,  "timeout": 20},
+    # Admin (17_🔐_Admin.py) excluded — it's the test runner itself
+    # User Guide (18_📖_User_Guide.py) excluded — static content, no backend calls to test
 ]
 
 # Dummy secrets used during testing so is_admin() / verify_password() don't crash.

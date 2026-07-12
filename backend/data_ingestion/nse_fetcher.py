@@ -1,35 +1,33 @@
 """Fetches FII/DII and market breadth data from NSE India / nsepython."""
 import logging
-import sqlite3
 from datetime import date, timedelta
-from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-from config import DB_PATH as _DB_PATH
+from backend.storage.db import get_conn
 
 
 def _upsert_fii_rows(rows: list[dict]) -> None:
-    """Persist FII/DII rows to SQLite, overwriting zeros with real values."""
+    """Persist FII/DII rows to Supabase, overwriting zeros with real values."""
     if not rows:
         return
     try:
-        conn = sqlite3.connect(_DB_PATH)
+        conn = get_conn()
         for r in rows:
             conn.execute(
                 """INSERT INTO fii_dii_daily (date, fii_buy, fii_sell, fii_net, dii_buy, dii_sell, dii_net, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, now())
                    ON CONFLICT(date) DO UPDATE SET
-                       fii_buy  = CASE WHEN excluded.fii_buy  != 0 THEN excluded.fii_buy  ELSE fii_buy  END,
-                       fii_sell = CASE WHEN excluded.fii_sell != 0 THEN excluded.fii_sell ELSE fii_sell END,
-                       fii_net  = CASE WHEN excluded.fii_net  != 0 THEN excluded.fii_net  ELSE fii_net  END,
-                       dii_buy  = CASE WHEN excluded.dii_buy  != 0 THEN excluded.dii_buy  ELSE dii_buy  END,
-                       dii_sell = CASE WHEN excluded.dii_sell != 0 THEN excluded.dii_sell ELSE dii_sell END,
-                       dii_net  = CASE WHEN excluded.dii_net  != 0 THEN excluded.dii_net  ELSE dii_net  END,
-                       created_at = datetime('now')""",
+                       fii_buy  = CASE WHEN excluded.fii_buy  != 0 THEN excluded.fii_buy  ELSE fii_dii_daily.fii_buy  END,
+                       fii_sell = CASE WHEN excluded.fii_sell != 0 THEN excluded.fii_sell ELSE fii_dii_daily.fii_sell END,
+                       fii_net  = CASE WHEN excluded.fii_net  != 0 THEN excluded.fii_net  ELSE fii_dii_daily.fii_net  END,
+                       dii_buy  = CASE WHEN excluded.dii_buy  != 0 THEN excluded.dii_buy  ELSE fii_dii_daily.dii_buy  END,
+                       dii_sell = CASE WHEN excluded.dii_sell != 0 THEN excluded.dii_sell ELSE fii_dii_daily.dii_sell END,
+                       dii_net  = CASE WHEN excluded.dii_net  != 0 THEN excluded.dii_net  ELSE fii_dii_daily.dii_net  END,
+                       created_at = now()""",
                 (str(r["date"]), r["fii_buy"], r["fii_sell"], r["fii_net"],
                  r["dii_buy"], r["dii_sell"], r["dii_net"]),
             )
@@ -40,13 +38,13 @@ def _upsert_fii_rows(rows: list[dict]) -> None:
 
 
 def _load_fii_from_db(days: int) -> pd.DataFrame:
-    """Return last `days` rows from SQLite fii_dii_daily table."""
+    """Return last `days` rows from the fii_dii_daily table."""
     try:
         cutoff = str(date.today() - timedelta(days=days))
-        conn = sqlite3.connect(_DB_PATH)
+        conn = get_conn()
         df = pd.read_sql_query(
             "SELECT date, fii_buy, fii_sell, fii_net, dii_buy, dii_sell, dii_net "
-            "FROM fii_dii_daily WHERE date >= ? ORDER BY date",
+            "FROM fii_dii_daily WHERE date >= %s ORDER BY date",
             conn, params=(cutoff,)
         )
         conn.close()

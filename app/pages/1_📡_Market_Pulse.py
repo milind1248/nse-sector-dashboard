@@ -1,9 +1,8 @@
 """Market breadth, sector heatmap, and RRG in one pulse view.
-Breadth / Heatmap / RRG are served from SQLite (cooked nightly at 8 PM IST).
+Breadth / Heatmap / RRG are served from Supabase (cooked nightly at 8 PM IST).
 Market Indices are fetched live from yfinance (near-real-time, 15-min delay).
 """
 import sys
-import sqlite3
 import json
 from pathlib import Path
 from datetime import date, timedelta
@@ -30,17 +29,17 @@ inject_seo("Market_Pulse")
 from app.utils.logo import show_logo
 show_logo()
 
-from config import DB_PATH as _DB_PATH
+from backend.storage.db import get_conn
 _IST = timezone(td(hours=5, minutes=30))
 
 
 def _db():
-    return sqlite3.connect(_DB_PATH)
+    return get_conn()
 
 
 # ── Staleness helper ──────────────────────────────────────────────────────────
 
-def _staleness_banner(trade_date_str: str | None):
+def _staleness_banner(trade_date_str: str | date | None):
     """Show a contextual banner based on how old the stored data is."""
     if not trade_date_str:
         st.warning(
@@ -49,7 +48,7 @@ def _staleness_banner(trade_date_str: str | None):
         )
         return
     try:
-        td_date  = date.fromisoformat(trade_date_str)
+        td_date  = trade_date_str if isinstance(trade_date_str, date) else date.fromisoformat(trade_date_str)
         today    = date.today()
         days_old = (today - td_date).days
         fmt_date = td_date.strftime("%A, %d %b %Y")
@@ -225,7 +224,7 @@ st.subheader("Sector Heatmap — % Returns")
 
 hm, hm_date = _read_heatmap()
 if hm_date:
-    fmt = date.fromisoformat(hm_date).strftime("%d %b %Y")
+    fmt = (hm_date if isinstance(hm_date, date) else date.fromisoformat(str(hm_date))).strftime("%d %b %Y")
     st.caption(f"Data as of **{fmt}**")
 
 if not hm.empty:
@@ -254,7 +253,7 @@ st.caption(
 
 rrg_data, rrg_date = _read_rrg()
 if rrg_date:
-    fmt = date.fromisoformat(rrg_date).strftime("%d %b %Y")
+    fmt = (rrg_date if isinstance(rrg_date, date) else date.fromisoformat(str(rrg_date))).strftime("%d %b %Y")
     st.caption(f"Data as of **{fmt}**")
 
 if rrg_data:

@@ -3,29 +3,25 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-import sqlite3
 import time
 from datetime import datetime, date, timezone, timedelta
 
-# Ensure all app-managed tables exist before any inventory queries run
-from backend.storage.ai_scan_db import ensure_table as _ensure_ai_scan_table
-_ensure_ai_scan_table()
+from backend.storage.db import get_conn
 
 _IST = timezone(timedelta(hours=5, minutes=30))
-from config import DB_PATH as _DB_PATH
 
 def _to_ist(ts) -> str:
-    """Convert a UTC ISO timestamp string to IST display string."""
-    if not ts or not isinstance(ts, str):
+    """Convert a UTC timestamp (string or datetime) to IST display string."""
+    if not ts:
         return "—"
     try:
-        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        dt = ts if isinstance(ts, datetime) else datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         dt_ist = dt.astimezone(_IST)
         return dt_ist.strftime("%d %b %Y %H:%M:%S IST")
     except Exception:
-        return ts[:16] if ts else "—"
+        return str(ts)[:16] if ts else "—"
 
 import pandas as pd
 import streamlit as st
@@ -83,7 +79,7 @@ def _write_announcement(enabled: bool, text: str) -> None:
 
 # ── DB ────────────────────────────────────────────────────────────────────────
 def _db():
-    return sqlite3.connect(_DB_PATH)
+    return get_conn()
 
 # ── Header ────────────────────────────────────────────────────────────────────
 h1, h2 = st.columns([5, 1])
@@ -194,10 +190,10 @@ else:
     }
 
     def _ist_date(ts) -> str:
-        if not ts or not isinstance(ts, str):
+        if not ts:
             return ""
         try:
-            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            dt = ts if isinstance(ts, datetime) else datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
             return dt.astimezone(_IST).date().isoformat()
@@ -281,7 +277,7 @@ def _last_run_for(job_id: str) -> str:
     try:
         con = _db()
         row = con.execute(
-            "SELECT finished_at FROM job_run_log WHERE job_id=? AND status='success' "
+            "SELECT finished_at FROM job_run_log WHERE job_id=%s AND status='success' "
             "ORDER BY finished_at DESC LIMIT 1",
             (job_id,)
         ).fetchone()
@@ -295,7 +291,6 @@ def _last_run_for(job_id: str) -> str:
 
 def _call_pipeline(job_id: str, detail_ph) -> None:
     """Dispatch a single pipeline by job_id. Raises on failure."""
-    _db_path = str(_DB_PATH)
     if job_id == "market_pulse_snapshot":
         from backend.data_ingestion.market_pulse_pipeline import run_market_pulse_pipeline
         run_market_pulse_pipeline(triggered_by="admin")
@@ -311,7 +306,7 @@ def _call_pipeline(job_id: str, detail_ph) -> None:
 
     elif job_id == "index_stocks_sync":
         from backend.data_ingestion.sector_sync import sync_all
-        sync_all(_db_path)
+        sync_all()
 
     elif job_id == "stock_snapshot":
         from backend.data_ingestion.pipeline import run_stock_pipeline
@@ -651,7 +646,7 @@ if r3c5.button("▶ Run", key="btn_idx", width='stretch'):
             from backend.data_ingestion.sector_sync import sync_all
             from backend.data_ingestion.job_logger import log_start, log_finish
             rid = log_start("index_stocks_sync", "Index Stocks Sync (NSE + Yahoo Finance)", "admin")
-            result = sync_all(str(_DB_PATH))
+            result = sync_all()
             log_finish(rid, "success", records_done=result.get("stocks_total", 0))
             st.cache_data.clear()
             st.success(
@@ -841,7 +836,7 @@ st.caption("Rows and date range stored per table. Click ▶ Fix to refresh stale
 
 def _table_stats(tbl: str, date_col: str) -> dict:
     try:
-        con = sqlite3.connect(_DB_PATH)
+        con = get_conn()
         row = con.execute(
             f"SELECT COUNT(DISTINCT {date_col}), MIN({date_col}), MAX({date_col}) FROM {tbl}"
         ).fetchone()
@@ -852,11 +847,15 @@ def _table_stats(tbl: str, date_col: str) -> dict:
     except Exception:
         return {"days": 0, "rows": 0, "oldest": "—", "latest": "—"}
 
-def _fmt_date(d: str) -> str:
+def _fmt_date(d) -> str:
+    if not d or d == "—":
+        return "—"
+    if isinstance(d, date):
+        return d.strftime("%d %b %Y")
     try:
-        return date.fromisoformat(d[:10]).strftime("%d %b %Y")
+        return date.fromisoformat(str(d)[:10]).strftime("%d %b %Y")
     except Exception:
-        return d or "—"
+        return str(d) or "—"
 
 def _days_color(val):
     if val in ("—", "N/A"):
@@ -947,7 +946,7 @@ for i, (page, tbl, dcol, label, pipe_key) in enumerate(_inventory):
         latest_disp = _fmt_date(s["latest"])
     else:
         try:
-            con = sqlite3.connect(_DB_PATH)
+            con = get_conn()
             total = con.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
             con.close()
         except Exception:

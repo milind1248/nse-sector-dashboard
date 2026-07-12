@@ -1,49 +1,26 @@
-"""Page test result storage — page_test_log SQLite table."""
+"""Page test result storage — page_test_log table (Supabase/Postgres)."""
 import json
-import sqlite3
 import logging
 from datetime import datetime, timezone
 
-from config import DB_PATH as _DB_PATH
+from backend.storage.db import get_conn
 
 _log = logging.getLogger(__name__)
 
 
 def _db():
-    return sqlite3.connect(_DB_PATH)
-
-
-def ensure_table():
-    con = _db()
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS page_test_log (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_id      INTEGER NOT NULL,
-            page_name   TEXT    NOT NULL,
-            page_file   TEXT    NOT NULL,
-            status      TEXT    NOT NULL,
-            load_time_s REAL,
-            tabs_count  INTEGER DEFAULT 0,
-            errors_json TEXT,
-            tested_at   TEXT    NOT NULL
-        )
-    """)
-    con.commit()
-    con.close()
-
-
-ensure_table()
+    return get_conn()
 
 
 def store_test_results(run_id: int, results: list[dict]) -> None:
     """Insert one row per page for a given run_id."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc)
     con = _db()
     for r in results:
         con.execute(
             "INSERT INTO page_test_log "
             "(run_id, page_name, page_file, status, load_time_s, tabs_count, errors_json, tested_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 run_id,
                 r["page"],
@@ -73,7 +50,7 @@ def load_latest_run() -> list[dict]:
         run_id = run_id_row[0]
         rows = con.execute(
             "SELECT page_name, page_file, status, load_time_s, tabs_count, errors_json, tested_at "
-            "FROM page_test_log WHERE run_id = ? ORDER BY id",
+            "FROM page_test_log WHERE run_id = %s ORDER BY id",
             (run_id,),
         ).fetchall()
         con.close()
@@ -85,7 +62,7 @@ def load_latest_run() -> list[dict]:
                 "elapsed": row[3],
                 "tabs":    row[4],
                 "errors":  json.loads(row[5] or "[]"),
-                "tested_at": row[6],
+                "tested_at": str(row[6]),
             }
             for row in rows
         ]

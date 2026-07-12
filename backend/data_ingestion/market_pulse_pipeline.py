@@ -8,14 +8,12 @@ Tables created/updated:
   sector_heatmap  — sector % returns per trade date
   rrg_snapshot    — RRG coordinates + trail per trade date
 """
-import sqlite3
 import json
 import logging
 import zipfile
 import io
 import requests
 from datetime import date, timedelta
-from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
@@ -26,59 +24,15 @@ from backend.data_ingestion.yfinance_fetcher import (
     fetch_all_sector_prices, compute_pct_returns, _get_close,
 )
 from backend.calculations.relative_strength import compute_rrg_coordinates
+from backend.storage.db import get_conn
 
 logger = logging.getLogger(__name__)
-
-from config import DB_PATH as _DB_PATH
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
 def _db():
-    return sqlite3.connect(_DB_PATH)
-
-
-def _ensure_tables():
-    con = _db()
-    con.executescript("""
-        CREATE TABLE IF NOT EXISTS market_breadth (
-            trade_date  TEXT PRIMARY KEY,
-            advance     INTEGER,
-            decline     INTEGER,
-            unchanged   INTEGER,
-            ad_ratio    REAL,
-            updated_at  TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS sector_heatmap (
-            trade_date  TEXT,
-            sector      TEXT,
-            ret_1w      REAL,
-            ret_2w      REAL,
-            ret_1m      REAL,
-            ret_3m      REAL,
-            ret_6m      REAL,
-            ret_1y      REAL,
-            updated_at  TEXT,
-            PRIMARY KEY (trade_date, sector)
-        );
-
-        CREATE TABLE IF NOT EXISTS rrg_snapshot (
-            trade_date  TEXT,
-            sector      TEXT,
-            rs_ratio    REAL,
-            rs_momentum REAL,
-            quadrant    TEXT,
-            trail_json  TEXT,
-            updated_at  TEXT,
-            PRIMARY KEY (trade_date, sector)
-        );
-    """)
-    con.commit()
-    con.close()
-
-
-_ensure_tables()
+    return get_conn()
 
 
 # ── Step 1: NSE Bhavcopy → breadth ───────────────────────────────────────────
@@ -167,10 +121,9 @@ def _fetch_rrg(trade_date: date) -> list[dict]:
 
 def run_market_pulse_pipeline(triggered_by: str = "scheduler") -> dict:
     """
-    Full Market Pulse data cook. Writes to SQLite.
+    Full Market Pulse data cook. Writes to Supabase.
     Returns summary dict with counts for job logging.
     """
-    _ensure_tables()
     today      = date.today()
     now_utc    = pd.Timestamp.utcnow().isoformat()
     summary    = {}
@@ -185,9 +138,12 @@ def run_market_pulse_pipeline(triggered_by: str = "scheduler") -> dict:
         market_date = breadth["trade_date"]   # actual trading day from Bhavcopy
         con = _db()
         con.execute("""
-            INSERT OR REPLACE INTO market_breadth
+            INSERT INTO market_breadth
             (trade_date, advance, decline, unchanged, ad_ratio, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (trade_date) DO UPDATE SET
+                advance=EXCLUDED.advance, decline=EXCLUDED.decline, unchanged=EXCLUDED.unchanged,
+                ad_ratio=EXCLUDED.ad_ratio, updated_at=EXCLUDED.updated_at
         """, (market_date, breadth["advance"], breadth["decline"],
               breadth["unchanged"], breadth["ad_ratio"], now_utc))
         con.commit(); con.close()
@@ -201,12 +157,18 @@ def run_market_pulse_pipeline(triggered_by: str = "scheduler") -> dict:
     logger.info("Market Pulse pipeline: computing sector returns...")
     heatmap_rows = _fetch_sector_returns(date.fromisoformat(market_date))
     if heatmap_rows:
+        for r in heatmap_rows:
+            r["updated_at"] = now_utc
         con = _db()
         con.executemany("""
-            INSERT OR REPLACE INTO sector_heatmap
+            INSERT INTO sector_heatmap
             (trade_date, sector, ret_1w, ret_2w, ret_1m, ret_3m, ret_6m, ret_1y, updated_at)
-            VALUES (:trade_date, :sector, :ret_1w, :ret_2w, :ret_1m,
-                    :ret_3m, :ret_6m, :ret_1y, '""" + now_utc + """')
+            VALUES (%(trade_date)s, %(sector)s, %(ret_1w)s, %(ret_2w)s, %(ret_1m)s,
+                    %(ret_3m)s, %(ret_6m)s, %(ret_1y)s, %(updated_at)s)
+            ON CONFLICT (trade_date, sector) DO UPDATE SET
+                ret_1w=EXCLUDED.ret_1w, ret_2w=EXCLUDED.ret_2w, ret_1m=EXCLUDED.ret_1m,
+                ret_3m=EXCLUDED.ret_3m, ret_6m=EXCLUDED.ret_6m, ret_1y=EXCLUDED.ret_1y,
+                updated_at=EXCLUDED.updated_at
         """, heatmap_rows)
         con.commit(); con.close()
         summary["heatmap_sectors"] = len(heatmap_rows)
@@ -216,12 +178,18 @@ def run_market_pulse_pipeline(triggered_by: str = "scheduler") -> dict:
     logger.info("Market Pulse pipeline: computing RRG...")
     rrg_rows = _fetch_rrg(date.fromisoformat(market_date))
     if rrg_rows:
+        for r in rrg_rows:
+            r["updated_at"] = now_utc
         con = _db()
         con.executemany("""
-            INSERT OR REPLACE INTO rrg_snapshot
+            INSERT INTO rrg_snapshot
             (trade_date, sector, rs_ratio, rs_momentum, quadrant, trail_json, updated_at)
-            VALUES (:trade_date, :sector, :rs_ratio, :rs_momentum,
-                    :quadrant, :trail_json, '""" + now_utc + """')
+            VALUES (%(trade_date)s, %(sector)s, %(rs_ratio)s, %(rs_momentum)s,
+                    %(quadrant)s, %(trail_json)s, %(updated_at)s)
+            ON CONFLICT (trade_date, sector) DO UPDATE SET
+                rs_ratio=EXCLUDED.rs_ratio, rs_momentum=EXCLUDED.rs_momentum,
+                quadrant=EXCLUDED.quadrant, trail_json=EXCLUDED.trail_json,
+                updated_at=EXCLUDED.updated_at
         """, rrg_rows)
         con.commit(); con.close()
         summary["rrg_sectors"] = len(rrg_rows)
@@ -231,7 +199,7 @@ def run_market_pulse_pipeline(triggered_by: str = "scheduler") -> dict:
     cutoff = (date.today() - timedelta(days=90)).isoformat()
     con = _db()
     for tbl in ("market_breadth", "sector_heatmap", "rrg_snapshot"):
-        cur = con.execute(f"DELETE FROM {tbl} WHERE trade_date < ?", (cutoff,))
+        cur = con.execute(f"DELETE FROM {tbl} WHERE trade_date < %s", (cutoff,))
         if cur.rowcount:
             logger.info(f"Purged {cur.rowcount} rows from {tbl} older than {cutoff}")
     con.commit()

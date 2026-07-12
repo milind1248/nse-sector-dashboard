@@ -46,12 +46,9 @@ get_visitor_count()   # increment DB counter once per session
 # ── FII Ticker — own lightweight cache, renders before main data load ─────────
 @st.cache_data(ttl=3600, show_spinner=False)
 def _get_ticker_data():
-    import sqlite3
-    from config import DB_PATH as db_path
-    if not db_path.exists():
-        return [], ""
+    from backend.storage.db import get_conn
     try:
-        con = sqlite3.connect(db_path)
+        con = get_conn()
         rows = con.execute("""
             SELECT nsdl_sector, net_curr_eq, report_date
             FROM nsdl_fii_sector
@@ -61,12 +58,11 @@ def _get_ticker_data():
               CASE WHEN net_curr_eq >= 0 THEN -net_curr_eq ELSE net_curr_eq END
         """).fetchall()
         con.close()
-        from datetime import datetime
-        raw_date = rows[0][2] if rows else ""
+        raw_date = rows[0][2] if rows else None
         try:
-            date_lbl = datetime.strptime(raw_date, "%Y-%m-%d").strftime("%d %b %Y")
+            date_lbl = raw_date.strftime("%d %b %Y") if raw_date else ""
         except Exception:
-            date_lbl = raw_date
+            date_lbl = str(raw_date or "")
         return [(r[0], r[1]) for r in rows], date_lbl
     except Exception:
         return [], ""

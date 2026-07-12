@@ -3,6 +3,8 @@
 *.pyo
 .env
 .streamlit/secrets.toml
+.streamlit/*.bak
+*.bak
 nsdl_sync*.log
 inspect_*.py
 *.egg-info/

@@ -7,18 +7,17 @@ Does NOT touch Streamlit UI code. Works identically on local and cloud.
 Each check returns:
   (label: str, status: "OK"|"WARN"|"FAIL", detail: str)
 """
-import sqlite3
 import time
 import traceback
 from datetime import date, timedelta
 from pathlib import Path
 
-from config import DB_PATH as _DB_PATH
+from backend.storage.db import get_conn
 _MAX_STALE_DAYS = 4   # allow Fri→Mon gap + 1 buffer day
 
 
 def _db():
-    return sqlite3.connect(_DB_PATH)
+    return get_conn()
 
 
 def _agg(checks):
@@ -28,10 +27,11 @@ def _agg(checks):
     return "OK"
 
 
-def _stale(date_str: str) -> int:
-    """Days since a date string (YYYY-MM-DD)."""
+def _stale(date_str) -> int:
+    """Days since a date value (native date object or YYYY-MM-DD string)."""
     try:
-        return (date.today() - date.fromisoformat(date_str[:10])).days
+        d = date_str if isinstance(date_str, date) else date.fromisoformat(str(date_str)[:10])
+        return (date.today() - d).days
     except Exception:
         return 999
 
@@ -95,7 +95,7 @@ def _check_market_pulse():
             checks.append(("Sector heatmap", "FAIL", "sector_heatmap table is empty"))
         else:
             stale = _stale(latest)
-            null_check = sqlite3.connect(_DB_PATH).execute(
+            null_check = get_conn().execute(
                 "SELECT COUNT(*) FROM sector_heatmap WHERE ret_1m IS NULL"
             ).fetchone()[0]
             if null_check > count * 0.5:
@@ -122,8 +122,8 @@ def _check_market_pulse():
             checks.append(("RRG snapshot", "FAIL", "rrg_snapshot table is empty"))
         else:
             stale = _stale(latest)
-            quad_check = sqlite3.connect(_DB_PATH).execute(
-                "SELECT COUNT(DISTINCT quadrant) FROM rrg_snapshot WHERE trade_date=?", (latest,)
+            quad_check = get_conn().execute(
+                "SELECT COUNT(DISTINCT quadrant) FROM rrg_snapshot WHERE trade_date=%s", (latest,)
             ).fetchone()[0]
             if quad_check < 2:
                 checks.append(("RRG snapshot", "WARN",
@@ -300,7 +300,9 @@ def _check_fii_dii_flow():
     # 4b. FII/DII columns not all NULL
     try:
         con = _db()
-        cols = [r[1] for r in con.execute("PRAGMA table_info(fii_dii_daily)").fetchall()]
+        cols = [r[0] for r in con.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name='fii_dii_daily'"
+        ).fetchall()]
         con.close()
         fii_col = next((c for c in cols if "fii" in c.lower()), None)
         dii_col = next((c for c in cols if "dii" in c.lower()), None)
@@ -531,7 +533,9 @@ def _check_fii_accumulation():
     # 9b. FII column not all NULL
     try:
         con = _db()
-        cols = [r[1] for r in con.execute("PRAGMA table_info(shareholding_pattern)").fetchall()]
+        cols = [r[0] for r in con.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name='shareholding_pattern'"
+        ).fetchall()]
         fii_col = next((c for c in cols if "fii" in c.lower()), None)
         if fii_col:
             null_fii = con.execute(
@@ -656,7 +660,7 @@ def _check_export():
             else:
                 detail = f"{count:,} rows"
                 if latest:
-                    detail += f" · latest {latest[:10]}"
+                    detail += f" · latest {str(latest)[:10]}"
                 checks.append((f"Export: {label}", "OK", detail))
         except Exception as e:
             checks.append((f"Export: {label}", "FAIL", str(e)))

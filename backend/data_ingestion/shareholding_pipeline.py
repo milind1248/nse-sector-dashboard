@@ -13,46 +13,18 @@ Quarter schedule:
 Data source: publicly available quarterly company filings (SEBI Regulation 31 LODR).
 """
 import logging
-import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from pathlib import Path
 
 from config import SECTOR_STOCKS
+from backend.storage.db import get_conn
 
 logger = logging.getLogger(__name__)
 
-from config import DB_PATH as _DB_PATH
-
 
 def _db():
-    return sqlite3.connect(_DB_PATH)
-
-
-def _ensure_tables():
-    con = _db()
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS shareholding_pattern (
-            symbol           TEXT NOT NULL,
-            quarter          TEXT NOT NULL,
-            promoter         REAL,
-            fii              REAL,
-            dii              REAL,
-            government       REAL,
-            public_retail    REAL,
-            fetched_at       TEXT NOT NULL,
-            PRIMARY KEY (symbol, quarter)
-        )
-    """)
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS shareholding_refresh_meta (
-            key   TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        )
-    """)
-    con.commit()
-    con.close()
+    return get_conn()
 
 
 def _fetch_shareholding(symbol: str) -> list[dict]:
@@ -133,9 +105,14 @@ def _save(rows: list[dict]):
         return
     con = _db()
     con.executemany("""
-        INSERT OR REPLACE INTO shareholding_pattern
+        INSERT INTO shareholding_pattern
         (symbol, quarter, promoter, fii, dii, government, public_retail, fetched_at)
-        VALUES (:symbol, :quarter, :promoter, :fii, :dii, :government, :public_retail, :fetched_at)
+        VALUES (%(symbol)s, %(quarter)s, %(promoter)s, %(fii)s, %(dii)s,
+                %(government)s, %(public_retail)s, %(fetched_at)s)
+        ON CONFLICT (symbol, quarter) DO UPDATE SET
+            promoter=EXCLUDED.promoter, fii=EXCLUDED.fii, dii=EXCLUDED.dii,
+            government=EXCLUDED.government, public_retail=EXCLUDED.public_retail,
+            fetched_at=EXCLUDED.fetched_at
     """, rows)
     con.commit()
     con.close()
@@ -158,7 +135,6 @@ def run_shareholding_pipeline(triggered_by: str = "scheduler"):
     Called by the quarterly scheduler (27th Jan/Apr/Jul/Oct) or manually by admin.
     Logging (log_start/log_finish) is the caller's responsibility — do NOT log internally.
     """
-    _ensure_tables()
     symbols = _all_symbols()
     logger.info(f"Shareholding pipeline started — {len(symbols)} symbols to fetch.")
 
@@ -193,7 +169,8 @@ def run_shareholding_pipeline(triggered_by: str = "scheduler"):
     ts = datetime.utcnow().isoformat()
     con = _db()
     con.execute(
-        "INSERT OR REPLACE INTO shareholding_refresh_meta (key, value) VALUES ('last_full_refresh', ?)",
+        "INSERT INTO shareholding_refresh_meta (key, value) VALUES ('last_full_refresh', %s) "
+        "ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
         (ts,)
     )
     con.commit()

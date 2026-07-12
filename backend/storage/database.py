@@ -2,7 +2,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
 from backend.storage.models import Base
-from config import DB_PATH
+from backend.storage.db import _connection_string
 
 _engine = None
 _SessionLocal = None
@@ -11,12 +11,8 @@ _SessionLocal = None
 def get_engine():
     global _engine
     if _engine is None:
-        _engine = create_engine(
-            f"sqlite:///{DB_PATH}",
-            connect_args={"check_same_thread": False},
-            echo=False,
-        )
-        Base.metadata.create_all(_engine)
+        _engine = create_engine(_connection_string(), echo=False)
+        Base.metadata.create_all(_engine)  # no-op for tables that already exist
     return _engine
 
 

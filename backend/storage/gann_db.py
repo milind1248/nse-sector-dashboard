@@ -1,6 +1,7 @@
 """
-SQLite persistence for Gann Analysis results (cook-once pattern).
-Nightly pipeline writes; page reads instantly from DB.
+Supabase (Postgres) persistence for Gann Analysis results (cook-once pattern).
+Nightly pipeline writes; page reads instantly from DB. Schema lives in
+scripts/supabase_schema.sql.
 
 Table: gann_cache — one row per (symbol, scan_date)
   atr_json   : ATR signals + backtest rows
@@ -9,11 +10,11 @@ Table: gann_cache — one row per (symbol, scan_date)
   pts_json   : Price-Time square signals
   dates_json : Upcoming Gann natural dates + hit-rate backtest
 """
-import sqlite3
 import json
 import numpy as np
 from datetime import date
-from config import DB_PATH
+
+from backend.storage.db import get_conn
 
 
 def _json_dumps(obj) -> str:
@@ -29,50 +30,7 @@ def _json_dumps(obj) -> str:
 
 
 def _conn():
-    return sqlite3.connect(DB_PATH)
-
-
-def ensure_table():
-    con = _conn()
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS gann_cache (
-            symbol            TEXT NOT NULL,
-            scan_date         TEXT NOT NULL,
-            atr_json          TEXT,
-            deg_json          TEXT,
-            proj_json         TEXT,
-            pts_json          TEXT,
-            dates_json        TEXT,
-            updated_at        TEXT,
-            atr_accuracy_pct  REAL,
-            atr_signals       INTEGER,
-            deg_accuracy_pct  REAL,
-            deg_signals       INTEGER,
-            proj_accuracy_pct REAL,
-            proj_signals      INTEGER,
-            pts_accuracy_pct  REAL,
-            pts_signals       INTEGER,
-            nat_accuracy_pct  REAL,
-            nat_signals       INTEGER,
-            PRIMARY KEY (symbol, scan_date)
-        )
-    """)
-    # Migrate existing tables that pre-date accuracy columns
-    existing = {row[1] for row in con.execute("PRAGMA table_info(gann_cache)").fetchall()}
-    for col, typ in [
-        ("atr_accuracy_pct", "REAL"), ("atr_signals", "INTEGER"),
-        ("deg_accuracy_pct", "REAL"), ("deg_signals", "INTEGER"),
-        ("proj_accuracy_pct", "REAL"), ("proj_signals", "INTEGER"),
-        ("pts_accuracy_pct", "REAL"), ("pts_signals", "INTEGER"),
-        ("nat_accuracy_pct", "REAL"), ("nat_signals", "INTEGER"),
-    ]:
-        if col not in existing:
-            con.execute(f"ALTER TABLE gann_cache ADD COLUMN {col} {typ}")
-    con.commit()
-    con.close()
-
-
-ensure_table()
+    return get_conn()
 
 
 def store_gann(symbol: str, result: dict, scan_date: str | None = None,
@@ -90,14 +48,22 @@ def store_gann(symbol: str, result: dict, scan_date: str | None = None,
 
     con = _conn()
     con.execute("""
-        INSERT OR REPLACE INTO gann_cache (
+        INSERT INTO gann_cache (
             symbol, scan_date, atr_json, deg_json, proj_json, pts_json, dates_json, updated_at,
             atr_accuracy_pct, atr_signals,
             deg_accuracy_pct, deg_signals,
             proj_accuracy_pct, proj_signals,
             pts_accuracy_pct, pts_signals,
             nat_accuracy_pct, nat_signals
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (symbol, scan_date) DO UPDATE SET
+            atr_json=EXCLUDED.atr_json, deg_json=EXCLUDED.deg_json, proj_json=EXCLUDED.proj_json,
+            pts_json=EXCLUDED.pts_json, dates_json=EXCLUDED.dates_json, updated_at=EXCLUDED.updated_at,
+            atr_accuracy_pct=EXCLUDED.atr_accuracy_pct, atr_signals=EXCLUDED.atr_signals,
+            deg_accuracy_pct=EXCLUDED.deg_accuracy_pct, deg_signals=EXCLUDED.deg_signals,
+            proj_accuracy_pct=EXCLUDED.proj_accuracy_pct, proj_signals=EXCLUDED.proj_signals,
+            pts_accuracy_pct=EXCLUDED.pts_accuracy_pct, pts_signals=EXCLUDED.pts_signals,
+            nat_accuracy_pct=EXCLUDED.nat_accuracy_pct, nat_signals=EXCLUDED.nat_signals
     """, (
         symbol, today,
         _json_dumps(_slim(result.get("atr") or {})),
@@ -126,7 +92,7 @@ def load_gann(symbol: str) -> tuple[dict | None, str | None]:
         row = con.execute("""
             SELECT scan_date, atr_json, deg_json, proj_json, pts_json, dates_json
             FROM gann_cache
-            WHERE symbol = ?
+            WHERE symbol = %s
             ORDER BY scan_date DESC LIMIT 1
         """, (symbol,)).fetchone()
         if not row:
@@ -137,7 +103,7 @@ def load_gann(symbol: str) -> tuple[dict | None, str | None]:
             "proj":  json.loads(row[3] or "{}"),
             "pts":   json.loads(row[4] or "{}"),
             "dates": json.loads(row[5] or "{}"),
-        }, row[0]
+        }, str(row[0])
     finally:
         con.close()
 
@@ -153,9 +119,9 @@ def load_all_summary() -> list[dict]:
             return []
         rows = con.execute("""
             SELECT symbol, scan_date, updated_at FROM gann_cache
-            WHERE scan_date = ?
+            WHERE scan_date = %s
         """, (latest,)).fetchall()
-        return [{"symbol": r[0], "scan_date": r[1], "updated_at": r[2]} for r in rows]
+        return [{"symbol": r[0], "scan_date": str(r[1]), "updated_at": r[2]} for r in rows]
     finally:
         con.close()
 
@@ -182,7 +148,7 @@ def load_all_accuracy() -> "pd.DataFrame":
                    pts_accuracy_pct,  pts_signals,
                    nat_accuracy_pct,  nat_signals
             FROM gann_cache
-            WHERE scan_date = ?
+            WHERE scan_date = %s
             ORDER BY symbol
         """, (latest,)).fetchall()
         if not rows:
@@ -206,7 +172,7 @@ def cache_age_days() -> int | None:
         row = con.execute("SELECT MAX(scan_date) FROM gann_cache").fetchone()
         if not row or not row[0]:
             return None
-        return (date.today() - date.fromisoformat(row[0])).days
+        return (date.today() - row[0]).days
     finally:
         con.close()
 
@@ -217,7 +183,7 @@ def purge_old(days: int = 7) -> int:
     cutoff = (date.today() - timedelta(days=days)).isoformat()
     con = _conn()
     try:
-        cur = con.execute("DELETE FROM gann_cache WHERE scan_date < ?", (cutoff,))
+        cur = con.execute("DELETE FROM gann_cache WHERE scan_date < %s", (cutoff,))
         con.commit()
         return cur.rowcount
     finally:

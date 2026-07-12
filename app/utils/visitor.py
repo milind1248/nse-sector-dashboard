@@ -1,18 +1,12 @@
-"""Visitor counter — uses sqlite3 directly (bypasses SQLAlchemy pool read-only issues)."""
-import sqlite3
+"""Visitor counter — uses backend.storage.db directly (bypasses SQLAlchemy pool read-only issues)."""
 import streamlit as st
-from pathlib import Path
 
-from config import DB_PATH as _DB
+from backend.storage.db import get_conn
 
 
 def increment_and_get() -> int:
     try:
-        con = sqlite3.connect(str(_DB), timeout=5)
-        con.execute(
-            "CREATE TABLE IF NOT EXISTS site_stats "
-            "(key TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0)"
-        )
+        con = get_conn()
         row = con.execute(
             "SELECT value FROM site_stats WHERE key='visitor_count'"
         ).fetchone()
@@ -22,7 +16,7 @@ def increment_and_get() -> int:
         else:
             count = row[0] + 1
             con.execute(
-                "UPDATE site_stats SET value=? WHERE key='visitor_count'", (count,)
+                "UPDATE site_stats SET value=%s WHERE key='visitor_count'", (count,)
             )
         con.commit()
         con.close()

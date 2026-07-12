@@ -10,12 +10,14 @@ Sources per sync:
 Weightage always sourced from NiftyIndices official PDFs.
 """
 from __future__ import annotations
-import io, re, sqlite3, time, difflib
+import io, re, time, difflib
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 import requests
+
+from backend.storage.db import get_conn
 
 _REQ_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -394,24 +396,8 @@ def _extract_factsheet_date(pdf_bytes: bytes) -> str:
         return ""
 
 
-# ── DB helpers ────────────────────────────────────────────────────────────────
-def _ensure_tables(con: sqlite3.Connection) -> None:
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS sector_sync_log (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            synced_at       TEXT NOT NULL,
-            source          TEXT,
-            indices_synced  INTEGER,
-            stocks_total    INTEGER,
-            changes         TEXT,
-            factsheet_date  TEXT
-        )
-    """)
-    con.commit()
-
-
 # ── Public API ────────────────────────────────────────────────────────────────
-def sync_all(db_path: str | Path, progress_cb=None) -> dict:
+def sync_all(db_path: str | Path | None = None, progress_cb=None) -> dict:
     """
     Sync all indices.  For each index:
       1. Download NiftyIndices PDF → constituent names + official weights
@@ -419,6 +405,9 @@ def sync_all(db_path: str | Path, progress_cb=None) -> dict:
          else look up symbol from NSE master EQUITY_L.csv via fuzzy match
       3. Fetch market cap from Yahoo Finance
       4. Write to sector_intelligence table
+
+    `db_path` is accepted for backward compatibility with existing callers
+    but ignored — the connection now always goes through backend.storage.db.
     """
     def _prog(msg: str, pct: float):
         if progress_cb:
@@ -427,8 +416,7 @@ def sync_all(db_path: str | Path, progress_cb=None) -> dict:
             except Exception:
                 pass
 
-    con = sqlite3.connect(str(db_path), timeout=10)
-    _ensure_tables(con)
+    con = get_conn()
 
     total = len(NSE_INDEX_SOURCES)
     all_rows: list[dict] = []
@@ -559,10 +547,9 @@ def sync_all(db_path: str | Path, progress_cb=None) -> dict:
 
     # Delete only the indices we successfully synced, then insert fresh rows.
     # This preserves existing data for indices that failed (e.g. PDF blocked on Cloud).
-    _ensure_tables(con)
     synced_index_names = list(write_df["index_name"].unique()) if "index_name" in write_df.columns else []
     if synced_index_names:
-        placeholders = ",".join("?" * len(synced_index_names))
+        placeholders = ",".join(["%s"] * len(synced_index_names))
         con.execute(f"DELETE FROM sector_intelligence WHERE index_name IN ({placeholders})",
                     synced_index_names)
     for _, row in write_df.iterrows():
@@ -570,7 +557,7 @@ def sync_all(db_path: str | Path, progress_cb=None) -> dict:
             "INSERT INTO sector_intelligence "
             "(company_name, symbol, industry, series, isin, sector, index_name, index_display, "
             " market_cap_cr, weightage_pct, weight_source) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (row.get("company_name"), row.get("symbol"), row.get("industry"),
              row.get("series"), row.get("isin"), row.get("sector"),
              row.get("index_name"), row.get("index_display"),
@@ -584,8 +571,8 @@ def sync_all(db_path: str | Path, progress_cb=None) -> dict:
     con.execute(
         "INSERT INTO sector_sync_log "
         "(synced_at, source, indices_synced, stocks_total, changes, factsheet_date) "
-        "VALUES (?,?,?,?,?,?)",
-        (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "VALUES (%s,%s,%s,%s,%s,%s)",
+        (datetime.now(),
          "NiftyIndices PDFs + NSE archives CSV + NSE EQUITY_L master + Yahoo Finance",
          len(indices_ok), len(write_df), changes, fdate_str),
     )
@@ -605,17 +592,17 @@ def sync_all(db_path: str | Path, progress_cb=None) -> dict:
     }
 
 
-def get_last_sync(db_path: str | Path) -> dict | None:
+def get_last_sync(db_path: str | Path | None = None) -> dict | None:
+    """`db_path` accepted for backward compatibility with existing callers but ignored."""
     try:
-        con = sqlite3.connect(str(db_path), timeout=5)
-        _ensure_tables(con)
+        con = get_conn()
         row = con.execute(
             "SELECT synced_at, source, indices_synced, stocks_total, changes, factsheet_date "
             "FROM sector_sync_log ORDER BY id DESC LIMIT 1"
         ).fetchone()
         con.close()
         if row:
-            return {"synced_at": row[0], "source": row[1], "indices_synced": row[2],
+            return {"synced_at": str(row[0]), "source": row[1], "indices_synced": row[2],
                     "stocks_total": row[3], "changes": row[4], "factsheet_date": row[5] or "N/A"}
     except Exception:
         pass
