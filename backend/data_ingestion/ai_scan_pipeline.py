@@ -95,11 +95,8 @@ def run_ai_scan_pipeline(triggered_by: str = "scheduler") -> dict:
     Logging (log_start/log_finish) is the caller's responsibility.
     Returns summary dict: {total, bullish, bearish, failed, cached}.
     """
-    from backend.storage.ai_forecast_db import store_forecast, ensure_table as _ensure_cache
-    from backend.storage.ai_scan_db import store_scan, ensure_table as _ensure_scan
-
-    _ensure_cache()
-    _ensure_scan()
+    from backend.storage.ai_forecast_db import store_forecast
+    from backend.storage.ai_scan_db import store_scan
 
     # Truncate before loading — table stays at exactly 185 rows (~4.5 MB constant)
     from backend.storage.ai_forecast_db import truncate_forecasts
