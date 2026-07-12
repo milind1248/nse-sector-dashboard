@@ -1,5 +1,6 @@
 """Paper Trading — simulated Stock / Option / Future orders, no real money or broker involved."""
 import sys
+import uuid
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -23,20 +24,58 @@ from app.utils.disclaimer import show_sebi_notice
 show_sebi_notice()
 st.caption("Simulated trading for practice — no real money, no real orders placed with any broker.")
 
-# ── Trader ID (placeholder until account login exists) ─────────────────────────
-tid_col, _ = st.columns([2, 3])
-with tid_col:
-    trader_id = st.text_input("Trader ID", key="paper_trader_id", placeholder="e.g. your email or a nickname")
-st.caption(
-    "⚠️ Temporary identifier until account login is added — orders are only visible under the same "
-    "Trader ID in this browser. Anyone who enters the same Trader ID sees the same book."
-)
+ALL_STOCK_SYMBOLS = sorted({s.replace(".NS", "") for stocks in SECTOR_STOCKS.values() for s in stocks})
+FNO_UNDERLYINGS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX"] + ALL_STOCK_SYMBOLS
 
-if not trader_id.strip():
-    st.info("Enter a Trader ID above to start placing simulated orders.")
+
+@st.cache_data(ttl=20, show_spinner=False)
+def _cached_live_price_hit(symbol: str) -> float:
+    """Cache only successful lookups (raises on failure so nothing is cached)."""
+    price = get_live_price(symbol)
+    if price is None:
+        raise ValueError("no price")
+    return price
+
+
+def _cached_live_price(symbol: str):
+    """Live price, cached for 20s — but a failed fetch is never cached, so the next
+    rerun (or the row's manual override) can recover immediately instead of being
+    stuck on a stale None for the full TTL."""
+    try:
+        return _cached_live_price_hit(symbol)
+    except Exception:
+        return None
+
+
+# ── Trader ID + Login (placeholder until account login exists) ─────────────────
+if not st.session_state.get("logged_in_trader"):
+    lc1, lc2 = st.columns([2, 1])
+    with lc1:
+        trader_input = st.text_input("Trader ID", key="trader_id_input",
+                                      placeholder="e.g. your email or a nickname")
+    with lc2:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        if st.button("🔓 Login", type="primary"):
+            if trader_input.strip():
+                st.session_state["logged_in_trader"] = trader_input.strip()
+                st.rerun()
+            else:
+                st.error("Enter a Trader ID first.")
+    st.caption(
+        "⚠️ Temporary identifier until account login is added — orders are only visible under the same "
+        "Trader ID in this browser. Anyone who logs in with the same Trader ID sees the same book."
+    )
+    st.info("Enter a Trader ID and click Login to start placing simulated orders.")
     st.stop()
 
-trader_id = trader_id.strip()
+trader_id = st.session_state["logged_in_trader"]
+lc1, lc2 = st.columns([5, 1])
+with lc1:
+    st.success(f"Logged in as **{trader_id}**", icon="✅")
+with lc2:
+    if st.button("Logout"):
+        del st.session_state["logged_in_trader"]
+        st.rerun()
 
 
 def _color_pnl(val):
@@ -49,82 +88,222 @@ def _color_status(val):
     return {"FILLED": "color:#00C853", "PENDING": "color:#FFD600", "CANCELLED": "color:#8899bb"}.get(val, "")
 
 
-def render_segment_tab(segment: str, symbol: str, mark_price: float | None,
-                        expiry: str | None = None, strike: float | None = None,
-                        option_type: str | None = None):
-    """Shared render for the Stock / Option / Future tabs."""
+def _rows_key(segment):
+    return f"order_rows_{segment}"
+
+
+def _ensure_rows(segment):
+    key = _rows_key(segment)
+    if key not in st.session_state or not st.session_state[key]:
+        st.session_state[key] = [uuid.uuid4().hex[:8]]
+    return st.session_state[key]
+
+
+def render_order_row(segment: str, uid: str, show_labels: bool):
+    """One quick-entry row. Returns a dict of the row's current values + a 'remove' flag."""
+    lv = "visible" if show_labels else "collapsed"
+
+    if segment == "STOCK":
+        cols = st.columns([2.2, 1.3, 1.3, 1.1, 1.0, 1.2, 1.2, 0.5])
+        symbol = cols[0].selectbox("Symbol", ALL_STOCK_SYMBOLS, index=None, placeholder="Type symbol…",
+                                    key=f"sym_{uid}", accept_new_options=True, filter_mode="fuzzy",
+                                    label_visibility=lv)
+        live_px = _cached_live_price(symbol) if symbol else None
+        with cols[1]:
+            if show_labels:
+                st.markdown("**Live Price**")
+            if symbol and live_px is None:
+                st.markdown(":red[unavailable]")
+            else:
+                st.markdown(f"₹{live_px:,.2f}" if live_px is not None else "—")
+        with cols[2]:
+            price_override = st.number_input("Price ₹ (override)", min_value=0.0, value=0.0, step=0.05,
+                                               key=f"pxover_{uid}", label_visibility=lv,
+                                               help="Leave 0 to use the live price above.")
+        effective_px = price_override if price_override > 0 else live_px
+        side = cols[3].radio("Side", ["BUY", "SELL"], horizontal=True, key=f"side_{uid}", label_visibility=lv)
+        qty = cols[4].number_input("Qty", min_value=1, value=1, step=1, key=f"qty_{uid}", label_visibility=lv)
+        order_type = cols[5].selectbox("Order Type", ["MARKET", "LIMIT"], key=f"otype_{uid}", label_visibility=lv)
+        limit_price = None
+        with cols[6]:
+            if order_type == "LIMIT":
+                limit_price = st.number_input("Limit ₹", min_value=0.0, value=float(effective_px or 0.0),
+                                               step=0.05, key=f"limit_{uid}", label_visibility=lv)
+            else:
+                if show_labels:
+                    st.markdown("**Limit ₹**")
+                st.markdown("—")
+        with cols[7]:
+            if show_labels:
+                st.markdown("**&nbsp;**", unsafe_allow_html=True)
+            remove = st.button("✕", key=f"rm_{uid}")
+        mark_price = effective_px
+        expiry = strike = option_type = None
+
+    elif segment == "OPTION":
+        cols = st.columns([1.8, 1.1, 1.0, 0.7, 1.1, 1.1, 0.8, 1.1, 1.1, 0.5])
+        symbol = cols[0].selectbox("Symbol", FNO_UNDERLYINGS, index=None, placeholder="Underlying…",
+                                    key=f"sym_{uid}", accept_new_options=True, filter_mode="fuzzy",
+                                    label_visibility=lv)
+        expiry = str(cols[1].date_input("Expiry", value=date.today() + timedelta(days=7), key=f"exp_{uid}",
+                                         label_visibility=lv))
+        strike = cols[2].number_input("Strike", min_value=0.0, value=0.0, step=50.0, key=f"strk_{uid}",
+                                       label_visibility=lv)
+        option_type = cols[3].selectbox("Type", ["CE", "PE"], key=f"otyp_{uid}", label_visibility=lv)
+        mark_price = cols[4].number_input("Mark ₹", min_value=0.0, value=0.0, step=0.05, key=f"mark_{uid}",
+                                           label_visibility=lv)
+        mark_price = mark_price if mark_price > 0 else None
+        side = cols[5].radio("Side", ["BUY", "SELL"], horizontal=True, key=f"side_{uid}", label_visibility=lv)
+        qty = cols[6].number_input("Qty", min_value=1, value=1, step=1, key=f"qty_{uid}", label_visibility=lv)
+        order_type = cols[7].selectbox("Order Type", ["MARKET", "LIMIT"], key=f"otype_{uid}", label_visibility=lv)
+        limit_price = None
+        with cols[8]:
+            if order_type == "LIMIT":
+                limit_price = st.number_input("Limit ₹", min_value=0.0, value=float(mark_price or 0.0),
+                                               step=0.05, key=f"limit_{uid}", label_visibility=lv)
+            else:
+                if show_labels:
+                    st.markdown("**Limit ₹**")
+                st.markdown("—")
+        with cols[9]:
+            if show_labels:
+                st.markdown("**&nbsp;**", unsafe_allow_html=True)
+            remove = st.button("✕", key=f"rm_{uid}")
+
+    else:  # FUTURE
+        cols = st.columns([2.0, 1.4, 1.3, 1.3, 1.0, 1.3, 1.3, 0.5])
+        symbol = cols[0].selectbox("Symbol", FNO_UNDERLYINGS, index=None, placeholder="Underlying…",
+                                    key=f"sym_{uid}", accept_new_options=True, filter_mode="fuzzy",
+                                    label_visibility=lv)
+        expiry = str(cols[1].date_input("Expiry", value=date.today() + timedelta(days=30), key=f"exp_{uid}",
+                                         label_visibility=lv))
+        mark_price = cols[2].number_input("Mark ₹", min_value=0.0, value=0.0, step=0.05, key=f"mark_{uid}",
+                                           label_visibility=lv)
+        mark_price = mark_price if mark_price > 0 else None
+        side = cols[3].radio("Side", ["BUY", "SELL"], horizontal=True, key=f"side_{uid}", label_visibility=lv)
+        qty = cols[4].number_input("Qty", min_value=1, value=1, step=1, key=f"qty_{uid}", label_visibility=lv)
+        order_type = cols[5].selectbox("Order Type", ["MARKET", "LIMIT"], key=f"otype_{uid}", label_visibility=lv)
+        limit_price = None
+        with cols[6]:
+            if order_type == "LIMIT":
+                limit_price = st.number_input("Limit ₹", min_value=0.0, value=float(mark_price or 0.0),
+                                               step=0.05, key=f"limit_{uid}", label_visibility=lv)
+            else:
+                if show_labels:
+                    st.markdown("**Limit ₹**")
+                st.markdown("—")
+        with cols[7]:
+            if show_labels:
+                st.markdown("**&nbsp;**", unsafe_allow_html=True)
+            remove = st.button("✕", key=f"rm_{uid}")
+        strike = option_type = None
+
+    return {
+        "uid": uid, "symbol": symbol, "side": side, "qty": qty, "order_type": order_type,
+        "limit_price": limit_price, "mark_price": mark_price, "expiry": expiry, "strike": strike,
+        "option_type": option_type, "remove": remove,
+    }
+
+
+def render_segment_tab(segment: str):
+    """Shared render for the Stock / Option / Future tabs: quick order ticket + positions + order book."""
 
     def price_lookup(sym):
         if segment == "STOCK":
-            return get_live_price(sym)
-        return mark_price  # Option/Future: manually entered mark price applies to all pending orders this run
+            return _cached_live_price(sym)
+        for h in db.list_holdings(trader_id, segment):
+            if h["symbol"] == sym:
+                return h.get("mark_price")
+        return None
 
     filled = process_pending_limit_orders(trader_id, segment, price_lookup)
     if filled:
         st.toast(f"{filled} pending {segment.lower()} order(s) filled.", icon="✅")
 
-    # ── Order entry form ────────────────────────────────────────────────────
-    with st.form(f"paper_order_form_{segment}", clear_on_submit=True):
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            side = st.radio("Side", ["BUY", "SELL"], horizontal=True, key=f"side_{segment}")
-        with c2:
-            qty = st.number_input("Quantity", min_value=1, value=1, step=1, key=f"qty_{segment}")
-        with c3:
-            order_type = st.radio("Order Type", ["MARKET", "LIMIT"], horizontal=True, key=f"otype_{segment}")
-        with c4:
-            limit_price = None
-            if order_type == "LIMIT":
-                default_px = mark_price if mark_price else 0.0
-                limit_price = st.number_input("Limit Price (₹)", min_value=0.0, value=float(default_px),
-                                               step=0.05, key=f"limit_{segment}")
+    # ── Quick order ticket (one row per trade; add as many as you like) ────────
+    st.markdown("##### 🎫 Quick Order Ticket")
+    with st.expander("ℹ️ ⚡ Market vs 🎯 Limit — when does an order fill?"):
+        st.markdown(
+            "- **⚡ Market** — fills **immediately** at the current live/mark price shown in the row.\n"
+            "- **🎯 Limit** — stays **PENDING** in the Order Book until the price reaches your limit: "
+            "a BUY limit fills once the price drops **to or below** your limit, a SELL limit fills once "
+            "the price rises **to or above** it.\n"
+            "- This is a simulator, not a live broker feed — pending limit orders are only checked "
+            "**when you open or refresh this page/tab**, not continuously in real time. If the price "
+            "touches your limit between visits, it will fill the next time you load this tab."
+        )
+    row_uids = _ensure_rows(segment)
+    rows = [render_order_row(segment, uid, show_labels=(i == 0)) for i, uid in enumerate(row_uids)]
 
-        submitted = st.form_submit_button("▶ Place Order", type="primary")
-        if submitted:
-            if not symbol:
-                st.error("Enter/select a symbol first.")
-            elif order_type == "MARKET" and mark_price is None:
-                st.error("No price available to fill a MARKET order — try a LIMIT order or set a mark price.")
-            else:
+    to_remove = [r["uid"] for r in rows if r["remove"]]
+    if to_remove:
+        st.session_state[_rows_key(segment)] = [u for u in row_uids if u not in to_remove]
+        st.rerun()
+
+    bc1, bc2 = st.columns([1, 1])
+    with bc1:
+        if st.button("➕ Add Row", key=f"add_row_{segment}"):
+            st.session_state[_rows_key(segment)].append(uuid.uuid4().hex[:8])
+            st.rerun()
+    with bc2:
+        if st.button("▶ Place Order(s)", type="primary", key=f"place_all_{segment}"):
+            placed, errors = 0, []
+            for r in rows:
+                if not r["symbol"]:
+                    continue
+                if r["order_type"] == "MARKET" and r["mark_price"] is None:
+                    errors.append(f"{r['symbol']}: no price available to fill a MARKET order.")
+                    continue
                 db.place_order(
-                    trader_id=trader_id, segment=segment, symbol=symbol, side=side, qty=int(qty),
-                    order_type=order_type, limit_price=limit_price, mark_price=mark_price,
-                    expiry=expiry, strike=strike, option_type=option_type,
+                    trader_id=trader_id, segment=segment, symbol=r["symbol"], side=r["side"],
+                    qty=int(r["qty"]), order_type=r["order_type"], limit_price=r["limit_price"],
+                    mark_price=r["mark_price"], expiry=r["expiry"], strike=r["strike"],
+                    option_type=r["option_type"],
                 )
-                st.success(f"{side} order for {qty} × {symbol} submitted.")
+                placed += 1
+            for e in errors:
+                st.error(e)
+            if placed:
+                st.success(f"{placed} order(s) submitted.")
+                st.session_state[_rows_key(segment)] = [uuid.uuid4().hex[:8]]
                 st.rerun()
+            elif not errors:
+                st.warning("Enter at least one symbol before placing an order.")
 
     st.markdown("---")
 
     # ── Open positions ──────────────────────────────────────────────────────
     holdings = db.list_holdings(trader_id, segment)
     st.subheader("📂 Open Positions")
+    if holdings:
+        st.caption("**Order** shows how the position's most recent fill was opened/added to — "
+                   "🎯 Limit or ⚡ Market.")
 
     total_invested = total_value = total_pnl = 0.0
 
     if not holdings:
         st.info("No open positions in this segment.")
     else:
-        rows = []
+        display_rows = []
         for h in holdings:
-            live = get_live_price(h["symbol"]) if segment == "STOCK" else h.get("mark_price")
-            if segment != "STOCK" and mark_price is not None and h["symbol"] == symbol:
-                live = mark_price  # refresh with the price just entered for this instrument
-            if live is not None and live != h.get("mark_price"):
-                db.update_mark_price(h["id"], live)
-                h["mark_price"] = live
+            if segment == "STOCK":
+                live = _cached_live_price(h["symbol"])
+                if live is not None and live != h.get("mark_price"):
+                    db.update_mark_price(h["id"], live)
+                    h["mark_price"] = live
             pnl = compute_pnl(h)
             invested = h["avg_price"] * abs(h["qty"])
-            value = (live or h["avg_price"]) * abs(h["qty"])
+            value = (h.get("mark_price") or h["avg_price"]) * abs(h["qty"])
             total_invested += invested
             total_value += value
             total_pnl += pnl or 0.0
-            rows.append({
-                "Symbol": h["symbol"], "Qty": h["qty"], "Avg Price": h["avg_price"],
+            order_icon = {"LIMIT": "🎯 Limit", "MARKET": "⚡ Market"}.get(h.get("last_order_type"), "— Unknown")
+            display_rows.append({
+                "Order": order_icon, "Symbol": h["symbol"], "Qty": h["qty"], "Avg Price": h["avg_price"],
                 "Mark Price": h.get("mark_price"), "P&L": pnl, "id": h["id"],
             })
 
-        df_hold = pd.DataFrame(rows)
+        df_hold = pd.DataFrame(display_rows)
         display_df = df_hold.drop(columns=["id"])
         st.dataframe(
             display_df.style.map(_color_pnl, subset=["P&L"]).format({
@@ -134,8 +313,8 @@ def render_segment_tab(segment: str, symbol: str, mark_price: float | None,
             use_container_width=True, hide_index=True
         )
 
-        close_cols = st.columns(min(len(rows), 4) or 1)
-        for i, h in enumerate(rows):
+        close_cols = st.columns(min(len(display_rows), 4) or 1)
+        for i, h in enumerate(display_rows):
             with close_cols[i % len(close_cols)]:
                 if st.button(f"✕ Close {h['Symbol']}", key=f"close_{segment}_{h['id']}"):
                     close_side = "SELL" if h["Qty"] > 0 else "BUY"
@@ -189,53 +368,22 @@ def render_segment_tab(segment: str, symbol: str, mark_price: float | None,
 tab_stock, tab_option, tab_future = st.tabs(["📈 Stock", "🎯 Option", "📉 Future"])
 
 with tab_stock:
-    st.caption("Live price sourced automatically for NSE-listed stocks.")
-    sc1, sc2 = st.columns(2)
-    with sc1:
-        sector = st.selectbox("Sector", sorted(SECTOR_STOCKS.keys()), key="stock_sector")
-    with sc2:
-        stock_choice = st.selectbox("Stock", [s.replace(".NS", "") for s in SECTOR_STOCKS.get(sector, [])],
-                                     key="stock_symbol")
-    live_px = get_live_price(stock_choice) if stock_choice else None
-    if live_px is not None:
-        st.metric(f"{stock_choice} — Live Price", f"₹{live_px:,.2f}")
-    else:
-        st.warning("Could not fetch a live price for this symbol right now.")
-    render_segment_tab("STOCK", stock_choice, live_px)
+    st.caption("Type a symbol to see suggestions and its live price — pick it or keep typing your own.")
+    render_segment_tab("STOCK")
 
 with tab_option:
     st.caption(
-        "⚠️ No live options-chain data source is wired up — enter the current market price for this "
-        "contract manually each time you update it. P&L is computed against that entered price."
+        "⚠️ No live options-chain data source is wired up — enter the current market (mark) price for each "
+        "contract yourself. P&L is computed against that entered price."
     )
-    oc1, oc2, oc3, oc4 = st.columns(4)
-    with oc1:
-        opt_symbol = st.text_input("Underlying Symbol", value="NIFTY", key="opt_symbol").strip().upper()
-    with oc2:
-        opt_expiry = st.date_input("Expiry", value=date.today() + timedelta(days=7), key="opt_expiry")
-    with oc3:
-        opt_strike = st.number_input("Strike", min_value=0.0, value=0.0, step=50.0, key="opt_strike")
-    with oc4:
-        opt_type = st.selectbox("Type", ["CE", "PE"], key="opt_type")
-    opt_mark = st.number_input("Mark Price (₹)", min_value=0.0, value=0.0, step=0.05, key="opt_mark")
-    opt_mark = opt_mark if opt_mark > 0 else None
-    render_segment_tab("OPTION", opt_symbol, opt_mark,
-                        expiry=str(opt_expiry), strike=opt_strike, option_type=opt_type)
+    render_segment_tab("OPTION")
 
 with tab_future:
     st.caption(
-        "⚠️ No live futures data source is wired up — enter the current market price for this "
-        "contract manually each time you update it. P&L is computed against that entered price."
+        "⚠️ No live futures data source is wired up — enter the current market (mark) price for each "
+        "contract yourself. P&L is computed against that entered price."
     )
-    fc1, fc2, fc3 = st.columns(3)
-    with fc1:
-        fut_symbol = st.text_input("Symbol", value="NIFTY", key="fut_symbol").strip().upper()
-    with fc2:
-        fut_expiry = st.date_input("Expiry", value=date.today() + timedelta(days=30), key="fut_expiry")
-    with fc3:
-        fut_mark = st.number_input("Mark Price (₹)", min_value=0.0, value=0.0, step=0.05, key="fut_mark")
-    fut_mark = fut_mark if fut_mark > 0 else None
-    render_segment_tab("FUTURE", fut_symbol, fut_mark, expiry=str(fut_expiry))
+    render_segment_tab("FUTURE")
 
 from app.utils.disclaimer import show_footer
 show_footer()

@@ -43,20 +43,27 @@ def ensure_table():
     """)
     con.execute("""
         CREATE TABLE IF NOT EXISTS paper_holdings (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            trader_id     TEXT    NOT NULL,
-            segment       TEXT    NOT NULL,
-            symbol        TEXT    NOT NULL,
-            qty           INTEGER NOT NULL,
-            avg_price     REAL    NOT NULL,
-            mark_price    REAL,
-            expiry        TEXT,
-            strike        REAL,
-            option_type   TEXT,
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            trader_id       TEXT    NOT NULL,
+            segment         TEXT    NOT NULL,
+            symbol          TEXT    NOT NULL,
+            qty             INTEGER NOT NULL,
+            avg_price       REAL    NOT NULL,
+            mark_price      REAL,
+            expiry          TEXT,
+            strike          REAL,
+            option_type     TEXT,
+            last_order_type TEXT,   -- MARKET | LIMIT — order type of the most recent fill that touched this position
             UNIQUE(trader_id, segment, symbol, expiry, strike, option_type)
         )
     """)
     con.commit()
+    # Idempotent migration for DBs created before last_order_type existed
+    try:
+        con.execute("ALTER TABLE paper_holdings ADD COLUMN last_order_type TEXT")
+        con.commit()
+    except Exception:
+        pass  # column already exists
     con.close()
 
 
@@ -82,14 +89,15 @@ def _apply_fill(con, order: dict, fill_price: float) -> float:
     key = _holding_key(order)
     existing = _get_holding(con, key)
     side_qty = order["qty"] if order["side"] == "BUY" else -order["qty"]
+    order_type = order.get("order_type", "MARKET")
     realized = 0.0
 
     if existing is None:
         con.execute("""
             INSERT INTO paper_holdings (trader_id, segment, symbol, qty, avg_price, mark_price,
-                                          expiry, strike, option_type)
-            VALUES (?,?,?,?,?,?,?,?,?)
-        """, (*key[:3], side_qty, fill_price, fill_price, *key[3:]))
+                                          expiry, strike, option_type, last_order_type)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+        """, (*key[:3], side_qty, fill_price, fill_price, *key[3:], order_type))
         return realized
 
     hid, cur_qty, cur_avg, mark_price = existing
@@ -113,8 +121,8 @@ def _apply_fill(con, order: dict, fill_price: float) -> float:
         con.execute("DELETE FROM paper_holdings WHERE id=?", (hid,))
     else:
         con.execute("""
-            UPDATE paper_holdings SET qty=?, avg_price=?, mark_price=? WHERE id=?
-        """, (new_qty, new_avg, fill_price, hid))
+            UPDATE paper_holdings SET qty=?, avg_price=?, mark_price=?, last_order_type=? WHERE id=?
+        """, (new_qty, new_avg, fill_price, order_type, hid))
 
     return realized
 
@@ -129,6 +137,7 @@ def place_order(trader_id: str, segment: str, symbol: str, side: str, qty: int,
     order = {
         "trader_id": trader_id, "segment": segment, "symbol": symbol,
         "side": side, "qty": qty, "expiry": expiry, "strike": strike, "option_type": option_type,
+        "order_type": order_type,
     }
 
     con = _conn()
@@ -164,14 +173,14 @@ def fill_pending_order(order_id: int, fill_price: float) -> None:
     """Fill a PENDING limit order at the given price and update holdings."""
     con = _conn()
     row = con.execute("""
-        SELECT trader_id, segment, symbol, side, qty, expiry, strike, option_type
+        SELECT trader_id, segment, symbol, side, qty, expiry, strike, option_type, order_type
         FROM paper_orders WHERE id=? AND status='PENDING'
     """, (order_id,)).fetchone()
     if row is None:
         con.close()
         return
     order = dict(zip(
-        ["trader_id", "segment", "symbol", "side", "qty", "expiry", "strike", "option_type"], row
+        ["trader_id", "segment", "symbol", "side", "qty", "expiry", "strike", "option_type", "order_type"], row
     ))
     realized = _apply_fill(con, order, fill_price)
     now = datetime.now().isoformat(timespec="seconds")
@@ -219,12 +228,13 @@ def list_orders(trader_id: str, segment: str, limit: int = 200) -> list[dict]:
 def list_holdings(trader_id: str, segment: str) -> list[dict]:
     con = _conn()
     rows = con.execute("""
-        SELECT id, symbol, qty, avg_price, mark_price, expiry, strike, option_type
+        SELECT id, symbol, qty, avg_price, mark_price, expiry, strike, option_type, last_order_type
         FROM paper_holdings WHERE trader_id=? AND segment=? AND qty != 0
         ORDER BY symbol
     """, (trader_id, segment)).fetchall()
     con.close()
-    cols = ["id", "symbol", "qty", "avg_price", "mark_price", "expiry", "strike", "option_type"]
+    cols = ["id", "symbol", "qty", "avg_price", "mark_price", "expiry", "strike", "option_type",
+            "last_order_type"]
     return [dict(zip(cols, r)) for r in rows]
 
 
