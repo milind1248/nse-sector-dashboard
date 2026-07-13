@@ -384,3 +384,20 @@ CREATE TABLE IF NOT EXISTS page_test_log (
     errors_json TEXT,
     tested_at   TIMESTAMPTZ NOT NULL
 );
+
+-- ── User Profiles (Supabase Auth) ──────────────────────────────────────────────
+-- id = Supabase Auth's auth.users.id (UUID). Verify the db_connection_string's
+-- role can see the `auth` schema (SELECT count(*) FROM auth.users;) before
+-- relying on the FK — if it fails, drop REFERENCES and keep a plain UUID PK.
+CREATE TABLE IF NOT EXISTS profiles (
+    id                   UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    email                TEXT NOT NULL,
+    full_name            TEXT,
+    avatar_url           TEXT,
+    auth_provider        TEXT NOT NULL,             -- 'google' | 'email'
+    subscription_tier    TEXT NOT NULL DEFAULT 'free',
+    subscription_status  TEXT NOT NULL DEFAULT 'active',
+    created_at           TIMESTAMPTZ,
+    last_login_at        TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_profiles_email ON profiles(email);

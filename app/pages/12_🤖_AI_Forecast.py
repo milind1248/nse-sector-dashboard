@@ -20,6 +20,10 @@ inject_seo("AI_Forecast")
 from app.utils.logo import show_logo
 show_logo()
 
+with st.sidebar:
+    from app.utils.user_session import render_auth_sidebar
+    render_auth_sidebar()
+
 st.title("🤖 AI Stock Price Forecast")
 from app.utils.disclaimer import show_sebi_notice
 show_sebi_notice()

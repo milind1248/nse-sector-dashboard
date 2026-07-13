@@ -50,6 +50,9 @@ from app.utils.visitor import get_visitor_count, render_visitor_counter
 show_logo()
 get_visitor_count()   # increment DB counter once per session
 
+from app.utils.user_session import handle_oauth_callback
+handle_oauth_callback()   # consumes ?code=... if this is a Google OAuth redirect landing
+
 
 # ── FII Ticker — own lightweight cache, renders before main data load ─────────
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -158,9 +161,11 @@ _cold_start_sync()
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("<p style='font-size:15px;font-weight:700;margin:0 0 6px 0;white-space:nowrap'>📊 Market Sector Analysis</p>", unsafe_allow_html=True)
-    st.markdown("""
-<div style="font-size:11px; color:#888; line-height:1.8; margin-top:2px;">
-<b style="color:#aaa; font-size:10px; letter-spacing:1px;">INVESTOR DECISION FLOW</b><br>
+    from app.utils.user_session import render_auth_sidebar
+    render_auth_sidebar()
+    with st.expander("📋 INVESTOR DECISION FLOW", expanded=False):
+        st.markdown("""
+<div style="font-size:11px; color:#888; line-height:1.8;">
 <span style="color:#3a5a8a;">①</span> 🏠 <b>Home</b> <span style="color:#555;">→ FII buying this fortnight?</span><br>
 <span style="color:#3a5a8a;">②</span> 📡 <b>Market Pulse</b> <span style="color:#555;">→ Broad market health check</span><br>
 <span style="color:#3a5a8a;">③</span> 📈 <b>Sector Analysis</b> <span style="color:#555;">→ Which sectors are moving?</span><br>

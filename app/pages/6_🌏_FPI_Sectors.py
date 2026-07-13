@@ -23,6 +23,10 @@ inject_seo("FPI_Sectors")
 from app.utils.logo import show_logo
 show_logo()
 
+with st.sidebar:
+    from app.utils.user_session import render_auth_sidebar
+    render_auth_sidebar()
+
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=86400, show_spinner=False)

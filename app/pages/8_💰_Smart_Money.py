@@ -24,6 +24,10 @@ inject_seo("Smart_Money")
 from app.utils.logo import show_logo
 show_logo()
 
+with st.sidebar:
+    from app.utils.user_session import render_auth_sidebar
+    render_auth_sidebar()
+
 # ── DB helpers ────────────────────────────────────────────────────────────────
 def _db():
     return get_conn()
@@ -220,9 +224,9 @@ def _fetch_one_day(symbol: str, dt: date) -> dict | None:
                 row["trade_qty"]     = float(tqty)  if pd.notna(tqty)  else None
                 row["tot_trade"]     = float(ttrd)  if pd.notna(ttrd)  else None
                 if pd.notna(close) and pd.notna(prev) and prev > 0:
-                    row["pct_price_chg"] = round((close - prev) / prev * 100, 2)
+                    row["pct_price_chg"] = round(float((close - prev) / prev * 100), 2)
                 if pd.notna(tqty) and pd.notna(ttrd) and ttrd > 0:
-                    row["action"] = round(tqty / ttrd, 1)
+                    row["action"] = round(float(tqty / ttrd), 1)
                 got_any = True
     except Exception:
         pass
@@ -240,7 +244,7 @@ def _fetch_one_day(symbol: str, dt: date) -> dict | None:
                 qty  = pd.to_numeric(m["qty_traded"].iloc[0], errors="coerce")
                 dlv  = pd.to_numeric(m["dlv_qty"].iloc[0],   errors="coerce")
                 if pd.notna(qty) and pd.notna(dlv) and qty > 0:
-                    row["dlv_pct"] = round(dlv / qty * 100, 2)
+                    row["dlv_pct"] = round(float(dlv / qty * 100), 2)
                 got_any = True
     except Exception:
         pass
@@ -263,7 +267,7 @@ def _fetch_one_day(symbol: str, dt: date) -> dict | None:
                     row["oi_change"]  = float(oichg) if pd.notna(oichg) else None
                     prev_oi = oi - (oichg if pd.notna(oichg) else 0)
                     if prev_oi != 0:
-                        row["pct_oi_chg"] = round((oichg / prev_oi) * 100, 2)
+                        row["pct_oi_chg"] = round(float((oichg / prev_oi) * 100), 2)
                 got_any = True
     except Exception:
         pass

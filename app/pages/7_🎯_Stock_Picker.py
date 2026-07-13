@@ -28,6 +28,10 @@ inject_seo("Stock_Picker")
 from app.utils.logo import show_logo
 show_logo()
 
+with st.sidebar:
+    from app.utils.user_session import render_auth_sidebar
+    render_auth_sidebar()
+
 
 sector = st.session_state.get("selected_sector")
 all_sectors = sorted(SECTOR_STOCKS.keys())

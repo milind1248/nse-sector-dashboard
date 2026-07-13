@@ -14,6 +14,10 @@ enforce_deployment_gate()
 from app.utils.logo import show_logo
 show_logo()
 
+with st.sidebar:
+    from app.utils.user_session import render_auth_sidebar
+    render_auth_sidebar()
+
 from app.utils.disclaimer import show_full_disclaimer
 show_full_disclaimer()
 from app.utils.disclaimer import show_footer

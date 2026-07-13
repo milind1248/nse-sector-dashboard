@@ -27,6 +27,10 @@ inject_seo("Sector_Analysis")
 from app.utils.logo import show_logo
 show_logo()
 
+with st.sidebar:
+    from app.utils.user_session import render_auth_sidebar
+    render_auth_sidebar()
+
 
 # ── Get sector from session ────────────────────────────────────────────────────
 sector = st.session_state.get("selected_sector")

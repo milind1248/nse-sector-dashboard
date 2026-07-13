@@ -23,6 +23,10 @@ inject_seo("FII_Invest_Sector")
 from app.utils.logo import show_logo
 show_logo()
 
+with st.sidebar:
+    from app.utils.user_session import render_auth_sidebar
+    render_auth_sidebar()
+
 st.title("🌐 FII Sectors — Fortnightly History")
 st.caption(
     "Sectors × Fortnightly dates × FII equity net investment (₹ Crore). "

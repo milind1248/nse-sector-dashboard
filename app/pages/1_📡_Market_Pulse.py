@@ -29,6 +29,10 @@ inject_seo("Market_Pulse")
 from app.utils.logo import show_logo
 show_logo()
 
+with st.sidebar:
+    from app.utils.user_session import render_auth_sidebar
+    render_auth_sidebar()
+
 from backend.storage.db import get_conn
 _IST = timezone(td(hours=5, minutes=30))
 

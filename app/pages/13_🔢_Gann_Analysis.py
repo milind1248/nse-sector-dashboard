@@ -28,6 +28,10 @@ inject_seo("Gann_Analysis")
 from app.utils.logo import show_logo
 show_logo()
 
+with st.sidebar:
+    from app.utils.user_session import render_auth_sidebar
+    render_auth_sidebar()
+
 st.title("🔢 Gann Analysis")
 from app.utils.disclaimer import show_sebi_notice
 show_sebi_notice()

@@ -17,6 +17,10 @@ inject_seo("HMScanner")
 from app.utils.logo import show_logo
 show_logo()
 
+with st.sidebar:
+    from app.utils.user_session import render_auth_sidebar
+    render_auth_sidebar()
+
 import numpy as np
 import pandas as pd
 import yfinance as yf

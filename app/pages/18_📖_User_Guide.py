@@ -13,6 +13,10 @@ inject_seo("User_Guide")
 from app.utils.logo import show_logo
 show_logo()
 
+with st.sidebar:
+    from app.utils.user_session import render_auth_sidebar
+    render_auth_sidebar()
+
 # ── Guide content — add a new page by appending one dict to this list ─────────
 GUIDE = [
     {
@@ -131,6 +135,17 @@ GUIDE = [
         ],
     },
     {
+        "emoji": "🔭",
+        "name": "HM Scanner",
+        "business": "Hilega-Milega (RSI(9)/WMA(21)/EMA(3)) reversal scanner with multi-timeframe confirmation and a built-in backtester — a deeper, standalone version of the H-M tab on the Alerts page.",
+        "how": "Pick an interval from 15-minute to monthly and a universe (Nifty 50 or 500). Raise the score threshold to cut weak setups, and turn on the Higher-Timeframe filter to only keep signals aligned with the larger trend. Before trusting a live Top/Bottom signal, check the Backtest tab for that setup's historical win rate on the same symbols and interval.",
+        "tabs": [
+            ("📡 Live Scan", "Current Top/Bottom signals across the whole universe, ranked by score, with a direct TradingView chart link per symbol."),
+            ("🔍 Single Stock", "Full indicator breakdown — RSI, WMA, EMA, range position, volume ratio — for one symbol at a time."),
+            ("📈 Backtest", "Historical win rate and trade log for the current settings — validate a signal type before acting on it live."),
+        ],
+    },
+    {
         "emoji": "🤖",
         "name": "AI Forecast",
         "business": "AI models predict the 5-day directional probability and 30-day price trend for any NSE stock.",
@@ -157,6 +172,17 @@ GUIDE = [
         "business": "Send feedback, report data discrepancies, or request new features for the dashboard.",
         "how": "Fill in your name, email, and message. When reporting a data issue, include the stock symbol and the date in question — this helps resolve problems much faster.",
         "tabs": [],
+    },
+    {
+        "emoji": "💹",
+        "name": "Paper Trading",
+        "business": "Practice placing Stock, Option, and Future orders with simulated money — no real broker or funds involved.",
+        "how": "Log in with a Trader ID (a simple identifier, not a real account). Use the Quick Order Ticket to place a Market order (fills at live price) or a Limit order (stays PENDING in the Order Book until price reaches your level). Track Open Positions and unrealized P&L below the ticket, and review past fills in the Order Book / Trade Log expander.",
+        "tabs": [
+            ("📈 Stock", "Cash-market equity orders — type a symbol for live price and place Market/Limit orders."),
+            ("🎯 Option", "Simulated option orders on NIFTY/BANKNIFTY/FINNIFTY/SENSEX or any stock — set expiry, strike, and option type."),
+            ("📉 Future", "Simulated futures orders on the same underlyings — track leveraged P&L without real margin."),
+        ],
     },
 ]
 

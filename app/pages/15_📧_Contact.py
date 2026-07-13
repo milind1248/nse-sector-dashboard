@@ -19,6 +19,10 @@ inject_seo("Contact")
 from app.utils.logo import show_logo
 show_logo()
 
+with st.sidebar:
+    from app.utils.user_session import render_auth_sidebar
+    render_auth_sidebar()
+
 # Access key — not a password, just a routing token (safe to embed in browser HTML)
 try:
     _KEY = st.secrets["contact"]["web3forms_key"]

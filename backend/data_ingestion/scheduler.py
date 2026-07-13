@@ -1,4 +1,5 @@
 """APScheduler-based daily job runner."""
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -33,9 +34,38 @@ from backend.data_ingestion.gann_pipeline import run_gann_pipeline
 from backend.data_ingestion.smart_money_pipeline import run_smart_money_pipeline
 from backend.data_ingestion.job_logger import log_start, log_finish
 from backend.storage.cache import invalidate_all
+from backend.storage.db import get_conn
 from config import SCHEDULE_TZ
 
 logger = logging.getLogger(__name__)
+
+# Cluster-wide advisory lock key — one process, anywhere, holds this at a time.
+# Derived from a fixed name via sha256 (not Python's hash(), which is randomized
+# per-process and would never match across processes).
+_ADVISORY_LOCK_NAME = "nse_dashboard_scheduler"
+_ADVISORY_LOCK_KEY = int.from_bytes(
+    hashlib.sha256(_ADVISORY_LOCK_NAME.encode()).digest()[:8], "big", signed=True
+)
+
+# Held open for the process lifetime once acquired — never closed explicitly.
+# Postgres session-level advisory locks release automatically when the holding
+# connection disconnects, so a crashed process can't leave the lock stuck.
+_lock_conn = None
+
+
+def _try_acquire_scheduler_lock() -> bool:
+    """Try to grab the cluster-wide scheduler advisory lock via a dedicated
+    connection. Returns True (and keeps the connection open) if this process
+    now owns it; False if another process already holds it."""
+    global _lock_conn
+    conn = get_conn()
+    cur = conn.execute("SELECT pg_try_advisory_lock(%s)", (_ADVISORY_LOCK_KEY,))
+    acquired = bool(cur.fetchone()[0])
+    if acquired:
+        _lock_conn = conn
+        return True
+    conn.close()
+    return False
 
 
 def _logged(job_id: str, job_name: str, fn):
@@ -156,10 +186,23 @@ _scheduler_instance = None
 
 
 def get_scheduler():
-    """Return the singleton BackgroundScheduler, starting it if not yet running."""
+    """Return the singleton BackgroundScheduler, starting it if not yet running.
+
+    Guards startup with a Postgres advisory lock so only one process cluster-wide
+    (across separate local Streamlit instances, stray leftover processes, etc.)
+    ever runs the scheduler against the shared DB. If another process already
+    holds the lock, returns None instead of starting a competing scheduler.
+    """
     global _scheduler_instance
-    if _scheduler_instance is None or not _scheduler_instance.running:
-        _scheduler_instance = start_scheduler_background()
+    if _scheduler_instance is not None and _scheduler_instance.running:
+        return _scheduler_instance
+    if not _try_acquire_scheduler_lock():
+        logger.info(
+            "Scheduler advisory lock already held by another process — "
+            "skipping scheduler start here."
+        )
+        return None
+    _scheduler_instance = start_scheduler_background()
     return _scheduler_instance
 
 
