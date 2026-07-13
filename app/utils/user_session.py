@@ -84,6 +84,7 @@ def _login_user(user, auth_provider: str):
         "full_name": display_name,
         "avatar_url": avatar_url,
     }
+    st.session_state["_show_auth_dialog"] = False
 
 
 # ── Public session accessors ────────────────────────────────────────────────────
@@ -98,6 +99,7 @@ def is_logged_in() -> bool:
 
 def logout():
     st.session_state.pop("_user", None)
+    st.session_state["_show_auth_dialog"] = False
 
 
 # ── Email / password ─────────────────────────────────────────────────────────────
@@ -242,7 +244,15 @@ def handle_oauth_callback():
 
 # ── Sidebar UI ────────────────────────────────────────────────────────────────────
 
-@st.dialog("Sign In")
+def _on_dialog_dismiss():
+    """Dismissing via the X, Esc, or clicking outside only closes the dialog on
+    the frontend — it doesn't touch our own _show_auth_dialog flag, which would
+    otherwise stay True and pop the dialog straight back open on the next
+    rerun (e.g. navigating to another page)."""
+    st.session_state["_show_auth_dialog"] = False
+
+
+@st.dialog("Sign In", on_dismiss=_on_dialog_dismiss)
 def _auth_dialog():
     tab_in, tab_up = st.tabs(["Sign In", "Sign Up"])
 
