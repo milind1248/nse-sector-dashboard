@@ -21,10 +21,13 @@ per-call state (PKCE verifier, session) in an in-memory storage object on the
 client instance, which would leak across concurrent visitors on the same
 Streamlit server process if the client were shared.
 """
+import logging
 from urllib.parse import urlencode
 
 import streamlit as st
 import streamlit.components.v1 as components
+
+logger = logging.getLogger(__name__)
 
 _PKCE_COOKIE = "nse_pkce_verifier"
 
@@ -196,25 +199,45 @@ def _render_google_button():
 
 def handle_oauth_callback():
     """Call once, from app/Home.py only — Supabase's Site URL/redirect_to points there."""
+    error_desc = st.query_params.get("error_description") or st.query_params.get("error")
     code = st.query_params.get("code")
-    if not code:
+    if not code and not error_desc:
         return
     st.query_params.pop("code", None)
+    st.query_params.pop("error", None)
+    st.query_params.pop("error_description", None)
+
+    if error_desc:
+        logger.warning("Google OAuth callback returned an error: %s", error_desc)
+        st.session_state["_auth_flash"] = ("error", f"Google sign-in failed: {error_desc}")
+        st.rerun()
 
     verifier = st.context.cookies.get(_PKCE_COOKIE)
-    if verifier:
-        client = _new_client()
-        if client is not None:
-            try:
-                resp = client.auth.exchange_code_for_session({
-                    "auth_code": code, "code_verifier": verifier,
-                })
-                if resp.user is not None:
-                    _login_user(resp.user, "google")
-                else:
-                    st.session_state["_auth_flash"] = ("error", "Google sign-in failed. Please try again.")
-            except Exception:
-                st.session_state["_auth_flash"] = ("error", "Google sign-in failed. Please try again.")
+    if not verifier:
+        logger.warning("Google OAuth callback: code present but nse_pkce_verifier cookie missing")
+        st.session_state["_auth_flash"] = (
+            "error", "Google sign-in failed: your session expired before the redirect completed. Please try again."
+        )
+        _clear_cookie(_PKCE_COOKIE)
+        st.rerun()
+
+    client = _new_client()
+    if client is None:
+        _clear_cookie(_PKCE_COOKIE)
+        st.rerun()
+
+    try:
+        resp = client.auth.exchange_code_for_session({
+            "auth_code": code, "code_verifier": verifier,
+        })
+        if resp.user is not None:
+            _login_user(resp.user, "google")
+        else:
+            logger.warning("Google OAuth exchange_code_for_session returned no user")
+            st.session_state["_auth_flash"] = ("error", "Google sign-in failed. Please try again.")
+    except Exception as e:
+        logger.warning("Google OAuth exchange_code_for_session failed: %s", e)
+        st.session_state["_auth_flash"] = ("error", f"Google sign-in failed: {_friendly_error(e)}")
     _clear_cookie(_PKCE_COOKIE)
     st.rerun()
 
