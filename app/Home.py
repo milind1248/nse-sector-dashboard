@@ -21,15 +21,23 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Scheduler — starts once per process at application launch ─────────────────
-# Home.py is the Streamlit entry point (local + Streamlit Cloud).
-# get_scheduler() is a module-level singleton — safe to call multiple times.
-try:
-    from backend.data_ingestion.scheduler import get_scheduler
-    get_scheduler()
-except Exception as e:
-    import logging
-    logging.getLogger(__name__).error(f"Scheduler failed to start: {e}")
+# ── Scheduler — local/VPS only, never on the shared Cloud web process ─────────
+# ai_scan_daily trains Prophet+XGBoost+ARIMA for 185 stocks in 4 threads inside
+# whatever process calls get_scheduler(). On Streamlit Cloud's free tier that
+# process also serves every visitor's HTTP request; the job's memory footprint
+# has twice now crashed the whole site with a SIGSEGV (job_run_log shows
+# ai_scan_daily stuck in "running" with no finish — the process died mid-job).
+# Cook-once architecture only requires the scheduler to run *somewhere* writing
+# to the shared DB — that's `python run.py schedule` on a local machine/VPS.
+# Cloud should only ever read.
+_host = st.context.headers.get("host", "").lower().split(":")[0]
+if _host not in ("marketsector.streamlit.app",):
+    try:
+        from backend.data_ingestion.scheduler import get_scheduler
+        get_scheduler()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Scheduler failed to start: {e}")
 
 from app.utils.guard import enforce_deployment_gate
 enforce_deployment_gate()
