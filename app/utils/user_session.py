@@ -7,9 +7,15 @@ Do not touch auth.py from here.
 
 Session is deliberately NOT persisted in a cookie: it lives only in
 st.session_state for the current browser tab, same as the existing admin
-login and Paper Trading's `trader_id` placeholder. One short-lived cookie is
-still needed regardless — carrying the PKCE code_verifier across the external
-Google -> Supabase -> app redirect, which st.session_state cannot survive.
+login and Paper Trading's `trader_id` placeholder.
+
+The Google OAuth round trip's PKCE code_verifier is carried server-side
+(backend/storage/oauth_flow_db.py), not in a browser cookie — on Streamlit
+Cloud the app renders inside nested iframes and the flow completes in a
+separate tab, and a cookie set that deep did not reliably survive the trip
+in production testing. A random flow_id travels instead in redirect_to's
+query string, which Supabase's PKCE redirect preserves alongside its own
+"code" param.
 
 Without [supabase] url/anon_key configured in secrets.toml, every function
 here is a safe no-op — render_auth_sidebar() shows nothing rather than
@@ -22,14 +28,12 @@ client instance, which would leak across concurrent visitors on the same
 Streamlit server process if the client were shared.
 """
 import logging
+import secrets as _secrets
 from urllib.parse import urlencode
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 logger = logging.getLogger(__name__)
-
-_PKCE_COOKIE = "nse_pkce_verifier"
 
 
 def _supabase_config() -> tuple[str, str] | None:
@@ -56,22 +60,6 @@ def _app_url() -> str:
     host = st.context.headers.get("host", "localhost:8501")
     scheme = "http" if host.startswith("localhost") or host.startswith("127.0.0.1") else "https"
     return f"{scheme}://{host}"
-
-
-def _set_cookie(name: str, value: str, max_age_seconds: int):
-    secure = not _app_url().startswith("http://")
-    flags = "Path=/; SameSite=Lax" + ("; Secure" if secure else "")
-    components.html(
-        f"<script>document.cookie = \"{name}={value}; Max-Age={max_age_seconds}; {flags}\";</script>",
-        height=0,
-    )
-
-
-def _clear_cookie(name: str):
-    components.html(
-        f"<script>document.cookie = \"{name}=; Max-Age=0; Path=/; SameSite=Lax\";</script>",
-        height=0,
-    )
 
 
 def _friendly_error(e: Exception) -> str:
@@ -167,33 +155,39 @@ def _render_google_button():
     ends up signed in there — acceptable given session state isn't persisted
     across tabs anyway (see module docstring).
 
-    The PKCE cookie is (re)set on every render of this button, not only on
-    click, since components.html can't know when the link is actually
-    clicked — regenerating it each render just means the cookie always
-    reflects the most recent verifier, which is the one that matters.
+    The code_verifier is stored server-side (oauth_flow_db), keyed by a fresh
+    flow_id that rides along in redirect_to's query string — regenerated on
+    every render of this button, not only on click, for the same reason the
+    old cookie was: nothing here can know exactly when the link gets clicked,
+    so each render's flow_id/verifier pair is simply the one that matters,
+    the one baked into the currently-displayed link's href.
     """
     cfg = _supabase_config()
     if cfg is None:
         return
     from supabase_auth.helpers import generate_pkce_challenge, generate_pkce_verifier
 
+    from backend.storage import oauth_flow_db
+
     url, _key = cfg
     verifier = generate_pkce_verifier()
     challenge = generate_pkce_challenge(verifier)
+    flow_id = _secrets.token_urlsafe(16)
+    try:
+        oauth_flow_db.store_flow(flow_id, verifier)
+    except Exception as e:
+        logger.warning("Failed to store OAuth flow state: %s", e)
+        st.caption("Google sign-in is temporarily unavailable.")
+        return
+
+    redirect_to = f"{_app_url()}/?nse_flow={flow_id}"
     params = urlencode({
         "provider": "google",
-        "redirect_to": _app_url(),
+        "redirect_to": redirect_to,
         "code_challenge": challenge,
         "code_challenge_method": "s256",
     })
     authorize_url = f"{url}/auth/v1/authorize?{params}"
-
-    secure = not _app_url().startswith("http://")
-    flags = "Path=/; SameSite=Lax" + ("; Secure" if secure else "")
-    components.html(
-        f'<script>document.cookie = "{_PKCE_COOKIE}={verifier}; Max-Age=600; {flags}";</script>',
-        height=0,
-    )
     st.link_button("Continue with Google", authorize_url, width="stretch")
 
 
@@ -201,29 +195,34 @@ def handle_oauth_callback():
     """Call once, from app/Home.py only — Supabase's Site URL/redirect_to points there."""
     error_desc = st.query_params.get("error_description") or st.query_params.get("error")
     code = st.query_params.get("code")
+    flow_id = st.query_params.get("nse_flow")
     if not code and not error_desc:
         return
     st.query_params.pop("code", None)
     st.query_params.pop("error", None)
     st.query_params.pop("error_description", None)
+    st.query_params.pop("nse_flow", None)
 
     if error_desc:
         logger.warning("Google OAuth callback returned an error: %s", error_desc)
         st.session_state["_auth_flash"] = ("error", f"Google sign-in failed: {error_desc}")
         st.rerun()
 
-    verifier = st.context.cookies.get(_PKCE_COOKIE)
+    from backend.storage import oauth_flow_db
+    try:
+        verifier = oauth_flow_db.pop_flow(flow_id) if flow_id else None
+    except Exception as e:
+        logger.warning("Failed to look up OAuth flow state: %s", e)
+        verifier = None
     if not verifier:
-        logger.warning("Google OAuth callback: code present but nse_pkce_verifier cookie missing")
+        logger.warning("Google OAuth callback: code present but flow_id %r not found/expired", flow_id)
         st.session_state["_auth_flash"] = (
-            "error", "Google sign-in failed: your session expired before the redirect completed. Please try again."
+            "error", "Google sign-in failed: this link expired or was already used. Please try again."
         )
-        _clear_cookie(_PKCE_COOKIE)
         st.rerun()
 
     client = _new_client()
     if client is None:
-        _clear_cookie(_PKCE_COOKIE)
         st.rerun()
 
     try:
@@ -238,7 +237,6 @@ def handle_oauth_callback():
     except Exception as e:
         logger.warning("Google OAuth exchange_code_for_session failed: %s", e)
         st.session_state["_auth_flash"] = ("error", f"Google sign-in failed: {_friendly_error(e)}")
-    _clear_cookie(_PKCE_COOKIE)
     st.rerun()
 
 

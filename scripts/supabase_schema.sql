@@ -401,3 +401,16 @@ CREATE TABLE IF NOT EXISTS profiles (
     last_login_at        TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_profiles_email ON profiles(email);
+
+-- Server-side PKCE verifier storage for the Google OAuth flow. Not a browser
+-- cookie: on Streamlit Cloud the app renders inside nested iframes and the
+-- OAuth round trip completes in a new tab, and a cookie set that deep did
+-- not reliably survive the trip in production testing. The flow_id instead
+-- travels in redirect_to's query string, which Supabase's PKCE redirect
+-- preserves alongside its own "code" param (confirmed against GoTrue's
+-- prepPKCERedirectURL) — the verifier itself never leaves the server.
+CREATE TABLE IF NOT EXISTS oauth_pkce_flow (
+    flow_id       TEXT PRIMARY KEY,
+    code_verifier TEXT NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL
+);
