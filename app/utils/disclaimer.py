@@ -52,7 +52,7 @@ def show_footer() -> None:
 def show_full_disclaimer() -> None:
     """Render the complete SEBI disclosure on the Disclaimer page."""
     st.title("⚖️ Disclaimer")
-    st.caption("Last updated: June 2026")
+    st.caption("Last updated: July 2026")
 
     st.markdown("""
 ---
@@ -142,6 +142,55 @@ on this platform.
 Before making any investment, trading, or financial decision, users should consult a qualified
 **SEBI-registered Investment Adviser, Research Analyst, Chartered Accountant**, tax professional,
 or other licensed financial professional, as appropriate.
+
+---
+
+### Privacy Policy
+
+Creating an account (via Google or email/password) is entirely **optional** — every page and
+feature on this site is fully usable without signing in, and nothing is currently gated behind
+login.
+
+If you do sign in, we store the following in our own database: your email address, display name,
+your Google profile photo (only when you use Google sign-in — not collected for email sign-up),
+which method you signed in with, and timestamps for account creation and last login. We also
+reserve a subscription-tier field for a possible future feature; no such feature exists yet, no
+billing occurs today, and this field currently sits at its default, unused value.
+
+This information is used only to personalize your experience on this site and, potentially, for
+that future feature — **it is never sold**, and never shared with anyone beyond the processors
+below.
+
+Authentication itself — password storage, the Google OAuth token exchange, and issuing your
+sign-in session — is handled entirely by **Supabase**, our backend infrastructure provider; our
+own systems never see or store your password or Google access tokens. Your sign-in session lives
+only in your current browser tab and is **not saved in a cookie** — closing or refreshing the tab
+signs you out.
+
+If you sign in with Google, Google's own consent screen discloses to you, before you authorize,
+what it shares with this site. Please also refer to **Google's own Privacy Policy** for how Google
+itself handles your data.
+
+To request deletion of your account or data, or for any privacy question, please reach out via the
+[Contact page](/Contact).
+
+---
+
+### Terms of Service
+
+By creating an account or using this website, you agree to use it only for the educational and
+informational purpose described above, and not to misuse it — including attempting to disrupt the
+service, scrape it at abusive volumes, or interfere with other users' access.
+
+Accounts are a convenience feature for a personal-project dashboard, not a paid or guaranteed
+service. **We do not warrant uninterrupted availability**, and features — including sign-in itself
+— may be modified, suspended, or discontinued at any time without notice.
+
+You are responsible for keeping your own account credentials secure and for all activity under
+your account.
+
+These Terms, together with the rest of this Disclaimer, are governed by the same **"use entirely
+at your own risk, no warranties"** principle stated above under Limitation of Liability.
 
 ---
 
