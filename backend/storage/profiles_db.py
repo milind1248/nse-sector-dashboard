@@ -5,9 +5,8 @@ this module only does CRUD against the already-created `profiles` table.
 
 `id` is the UUID from Supabase Auth's auth.users.id — the same id the
 Supabase SDK returns in the session's user object after sign-in/sign-up/OAuth
-exchange. This is intentionally separate from Paper Trading's free-text
-`trader_id` (see backend/storage/paper_trading_db.py) — no wiring between the
-two yet.
+exchange, and the same id Paper Trading now uses as its `trader_id`
+(see backend/storage/paper_trading_db.py).
 """
 from datetime import datetime
 

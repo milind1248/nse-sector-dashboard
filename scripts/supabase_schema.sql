@@ -414,3 +414,34 @@ CREATE TABLE IF NOT EXISTS oauth_pkce_flow (
     code_verifier TEXT NOT NULL,
     created_at    TIMESTAMPTZ NOT NULL
 );
+
+-- ── Admin-configurable settings (replaces data/*.json) ─────────────────────────
+-- Both used to be plain files in the git working tree. Streamlit Cloud's
+-- filesystem rebuilds fresh from git on every push (every push auto-deploys),
+-- so any edit the Admin page wrote to those files while running on Cloud was
+-- silently wiped out on the next deploy. A DB row survives that rebuild.
+
+CREATE TABLE IF NOT EXISTS schedule_config (
+    job_id      TEXT PRIMARY KEY,      -- matches job_run_log.job_id / scheduler add_job(id=...)
+    hour        SMALLINT NOT NULL,
+    minute      SMALLINT NOT NULL,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO schedule_config (job_id, hour, minute) VALUES
+    ('sector_snapshot',       18, 0),
+    ('stock_snapshot',        18, 30),
+    ('smart_money',           19, 0),
+    ('market_pulse_snapshot', 19, 30),
+    ('ai_scan_daily',         20, 0),
+    ('gann_daily',            20, 30)
+ON CONFLICT (job_id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS announcement (
+    id          TEXT PRIMARY KEY DEFAULT 'home_page',
+    enabled     BOOLEAN NOT NULL DEFAULT false,
+    text        TEXT NOT NULL DEFAULT '',
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO announcement (id, enabled, text) VALUES
+    ('home_page', true, 'New Feature Added: Gann analysis - > Gann Emblem is now live.')
+ON CONFLICT (id) DO NOTHING;

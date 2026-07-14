@@ -46,40 +46,27 @@ import json
 # ── Auth gate ─────────────────────────────────────────────────────────────────
 require_admin()
 
-# ── Announcement JSON helpers ─────────────────────────────────────────────────
-_ANN_PATH = Path(__file__).parent.parent.parent / "data" / "announcement.json"
-
-# ── Schedule config JSON helpers ──────────────────────────────────────────────
-_SCH_PATH = Path(__file__).parent.parent.parent / "data" / "schedule_config.json"
-_SCH_DEFAULTS = {
-    "sector_snapshot":       {"hour": 18, "minute": 0},
-    "stock_snapshot":        {"hour": 18, "minute": 30},
-    "smart_money":           {"hour": 19, "minute": 0},
-    "market_pulse_snapshot": {"hour": 20, "minute": 0},
-    "ai_scan_daily":         {"hour": 21, "minute": 0},
-    "gann_daily":            {"hour": 21, "minute": 30},
-}
+# ── Announcement + schedule config — DB-backed (schedule_config/announcement
+# tables). Used to be data/*.json files in the git working tree, which Cloud's
+# every-push redeploy silently reset (fresh checkout from git each time) —
+# see backend/storage/schedule_config_db.py and announcement_db.py.
 
 def _read_schedule_config() -> dict:
-    try:
-        return json.loads(_SCH_PATH.read_text())
-    except Exception:
-        return _SCH_DEFAULTS.copy()
+    from backend.storage.schedule_config_db import get_schedule_config
+    return get_schedule_config()
 
 def _write_schedule_config(cfg: dict):
-    _SCH_PATH.write_text(json.dumps(cfg, indent=2))
+    from backend.storage.schedule_config_db import set_job_time
+    for job_id, times in cfg.items():
+        set_job_time(job_id, times["hour"], times["minute"])
 
 def _read_announcement() -> dict:
-    try:
-        return json.loads(_ANN_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return {"enabled": False, "text": ""}
+    from backend.storage.announcement_db import get_announcement
+    return get_announcement()
 
 def _write_announcement(enabled: bool, text: str) -> None:
-    _ANN_PATH.write_text(
-        json.dumps({"enabled": enabled, "text": text.strip()}, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    from backend.storage.announcement_db import set_announcement
+    set_announcement(enabled, text)
 
 # ── DB ────────────────────────────────────────────────────────────────────────
 def _db():

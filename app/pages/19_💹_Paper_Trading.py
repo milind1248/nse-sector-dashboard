@@ -51,35 +51,16 @@ def _cached_live_price(symbol: str):
         return None
 
 
-# ── Trader ID + Login (placeholder until account login exists) ─────────────────
-if not st.session_state.get("logged_in_trader"):
-    lc1, lc2 = st.columns([2, 1])
-    with lc1:
-        trader_input = st.text_input("Trader ID", key="trader_id_input",
-                                      placeholder="e.g. your email or a nickname")
-    with lc2:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        if st.button("🔓 Login", type="primary"):
-            if trader_input.strip():
-                st.session_state["logged_in_trader"] = trader_input.strip()
-                st.rerun()
-            else:
-                st.error("Enter a Trader ID first.")
-    st.caption(
-        "⚠️ Temporary identifier until account login is added — orders are only visible under the same "
-        "Trader ID in this browser. Anyone who logs in with the same Trader ID sees the same book."
-    )
-    st.info("Enter a Trader ID and click Login to start placing simulated orders.")
+# ── Login — uses the site-wide Supabase Auth session (sidebar), not a
+# separate page-local login: Paper Trading data is scoped to the same
+# account a visitor already signs into anywhere else on the site.
+from app.utils.user_session import is_logged_in, current_user
+
+if not is_logged_in():
+    st.info("🔒 Please sign in from the sidebar to use Paper Trading.")
     st.stop()
 
-trader_id = st.session_state["logged_in_trader"]
-lc1, lc2 = st.columns([5, 1])
-with lc1:
-    st.success(f"Logged in as **{trader_id}**", icon="✅")
-with lc2:
-    if st.button("Logout"):
-        del st.session_state["logged_in_trader"]
-        st.rerun()
+trader_id = current_user()["id"]
 
 
 def _color_pnl(val):

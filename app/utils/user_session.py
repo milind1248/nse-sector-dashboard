@@ -337,8 +337,9 @@ def render_auth_sidebar():
     user = current_user()
     if user:
         st.markdown(
-            f"<div style='font-size:12px;color:#8899bb;margin:2px 0 6px 0;'>"
-            f"welcome <b style='color:#ddd'>{user['full_name']}</b></div>",
+            f"<div style='font-size:13px;margin:2px 0 6px 0;'>"
+            f"<span style='color:#2979FF;font-weight:600'>Welcome</span>, "
+            f"<b style='color:#4ade80'>{user['full_name']}</b></div>",
             unsafe_allow_html=True,
         )
         if st.button("Sign out", key="_auth_signout", width="stretch"):

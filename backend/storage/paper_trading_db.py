@@ -3,9 +3,9 @@ Supabase (Postgres) persistence for the Paper Trading page — simulated orders
 and holdings. Schema lives in scripts/supabase_schema.sql; this module only
 does CRUD against the already-created tables.
 
-No login system exists yet: `trader_id` is a free-text placeholder key entered
-by the user in-page (see app/pages/19_💹_Paper_Trading.py) and will be replaced
-by a real account id once authentication is added.
+`trader_id` is the signed-in user's Supabase Auth id (see app/pages/19_💹_Paper_Trading.py
+and app/utils/user_session.py) — plain unvalidated TEXT column, so it's a
+drop-in key regardless of what identity system populates it.
 
 Tables
 ------

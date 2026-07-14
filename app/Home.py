@@ -118,11 +118,8 @@ _ticker_rows, _ticker_lbl = _get_ticker_data()
 # ── Home page announcement (configured in Admin) ──────────────────────────────
 @st.cache_data(ttl=60, show_spinner=False)
 def _get_announcement() -> dict:
-    _ann_path = Path(__file__).parent.parent / "data" / "announcement.json"
-    try:
-        return json.loads(_ann_path.read_text(encoding="utf-8"))
-    except Exception:
-        return {"enabled": False, "text": ""}
+    from backend.storage.announcement_db import get_announcement
+    return get_announcement()
 
 _ann = _get_announcement()
 if _ann.get("enabled") and _ann.get("text", "").strip():

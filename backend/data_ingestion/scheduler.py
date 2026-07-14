@@ -1,16 +1,20 @@
 """APScheduler-based daily job runner."""
 import hashlib
-import json
 import logging
-from pathlib import Path
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-_SCHEDULE_CFG_PATH = Path(__file__).parent.parent.parent / "data" / "schedule_config.json"
-
 def _load_schedule_config() -> dict:
-    """Load job times from JSON config. Falls back to defaults if file missing."""
+    """Load job times from the schedule_config table. Falls back to hardcoded
+    defaults if the DB is unreachable (see schedule_config_db.get_schedule_config
+    for the empty-table fallback — this is the outer safety net on top of that).
+
+    Used to read data/schedule_config.json — that file lived in the git working
+    tree, so Admin-page edits made on Streamlit Cloud were wiped on every
+    redeploy (Cloud's filesystem rebuilds fresh from git on every push). A DB
+    row survives that rebuild.
+    """
     _defaults = {
         "sector_snapshot":       {"hour": 18, "minute": 0},
         "stock_snapshot":        {"hour": 18, "minute": 30},
@@ -20,7 +24,8 @@ def _load_schedule_config() -> dict:
         "gann_daily":            {"hour": 21, "minute": 30},
     }
     try:
-        return json.loads(_SCHEDULE_CFG_PATH.read_text())
+        from backend.storage.schedule_config_db import get_schedule_config
+        return get_schedule_config()
     except Exception:
         return _defaults
 from backend.data_ingestion.pipeline import (
