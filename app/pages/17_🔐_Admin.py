@@ -51,6 +51,8 @@ require_admin()
 # every-push redeploy silently reset (fresh checkout from git each time) —
 # see backend/storage/schedule_config_db.py and announcement_db.py.
 
+from backend.storage.schedule_config_db import _DEFAULTS as _SCH_DEFAULTS
+
 def _read_schedule_config() -> dict:
     from backend.storage.schedule_config_db import get_schedule_config
     return get_schedule_config()
