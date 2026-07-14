@@ -184,6 +184,20 @@ GUIDE = [
             ("📉 Future", "Simulated futures orders on the same underlyings — track leveraged P&L without real margin."),
         ],
     },
+    {
+        "emoji": "💎",
+        "name": "Pricing",
+        "business": "Compare the Silver, Gold, and Platinum subscription plans and see exactly which pages each one unlocks, then subscribe or upgrade via UPI.",
+        "how": "Sign in to see your current plan highlighted. To subscribe or change plans, tap Show QR Code, scan it in any UPI app, pay, then upload a screenshot of the successful payment along with the amount and a reference number. Your request goes to the admin for verification — once approved (usually within a day), your new plan activates automatically. All payments are final and non-refundable.",
+        "tabs": [],
+    },
+    {
+        "emoji": "👤",
+        "name": "My Profile",
+        "business": "Your personal account hub — manage login details, contact info, and see your subscription and payment history in one place.",
+        "how": "Update your display name, phone, alternate email, and address under Profile & Contact Details. Change your email or password under Account/Password (Google sign-in users manage their password via Google instead). The Subscription section shows your plan history with start/end dates; Payment History lists every payment you've made. To switch plans, use Change Subscription — upgrades and downgrades go to the admin for approval. To cancel outright, use Cancel Subscription — this reverts you to the free Silver plan immediately (no refund is issued for the remaining period).",
+        "tabs": [],
+    },
 ]
 
 # ── Page layout ───────────────────────────────────────────────────────────────
