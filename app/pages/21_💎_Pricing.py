@@ -85,7 +85,20 @@ else:
     qc1, qc2 = st.columns([1, 2])
     with qc1:
         if qr:
-            st.image(qr[0], caption="Scan to pay via UPI", width=240)
+            if st.session_state.get("_qr_revealed"):
+                st.image(qr[0], caption="Scan to pay via UPI", width=240)
+            else:
+                import base64
+                b64 = base64.b64encode(qr[0]).decode()
+                st.markdown(
+                    f'<img src="data:{qr[1]};base64,{b64}" width="240" '
+                    f'style="filter: blur(10px); border-radius: 8px;" />',
+                    unsafe_allow_html=True,
+                )
+                st.caption("QR code hidden — tap to reveal")
+                if st.button("👁 Show QR Code", key="_qr_reveal_btn"):
+                    st.session_state["_qr_revealed"] = True
+                    st.rerun()
         else:
             st.info("QR code not yet configured — contact the site admin for payment details.")
     with qc2:
