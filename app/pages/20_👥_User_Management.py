@@ -135,6 +135,7 @@ with tab_users:
             st.write("")
             if st.button("Apply Group Override", key="override_btn", width='stretch'):
                 sdb.set_user_group_override(sel["id"], new_group)
+                st.cache_data.clear()
                 st.success(f"{sel_email} moved to {new_group} (direct override, no subscription record).")
                 st.rerun()
 
