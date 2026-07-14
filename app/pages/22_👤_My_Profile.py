@@ -134,7 +134,11 @@ default_group = next((g["name"] for g in groups if g["is_default"]), "silver")
 if tier != default_group:
     with st.expander("❌ Cancel Subscription"):
         st.caption(f"You'll move to the **{default_group.title()}** plan immediately.")
-        confirm_cancel = st.checkbox("I understand my current plan will end now.",
+        st.caption(
+            "⚠️ All payments are final and strictly non-refundable. Cancelling does not "
+            "entitle you to a refund — full or partial — for the current or any prior period."
+        )
+        confirm_cancel = st.checkbox("I understand my current plan will end now and no refund will be issued.",
                                      key="pf_confirm_cancel")
         if st.button("Cancel Subscription", key="pf_cancel_btn", disabled=not confirm_cancel):
             sdb.cancel_subscription(user_id)

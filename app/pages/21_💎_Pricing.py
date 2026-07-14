@@ -110,6 +110,13 @@ else:
             "4. We'll verify it and activate your plan — usually within a day."
         )
 
+    st.warning(
+        "⚠️ **All payments are final and strictly non-refundable.** By submitting a "
+        "payment claim, you acknowledge that no refunds — full or partial — will be "
+        "issued under any circumstances, including subscription cancellation, "
+        "downgrade, or non-usage of the service."
+    )
+
     other_groups = [g["name"] for g in groups if g["name"] != current_group]
     if not other_groups:
         st.info("You're already on the top plan.")
