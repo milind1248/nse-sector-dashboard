@@ -196,6 +196,20 @@ def expire_subscriptions() -> int:
     return len(affected_users)
 
 
+def cancel_subscription(user_id: str) -> None:
+    """Self-service cancel: marks the user's active subscription(s) cancelled
+    and immediately reverts them to the default group."""
+    con = get_conn()
+    con.execute("""
+        UPDATE user_subscriptions SET status = 'cancelled'
+        WHERE user_id = %s AND status = 'active'
+    """, (user_id,))
+    con.execute("UPDATE profiles SET subscription_tier = %s WHERE id = %s",
+                (_default_group(), user_id))
+    con.commit()
+    con.close()
+
+
 # ── Payments ────────────────────────────────────────────────────────────────
 
 def record_payment(user_id: str, subscription_id: int | None, amount_inr: float,
@@ -353,5 +367,93 @@ def reject_payment(payment_id: int, verified_by: str, notes: str | None = None) 
             notes = COALESCE(%s, notes)
         WHERE id = %s
     """, (verified_by, notes, payment_id))
+    con.commit()
+    con.close()
+
+
+# ── Plan change requests (user-submitted upgrade/downgrade, admin-approved) ─
+
+def submit_plan_change_request(user_id: str, current_group: str, requested_group: str,
+                                notes: str | None = None) -> int:
+    groups = {g["name"]: g for g in list_groups()}
+    cur_price = float((groups.get(current_group) or {}).get("price_inr") or 0)
+    new_price = float((groups.get(requested_group) or {}).get("price_inr") or 0)
+    request_type = "upgrade" if new_price >= cur_price else "downgrade"
+
+    con = get_conn()
+    row = con.execute("""
+        INSERT INTO plan_change_requests (user_id, current_group, requested_group,
+                                           request_type, notes)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING id
+    """, (user_id, current_group, requested_group, request_type, notes)).fetchone()
+    con.commit()
+    con.close()
+    return row[0]
+
+
+def get_pending_plan_request(user_id: str) -> dict | None:
+    con = get_conn()
+    row = con.execute("""
+        SELECT id, current_group, requested_group, request_type, created_at
+        FROM plan_change_requests WHERE user_id = %s AND status = 'pending'
+        ORDER BY created_at DESC LIMIT 1
+    """, (user_id,)).fetchone()
+    con.close()
+    if row is None:
+        return None
+    cols = ["id", "current_group", "requested_group", "request_type", "created_at"]
+    return dict(zip(cols, row))
+
+
+def list_pending_plan_requests() -> list[dict]:
+    con = get_conn()
+    rows = con.execute("""
+        SELECT r.id, r.user_id, p.email, r.current_group, r.requested_group,
+               r.request_type, r.notes, r.created_at
+        FROM plan_change_requests r JOIN profiles p ON p.id = r.user_id
+        WHERE r.status = 'pending'
+        ORDER BY r.created_at ASC
+    """).fetchall()
+    con.close()
+    cols = ["id", "user_id", "email", "current_group", "requested_group",
+            "request_type", "notes", "created_at"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def approve_plan_request(request_id: int, period_start: date, period_end: date,
+                          verified_by: str) -> None:
+    con = get_conn()
+    row = con.execute(
+        "SELECT user_id, requested_group FROM plan_change_requests WHERE id = %s",
+        (request_id,)
+    ).fetchone()
+    con.close()
+    if row is None:
+        return
+    user_id, requested_group = row
+
+    create_subscription(
+        user_id, requested_group, period_start, period_end,
+        created_by=verified_by, notes="Approved from Plan Change Requests",
+    )
+
+    con = get_conn()
+    con.execute("""
+        UPDATE plan_change_requests
+        SET status = 'approved', reviewed_by = %s, reviewed_at = now()
+        WHERE id = %s
+    """, (verified_by, request_id))
+    con.commit()
+    con.close()
+
+
+def reject_plan_request(request_id: int, verified_by: str) -> None:
+    con = get_conn()
+    con.execute("""
+        UPDATE plan_change_requests
+        SET status = 'rejected', reviewed_by = %s, reviewed_at = now()
+        WHERE id = %s
+    """, (verified_by, request_id))
     con.commit()
     con.close()

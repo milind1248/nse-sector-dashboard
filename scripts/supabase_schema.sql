@@ -556,3 +556,25 @@ CREATE INDEX IF NOT EXISTS idx_payments_status ON payment_history(status);
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS phone      TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS alt_email  TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS address    TEXT;
+
+-- ── My Profile: self-service plan change requests ───────────────────────────
+-- Cancel is instant/self-service (handled directly against profiles/
+-- user_subscriptions, no row needed here). Upgrade/downgrade requests need
+-- admin approval since they change what the user pays — this table is the
+-- lightweight "please move me to plan X" queue, separate from
+-- payment_history's QR-payment-claim queue (a plan change isn't always tied
+-- to a fresh payment, e.g. downgrades).
+CREATE TABLE IF NOT EXISTS plan_change_requests (
+    id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id          UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    current_group    TEXT NOT NULL,
+    requested_group  TEXT NOT NULL REFERENCES auth_groups(name),
+    request_type     TEXT NOT NULL,            -- 'upgrade' | 'downgrade'
+    notes            TEXT,
+    status           TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'approved' | 'rejected'
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    reviewed_by      TEXT,
+    reviewed_at      TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_plan_change_status ON plan_change_requests(status);
+CREATE INDEX IF NOT EXISTS idx_plan_change_user   ON plan_change_requests(user_id);

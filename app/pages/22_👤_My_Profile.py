@@ -24,7 +24,7 @@ from app.utils.user_session import (
     is_logged_in, current_user, change_password, change_email, _TIER_ICONS, _TIER_ICON_FALLBACK,
 )
 from backend.storage.profiles_db import get_profile, update_profile
-from backend.storage.subscription_db import list_subscriptions, list_payments
+from backend.storage import subscription_db as sdb
 
 st.title("👤 My Profile")
 
@@ -116,7 +116,7 @@ st.markdown("---")
 
 # ── Subscription ─────────────────────────────────────────────────────────────
 st.subheader("Subscription")
-subs = list_subscriptions(user_id)
+subs = sdb.list_subscriptions(user_id)
 if subs:
     st.dataframe(pd.DataFrame([{
         "Group": s["group_name"].title(),
@@ -127,11 +127,49 @@ if subs:
 else:
     st.caption("No subscription history yet.")
 
+groups = sdb.list_groups()
+group_names = [g["name"] for g in groups]
+default_group = next((g["name"] for g in groups if g["is_default"]), "silver")
+
+if tier != default_group:
+    with st.expander("❌ Cancel Subscription"):
+        st.caption(f"You'll move to the **{default_group.title()}** plan immediately.")
+        confirm_cancel = st.checkbox("I understand my current plan will end now.",
+                                     key="pf_confirm_cancel")
+        if st.button("Cancel Subscription", key="pf_cancel_btn", disabled=not confirm_cancel):
+            sdb.cancel_subscription(user_id)
+            st.cache_data.clear()
+            st.session_state["_profile_flash"] = (
+                "success", f"Subscription cancelled — you're now on {default_group.title()}."
+            )
+            st.rerun()
+
+st.markdown("##### Change Subscription")
+pending_req = sdb.get_pending_plan_request(user_id)
+if pending_req:
+    st.warning(
+        f"Your request to switch to **{pending_req['requested_group'].title()}** "
+        f"(submitted {pending_req['created_at'].strftime('%d %b %Y')}) is awaiting admin approval."
+    )
+else:
+    other_groups = [g for g in group_names if g != tier]
+    if other_groups:
+        with st.form("plan_change_form"):
+            target = st.selectbox("Request plan", other_groups, key="pf_target_plan")
+            req_notes = st.text_area("Notes (optional)", key="pf_req_notes", height=68)
+            submitted = st.form_submit_button("Request Upgrade/Downgrade", type="primary")
+        if submitted:
+            sdb.submit_plan_change_request(user_id, tier, target, req_notes or None)
+            st.session_state["_profile_flash"] = (
+                "success", f"Request to switch to {target.title()} submitted for admin approval."
+            )
+            st.rerun()
+
 st.markdown("---")
 
 # ── Payment History ──────────────────────────────────────────────────────────
 st.subheader("Payment History")
-payments = list_payments(user_id)
+payments = sdb.list_payments(user_id)
 if payments:
     st.dataframe(pd.DataFrame([{
         "Date": p["payment_date"].strftime("%d %b %Y") if p["payment_date"] else "—",

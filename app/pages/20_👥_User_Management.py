@@ -68,9 +68,9 @@ st.caption(
 )
 st.markdown("---")
 
-tab_users, tab_groups, tab_grant, tab_pending, tab_payments = st.tabs([
+tab_users, tab_groups, tab_grant, tab_pending, tab_planreq, tab_payments = st.tabs([
     "👤 Users", "🏷️ Groups & Access", "💳 Grant Subscription",
-    "📸 Pending Payments", "🧾 Payment History",
+    "📸 Pending Payments", "🔄 Plan Change Requests", "🧾 Payment History",
 ])
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -387,7 +387,72 @@ with tab_pending:
                             st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — PAYMENT HISTORY
+# TAB 5 — PLAN CHANGE REQUESTS (self-service upgrade/downgrade from My Profile)
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_planreq:
+    st.subheader("Plan Change Requests")
+    st.caption(
+        "Users request an upgrade or downgrade from their My Profile page. "
+        "Approve to grant the new plan for a period, or reject."
+    )
+
+    planreq_flash = st.session_state.pop("_planreq_flash", None)
+    if planreq_flash:
+        st.success(planreq_flash)
+
+    plan_requests = sdb.list_pending_plan_requests()
+    if not plan_requests:
+        st.info("No pending plan change requests.")
+    else:
+        today = date.today()
+        for req in plan_requests:
+            with st.container(border=True):
+                badge = "⬆️ Upgrade" if req["request_type"] == "upgrade" else "⬇️ Downgrade"
+                st.markdown(f"**{req['email']}** · {badge}")
+                st.caption(
+                    f"{req['current_group'].title()} → **{req['requested_group'].title()}** · "
+                    f"Requested {_to_ist(req['created_at'])}"
+                )
+                if req["notes"]:
+                    st.caption(f"Notes: {req['notes']}")
+
+                pm1, pm2 = st.columns(2)
+                start_m = pm1.selectbox("Start month", list(range(1, 13)),
+                                        index=today.month - 1,
+                                        format_func=lambda m: calendar.month_abbr[m],
+                                        key=f"preq_start_m_{req['id']}")
+                start_y = pm2.number_input("Start year", min_value=2024, max_value=2100,
+                                           value=today.year, key=f"preq_start_y_{req['id']}")
+                em1, em2 = st.columns(2)
+                end_m = em1.selectbox("End month", list(range(1, 13)),
+                                      index=today.month - 1,
+                                      format_func=lambda m: calendar.month_abbr[m],
+                                      key=f"preq_end_m_{req['id']}")
+                end_y = em2.number_input("End year", min_value=2024, max_value=2100,
+                                         value=today.year, key=f"preq_end_y_{req['id']}")
+
+                ac1, ac2 = st.columns(2)
+                with ac1:
+                    if st.button("✅ Approve", key=f"preq_approve_{req['id']}", width='stretch'):
+                        p_start = date(int(start_y), start_m, 1)
+                        p_end = _month_end(int(end_y), end_m)
+                        if p_end < p_start:
+                            st.error("End period must be on or after start period.")
+                        else:
+                            sdb.approve_plan_request(req["id"], p_start, p_end, verified_by="admin")
+                            st.cache_data.clear()
+                            st.session_state["_planreq_flash"] = (
+                                f"Approved {req['requested_group']} for {req['email']}."
+                            )
+                            st.rerun()
+                with ac2:
+                    if st.button("🚫 Reject", key=f"preq_reject_{req['id']}", width='stretch'):
+                        sdb.reject_plan_request(req["id"], verified_by="admin")
+                        st.session_state["_planreq_flash"] = f"Rejected request from {req['email']}."
+                        st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 6 — PAYMENT HISTORY
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_payments:
     st.subheader("Payment History")
