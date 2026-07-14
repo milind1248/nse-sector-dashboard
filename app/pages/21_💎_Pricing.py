@@ -110,11 +110,14 @@ else:
             "4. We'll verify it and activate your plan — usually within a day."
         )
 
-    st.warning(
-        "⚠️ **All payments are final and strictly non-refundable.** By submitting a "
+    st.markdown(
+        "<div style='background:#3d2f00;border-left:4px solid #f0b400;"
+        "padding:8px 12px;border-radius:6px;font-size:12px;color:#e6c766;margin:8px 0;'>"
+        "⚠️ All payments are final and strictly non-refundable. By submitting a "
         "payment claim, you acknowledge that no refunds — full or partial — will be "
         "issued under any circumstances, including subscription cancellation, "
-        "downgrade, or non-usage of the service."
+        "downgrade, or non-usage of the service.</div>",
+        unsafe_allow_html=True,
     )
 
     other_groups = [g["name"] for g in groups if g["name"] != current_group]
