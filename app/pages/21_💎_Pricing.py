@@ -152,6 +152,14 @@ else:
                     payment_ref or None, screenshot.getvalue(), screenshot.type,
                     notes=notes or None,
                 )
+                from app.utils.notify import queue_notification
+                queue_notification(
+                    f"[NSE Dashboard] Payment Claim Submitted: {current_user()['email']}",
+                    f"A payment claim was submitted for review.\n\n"
+                    f"Email: {current_user()['email']}\nPlan: {plan}\n"
+                    f"Amount: ₹{amount:,.0f}\nPayment date: {pay_date}\n"
+                    f"Reference: {payment_ref or '—'}\nNotes: {notes or '—'}",
+                )
                 st.session_state["_pricing_flash"] = (
                     "Submitted — the admin will review your payment and activate your plan shortly."
                 )

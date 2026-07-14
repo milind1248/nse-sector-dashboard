@@ -164,6 +164,13 @@ else:
             submitted = st.form_submit_button("Request Upgrade/Downgrade", type="primary")
         if submitted:
             sdb.submit_plan_change_request(user_id, tier, target, req_notes or None)
+            from app.utils.notify import queue_notification
+            queue_notification(
+                f"[NSE Dashboard] Plan Change Request: {profile['email']}",
+                f"A plan change request was submitted for review.\n\n"
+                f"Email: {profile['email']}\nCurrent plan: {tier}\n"
+                f"Requested plan: {target}\nNotes: {req_notes or '—'}",
+            )
             st.session_state["_profile_flash"] = (
                 "success", f"Request to switch to {target.title()} submitted for admin approval."
             )

@@ -14,16 +14,21 @@ from backend.storage.db import get_conn
 
 
 def upsert_profile(user_id: str, email: str, full_name: str | None,
-                    avatar_url: str | None, auth_provider: str) -> None:
+                    avatar_url: str | None, auth_provider: str) -> bool:
     """Insert a new profile row or refresh it on every login.
 
     full_name/avatar_url only overwrite existing values when the new value is
     non-null — email/password logins after an initial Google sign-in
     shouldn't blank out the avatar Google provided, and vice versa.
+
+    Returns True if this call actually created the row (a genuinely new
+    user), False if it updated an existing one — xmax = 0 is a standard
+    Postgres idiom that's true only for a fresh insert, never for a row
+    touched via the ON CONFLICT path.
     """
     now = datetime.now()
     con = get_conn()
-    con.execute("""
+    row = con.execute("""
         INSERT INTO profiles (id, email, full_name, avatar_url, auth_provider,
                                created_at, last_login_at)
         VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -32,9 +37,11 @@ def upsert_profile(user_id: str, email: str, full_name: str | None,
             full_name     = COALESCE(EXCLUDED.full_name, profiles.full_name),
             avatar_url    = COALESCE(EXCLUDED.avatar_url, profiles.avatar_url),
             last_login_at = EXCLUDED.last_login_at
-    """, (user_id, email, full_name, avatar_url, auth_provider, now, now))
+        RETURNING (xmax = 0) AS inserted
+    """, (user_id, email, full_name, avatar_url, auth_provider, now, now)).fetchone()
     con.commit()
     con.close()
+    return bool(row[0]) if row else False
 
 
 def get_profile(user_id: str) -> dict | None:

@@ -87,7 +87,14 @@ def _login_user(user, auth_provider: str, session=None):
     from backend.storage import profiles_db
     full_name, avatar_url = _extract_name_avatar(user)
     display_name = full_name or (user.email.split("@")[0] if user.email else "there")
-    profiles_db.upsert_profile(user.id, user.email, full_name, avatar_url, auth_provider)
+    is_new_user = profiles_db.upsert_profile(user.id, user.email, full_name, avatar_url, auth_provider)
+    if is_new_user:
+        from app.utils.notify import queue_notification
+        queue_notification(
+            f"[NSE Dashboard] New User Registered: {user.email}",
+            f"A new user just registered.\n\nEmail: {user.email}\n"
+            f"Name: {display_name}\nSign-in method: {auth_provider}",
+        )
     st.session_state["_user"] = {
         "id": user.id,
         "email": user.email,
@@ -384,6 +391,9 @@ def render_auth_sidebar():
     """Call inside `with st.sidebar:` on every page. No-op if Supabase isn't configured."""
     if _supabase_config() is None:
         return
+
+    from app.utils.notify import render_pending_notification
+    render_pending_notification()
 
     flash = st.session_state.pop("_auth_flash", None)
     if flash:
