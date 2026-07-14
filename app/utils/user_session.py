@@ -311,7 +311,7 @@ def _auth_dialog():
             else:
                 st.error(msg)
 
-        st.markdown("<div style='text-align:center;color:#666;margin:8px 0;'>or</div>",
+        st.markdown("<div style='text-align:center;color:#666;margin:-14px 0 4px 0;'>or</div>",
                     unsafe_allow_html=True)
         _render_google_button()
         st.caption("Opens in a new tab — you'll be signed in there.")
