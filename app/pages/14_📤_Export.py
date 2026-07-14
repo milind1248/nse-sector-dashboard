@@ -28,6 +28,9 @@ with st.sidebar:
     from app.utils.user_session import render_auth_sidebar
     render_auth_sidebar()
 
+from app.utils.access_control import require_page_access
+require_page_access("Export")
+
 st.title("\U0001f4e5 Export Dashboard Data")
 st.caption("Download full sector intelligence report as Excel.")
 

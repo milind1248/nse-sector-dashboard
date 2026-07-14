@@ -29,6 +29,9 @@ with st.sidebar:
     from app.utils.user_session import render_auth_sidebar
     render_auth_sidebar()
 
+from app.utils.access_control import require_page_access
+require_page_access("Index Stocks")
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 SECTOR_ICONS = {
     "Auto": "🚗", "Bank": "🏦", "Consumer Durables": "📺",

@@ -445,3 +445,82 @@ CREATE TABLE IF NOT EXISTS announcement (
 INSERT INTO announcement (id, enabled, text) VALUES
     ('home_page', true, 'New Feature Added: Gann analysis - > Gann Emblem is now live.')
 ON CONFLICT (id) DO NOTHING;
+
+-- ── Monetization: groups, page access, subscriptions, payments ────────────────
+-- profiles.subscription_tier doubles as the user's current group name;
+-- profiles.subscription_status doubles as the suspend/activate flag
+-- ('active' | 'suspended') — no new columns needed on profiles.
+
+CREATE TABLE IF NOT EXISTS auth_groups (
+    name          TEXT PRIMARY KEY,        -- 'silver' | 'gold' | 'platinum' | ...
+    display_name  TEXT NOT NULL,
+    price_inr     NUMERIC,                 -- monthly price, for reference on the admin UI
+    is_default    BOOLEAN NOT NULL DEFAULT FALSE,
+    sort_order    INT NOT NULL DEFAULT 0,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Which pages each group can see. page_key matches the "name" field used in
+-- backend/page_tester.py's PAGE_REGISTRY (e.g. "Market Pulse").
+CREATE TABLE IF NOT EXISTS group_page_access (
+    group_name  TEXT NOT NULL REFERENCES auth_groups(name) ON DELETE CASCADE,
+    page_key    TEXT NOT NULL,
+    PRIMARY KEY (group_name, page_key)
+);
+
+-- One row per subscription grant. profiles.subscription_tier always reflects
+-- the currently-active grant; create_subscription()/expire_subscriptions()
+-- keep the two in sync.
+CREATE TABLE IF NOT EXISTS user_subscriptions (
+    id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id       UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    group_name    TEXT NOT NULL REFERENCES auth_groups(name),
+    period_start  DATE NOT NULL,
+    period_end    DATE NOT NULL,           -- last day of coverage, inclusive
+    status        TEXT NOT NULL DEFAULT 'active',  -- 'active' | 'expired' | 'cancelled'
+    created_by    TEXT,
+    notes         TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_user_subs_user   ON user_subscriptions(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_subs_status ON user_subscriptions(status, period_end);
+
+-- Manual payment log — one row per QR-code payment confirmed by the admin.
+CREATE TABLE IF NOT EXISTS payment_history (
+    id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id          UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    subscription_id  BIGINT REFERENCES user_subscriptions(id) ON DELETE SET NULL,
+    amount_inr       NUMERIC NOT NULL,
+    payment_date     DATE NOT NULL,
+    payment_ref      TEXT,
+    verified_by      TEXT,
+    notes            TEXT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_payments_user ON payment_history(user_id);
+
+INSERT INTO auth_groups (name, display_name, price_inr, is_default, sort_order) VALUES
+    ('silver',   'Silver',   0,    TRUE,  1),
+    ('gold',     'Gold',     499,  FALSE, 2),
+    ('platinum', 'Platinum', 999,  FALSE, 3)
+ON CONFLICT (name) DO NOTHING;
+
+-- Default page access seed: Silver gets a small free taste, Gold gets most
+-- pages, Platinum gets everything. Editable later from the User Management
+-- page's "Groups & Access" tab — this is only the initial seed.
+INSERT INTO group_page_access (group_name, page_key) VALUES
+    ('silver', 'Market Pulse'), ('silver', 'Sector Analysis'), ('silver', 'FII DII Flow'),
+    ('gold', 'Market Pulse'), ('gold', 'Sector Analysis'), ('gold', 'Index Stocks'),
+    ('gold', 'FII DII Flow'), ('gold', 'FII Sectors'), ('gold', 'FPI Sectors'),
+    ('gold', 'Stock Picker'), ('gold', 'Smart Money'), ('gold', 'FII Accumulation'),
+    ('gold', 'Alerts'), ('gold', 'HM Scanner'), ('gold', 'Export'),
+    ('platinum', 'Market Pulse'), ('platinum', 'Sector Analysis'), ('platinum', 'Index Stocks'),
+    ('platinum', 'FII DII Flow'), ('platinum', 'FII Sectors'), ('platinum', 'FPI Sectors'),
+    ('platinum', 'Stock Picker'), ('platinum', 'Smart Money'), ('platinum', 'FII Accumulation'),
+    ('platinum', 'Alerts'), ('platinum', 'HM Scanner'), ('platinum', 'AI Forecast'),
+    ('platinum', 'Gann Analysis'), ('platinum', 'Export'), ('platinum', 'Paper Trading')
+ON CONFLICT DO NOTHING;
+
+-- Migrate any pre-existing profiles from the old 'free' default to 'silver'.
+UPDATE profiles SET subscription_tier = 'silver' WHERE subscription_tier = 'free';
+ALTER TABLE profiles ALTER COLUMN subscription_tier SET DEFAULT 'silver';

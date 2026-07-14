@@ -175,6 +175,23 @@ def _register_jobs(scheduler):
         misfire_grace_time=86400,
     )
 
+    def _run_subscription_expiry():
+        from backend.storage.subscription_db import expire_subscriptions
+        n = expire_subscriptions()
+        logger.info(f"Subscription expiry sweep: {n} user(s) reverted.")
+
+    scheduler.add_job(
+        _logged(
+            "subscription_expiry_check",
+            "Subscription Expiry Check (Monetization)",
+            _run_subscription_expiry,
+        ),
+        CronTrigger(hour=0, minute=10, timezone=SCHEDULE_TZ),  # every day, incl. weekends
+        id="subscription_expiry_check",
+        name="Subscription expiry check @ 00:10 IST daily",
+        misfire_grace_time=3600,
+    )
+
 
 def start_scheduler_background():
     """Start scheduler as a background thread — called once from run.py at boot."""

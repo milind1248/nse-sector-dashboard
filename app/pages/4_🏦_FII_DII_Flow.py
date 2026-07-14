@@ -22,6 +22,9 @@ with st.sidebar:
     from app.utils.user_session import render_auth_sidebar
     render_auth_sidebar()
 
+from app.utils.access_control import require_page_access
+require_page_access("FII DII Flow")
+
 st.title("🏦 FII / DII Flow Dashboard")
 st.caption("Daily institutional flow + fortnightly sector breakdown from NSDL.")
 

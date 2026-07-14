@@ -30,6 +30,9 @@ with st.sidebar:
     from app.utils.user_session import render_auth_sidebar
     render_auth_sidebar()
 
+from app.utils.access_control import require_page_access
+require_page_access("FII Accumulation")
+
 from app.utils.disclaimer import show_sebi_notice, show_footer
 
 # ── DB ────────────────────────────────────────────────────────────────────────

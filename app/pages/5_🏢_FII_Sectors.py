@@ -27,6 +27,9 @@ with st.sidebar:
     from app.utils.user_session import render_auth_sidebar
     render_auth_sidebar()
 
+from app.utils.access_control import require_page_access
+require_page_access("FII Sectors")
+
 st.title("🌐 FII Sectors — Fortnightly History")
 st.caption(
     "Sectors × Fortnightly dates × FII equity net investment (₹ Crore). "
