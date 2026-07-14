@@ -35,6 +35,16 @@ import streamlit as st
 
 logger = logging.getLogger(__name__)
 
+_TIER_ICONS = {"silver": "🥈", "gold": "🥇", "platinum": "💎"}
+_TIER_ICON_FALLBACK = "🏅"
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_tier(user_id: str) -> str:
+    from backend.storage.profiles_db import get_profile
+    profile = get_profile(user_id)
+    return profile["subscription_tier"] if profile else "silver"
+
 
 def _supabase_config() -> tuple[str, str] | None:
     try:
@@ -336,10 +346,13 @@ def render_auth_sidebar():
 
     user = current_user()
     if user:
+        tier = _cached_tier(user["id"])
+        icon = _TIER_ICONS.get(tier, _TIER_ICON_FALLBACK)
         st.markdown(
             f"<div style='font-size:13px;margin:2px 0 6px 0;'>"
-            f"<span style='color:#2979FF;font-weight:600'>Welcome</span>, "
-            f"<b style='color:#4ade80'>{user['full_name']}</b></div>",
+            f"{icon} <span style='color:#2979FF;font-weight:600'>Welcome</span>, "
+            f"<b style='color:#4ade80'>{user['full_name']}</b> "
+            f"<span style='color:#999'>— {tier.title()}</span></div>",
             unsafe_allow_html=True,
         )
         if st.button("Sign out", key="_auth_signout", width="stretch"):
