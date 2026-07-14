@@ -96,7 +96,7 @@ else:
                     unsafe_allow_html=True,
                 )
                 st.caption("QR code hidden — tap to reveal")
-                if st.button("👁 Show QR Code", key="_qr_reveal_btn"):
+                if st.button("👁 Show QR Code", key="_qr_reveal_btn", type="primary", width='stretch'):
                     st.session_state["_qr_revealed"] = True
                     st.rerun()
         else:
