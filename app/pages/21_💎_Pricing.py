@@ -66,7 +66,7 @@ for col, g in zip(cols, groups):
         if pages:
             for p in pages:
                 icon = _PAGE_ICONS.get(p, "")
-                st.markdown(f"✅ {icon} {p}" if icon else f"✅ {p}")
+                st.markdown(f"{icon} {p}" if icon else p)
         else:
             st.caption("No pages configured yet.")
 
