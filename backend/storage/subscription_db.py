@@ -218,7 +218,8 @@ def list_payments(user_id: str | None = None) -> list[dict]:
     con = get_conn()
     sql = """
         SELECT pay.id, pay.user_id, p.email, pay.subscription_id, pay.amount_inr,
-               pay.payment_date, pay.payment_ref, pay.verified_by, pay.notes, pay.created_at
+               pay.payment_date, pay.payment_ref, pay.verified_by, pay.notes, pay.created_at,
+               pay.status
         FROM payment_history pay JOIN profiles p ON p.id = pay.user_id
     """
     params: tuple = ()
@@ -229,5 +230,128 @@ def list_payments(user_id: str | None = None) -> list[dict]:
     rows = con.execute(sql, params).fetchall()
     con.close()
     cols = ["id", "user_id", "email", "subscription_id", "amount_inr",
-            "payment_date", "payment_ref", "verified_by", "notes", "created_at"]
+            "payment_date", "payment_ref", "verified_by", "notes", "created_at", "status"]
     return [dict(zip(cols, r)) for r in rows]
+
+
+# ── Pricing QR code ─────────────────────────────────────────────────────────
+
+def get_qr_code() -> tuple[bytes, str] | None:
+    con = get_conn()
+    row = con.execute(
+        "SELECT image, mime_type FROM payment_qr_code WHERE id = 'default'"
+    ).fetchone()
+    con.close()
+    if row is None or row[0] is None:
+        return None
+    return bytes(row[0]), row[1]
+
+
+def set_qr_code(image_bytes: bytes, mime_type: str) -> None:
+    con = get_conn()
+    con.execute("""
+        UPDATE payment_qr_code SET image = %s, mime_type = %s, updated_at = now()
+        WHERE id = 'default'
+    """, (image_bytes, mime_type))
+    con.commit()
+    con.close()
+
+
+# ── Payment claims (user-submitted, pending admin review) ──────────────────
+
+def submit_payment_claim(user_id: str, requested_group: str, amount_inr: float,
+                          payment_date: date, payment_ref: str | None,
+                          screenshot_bytes: bytes, screenshot_mime: str,
+                          notes: str | None = None) -> int:
+    con = get_conn()
+    row = con.execute("""
+        INSERT INTO payment_history (user_id, subscription_id, amount_inr, payment_date,
+                                      payment_ref, notes, status, requested_group,
+                                      screenshot, screenshot_mime)
+        VALUES (%s, NULL, %s, %s, %s, %s, 'pending', %s, %s, %s)
+        RETURNING id
+    """, (user_id, amount_inr, payment_date, payment_ref, notes, requested_group,
+          screenshot_bytes, screenshot_mime)).fetchone()
+    con.commit()
+    con.close()
+    return row[0]
+
+
+def get_pending_claim(user_id: str) -> dict | None:
+    con = get_conn()
+    row = con.execute("""
+        SELECT id, requested_group, amount_inr, payment_date, created_at
+        FROM payment_history WHERE user_id = %s AND status = 'pending'
+        ORDER BY created_at DESC LIMIT 1
+    """, (user_id,)).fetchone()
+    con.close()
+    if row is None:
+        return None
+    cols = ["id", "requested_group", "amount_inr", "payment_date", "created_at"]
+    return dict(zip(cols, row))
+
+
+def list_pending_payments() -> list[dict]:
+    con = get_conn()
+    rows = con.execute("""
+        SELECT pay.id, pay.user_id, p.email, pay.requested_group, pay.amount_inr,
+               pay.payment_date, pay.payment_ref, pay.notes, pay.created_at
+        FROM payment_history pay JOIN profiles p ON p.id = pay.user_id
+        WHERE pay.status = 'pending'
+        ORDER BY pay.created_at ASC
+    """).fetchall()
+    con.close()
+    cols = ["id", "user_id", "email", "requested_group", "amount_inr",
+            "payment_date", "payment_ref", "notes", "created_at"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def get_payment_screenshot(payment_id: int) -> tuple[bytes, str] | None:
+    con = get_conn()
+    row = con.execute(
+        "SELECT screenshot, screenshot_mime FROM payment_history WHERE id = %s",
+        (payment_id,)
+    ).fetchone()
+    con.close()
+    if row is None or row[0] is None:
+        return None
+    return bytes(row[0]), row[1]
+
+
+def approve_payment(payment_id: int, period_start: date, period_end: date,
+                     verified_by: str) -> None:
+    con = get_conn()
+    row = con.execute(
+        "SELECT user_id, requested_group FROM payment_history WHERE id = %s",
+        (payment_id,)
+    ).fetchone()
+    con.close()
+    if row is None:
+        return
+    user_id, requested_group = row
+
+    sub_id = create_subscription(
+        user_id, requested_group, period_start, period_end,
+        created_by=verified_by, notes="Approved from Pending Payments",
+    )
+
+    con = get_conn()
+    con.execute("""
+        UPDATE payment_history
+        SET status = 'verified', subscription_id = %s, verified_by = %s
+        WHERE id = %s
+    """, (sub_id, verified_by, payment_id))
+    con.commit()
+    con.close()
+
+
+def reject_payment(payment_id: int, verified_by: str, notes: str | None = None) -> None:
+    con = get_conn()
+    con.execute("""
+        UPDATE payment_history
+        SET status = 'rejected', verified_by = %s,
+            notes = COALESCE(%s, notes)
+        WHERE id = %s
+    """, (verified_by, notes, payment_id))
+    con.commit()
+    con.close()

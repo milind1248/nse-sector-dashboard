@@ -68,8 +68,9 @@ st.caption(
 )
 st.markdown("---")
 
-tab_users, tab_groups, tab_grant, tab_payments = st.tabs([
-    "👤 Users", "🏷️ Groups & Access", "💳 Grant Subscription", "🧾 Payment History",
+tab_users, tab_groups, tab_grant, tab_pending, tab_payments = st.tabs([
+    "👤 Users", "🏷️ Groups & Access", "💳 Grant Subscription",
+    "📸 Pending Payments", "🧾 Payment History",
 ])
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -213,6 +214,23 @@ with tab_groups:
                 st.success(f"Created group '{new_display}'.")
                 st.rerun()
 
+    st.markdown("---")
+    st.subheader("💳 UPI QR Code")
+    st.caption("Shown to users on the Pricing page. Upload once, update anytime.")
+    qc1, qc2 = st.columns([1, 2])
+    with qc1:
+        existing_qr = sdb.get_qr_code()
+        if existing_qr:
+            st.image(existing_qr[0], caption="Current QR code", width=200)
+        else:
+            st.info("No QR code uploaded yet.")
+    with qc2:
+        new_qr = st.file_uploader("Upload QR code image", type=["png", "jpg", "jpeg"], key="qr_upload")
+        if st.button("💾 Save QR Code", key="save_qr_btn", disabled=new_qr is None):
+            sdb.set_qr_code(new_qr.getvalue(), new_qr.type)
+            st.success("QR code saved.")
+            st.rerun()
+
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — GRANT SUBSCRIPTION (QR payment workflow)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -292,7 +310,83 @@ with tab_grant:
                 st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 4 — PAYMENT HISTORY
+# TAB 4 — PENDING PAYMENTS (screenshots submitted from the Pricing page)
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_pending:
+    st.subheader("Pending Payments")
+    st.caption(
+        "Users submit a plan + payment screenshot from the Pricing page. "
+        "Review the screenshot and email, then Approve (grants the subscription) or Reject."
+    )
+
+    pending_flash = st.session_state.pop("_pending_flash", None)
+    if pending_flash:
+        st.success(pending_flash)
+
+    pending_claims = sdb.list_pending_payments()
+    if not pending_claims:
+        st.info("No pending payment claims.")
+    else:
+        today = date.today()
+        for claim in pending_claims:
+            with st.container(border=True):
+                c1, c2 = st.columns([1, 2])
+                with c1:
+                    shot = sdb.get_payment_screenshot(claim["id"])
+                    if shot:
+                        st.image(shot[0], caption="Payment screenshot", width=220)
+                    else:
+                        st.caption("No screenshot attached.")
+                with c2:
+                    st.markdown(f"**{claim['email']}**")
+                    st.caption(
+                        f"Requested: **{claim['requested_group'].title()}** · "
+                        f"₹{claim['amount_inr']:,.0f} · Paid {_fmt_date(claim['payment_date'])} · "
+                        f"Submitted {_to_ist(claim['created_at'])}"
+                    )
+                    if claim["payment_ref"]:
+                        st.caption(f"Reference: {claim['payment_ref']}")
+                    if claim["notes"]:
+                        st.caption(f"Notes: {claim['notes']}")
+
+                    pm1, pm2 = st.columns(2)
+                    start_m = pm1.selectbox("Start month", list(range(1, 13)),
+                                            index=today.month - 1,
+                                            format_func=lambda m: calendar.month_abbr[m],
+                                            key=f"pend_start_m_{claim['id']}")
+                    start_y = pm2.number_input("Start year", min_value=2024, max_value=2100,
+                                               value=today.year, key=f"pend_start_y_{claim['id']}")
+                    em1, em2 = st.columns(2)
+                    end_m = em1.selectbox("End month", list(range(1, 13)),
+                                          index=today.month - 1,
+                                          format_func=lambda m: calendar.month_abbr[m],
+                                          key=f"pend_end_m_{claim['id']}")
+                    end_y = em2.number_input("End year", min_value=2024, max_value=2100,
+                                             value=today.year, key=f"pend_end_y_{claim['id']}")
+
+                    ac1, ac2 = st.columns(2)
+                    with ac1:
+                        if st.button("✅ Approve", key=f"approve_{claim['id']}", width='stretch'):
+                            p_start = date(int(start_y), start_m, 1)
+                            p_end = _month_end(int(end_y), end_m)
+                            if p_end < p_start:
+                                st.error("End period must be on or after start period.")
+                            else:
+                                sdb.approve_payment(claim["id"], p_start, p_end, verified_by="admin")
+                                st.cache_data.clear()
+                                st.session_state["_pending_flash"] = (
+                                    f"Approved {claim['requested_group']} for {claim['email']}."
+                                )
+                                st.rerun()
+                    with ac2:
+                        if st.button("🚫 Reject", key=f"reject_{claim['id']}", width='stretch'):
+                            sdb.reject_payment(claim["id"], verified_by="admin",
+                                               notes="Rejected from Pending Payments")
+                            st.session_state["_pending_flash"] = f"Rejected claim from {claim['email']}."
+                            st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 5 — PAYMENT HISTORY
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_payments:
     st.subheader("Payment History")
@@ -324,7 +418,8 @@ with tab_payments:
 
         st.dataframe(pd.DataFrame([{
             "Date": _fmt_date(p["payment_date"]), "Email": p["email"],
-            "Amount (₹)": p["amount_inr"], "Reference": p["payment_ref"] or "—",
+            "Amount (₹)": p["amount_inr"], "Status": p["status"],
+            "Reference": p["payment_ref"] or "—",
             "Verified By": p["verified_by"] or "—", "Notes": p["notes"] or "—",
             "Recorded": _to_ist(p["created_at"]),
         } for p in rows]), width='stretch', hide_index=True)

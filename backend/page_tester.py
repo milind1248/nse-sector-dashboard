@@ -41,8 +41,10 @@ PAGE_REGISTRY: list[dict] = [
     {"name": "Contact",          "file": "app/pages/15_📧_Contact.py",         "tabs": 0,  "timeout": 15},
     {"name": "Disclaimer",       "file": "app/pages/16_⚖️_Disclaimer.py",     "tabs": 0,  "timeout": 15},
     {"name": "Paper Trading",    "file": "app/pages/19_💹_Paper_Trading.py",   "tabs": 3,  "timeout": 20},
+    {"name": "Pricing",          "file": "app/pages/21_💎_Pricing.py",         "tabs": 0,  "timeout": 20},
     # Admin (17_🔐_Admin.py) excluded — it's the test runner itself
     # User Guide (18_📖_User_Guide.py) excluded — static content, no backend calls to test
+    # User Management (20_👥_User_Management.py) excluded — same reason as Admin
 ]
 
 # Dummy secrets used during testing so is_admin() / verify_password() don't crash.

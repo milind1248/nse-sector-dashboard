@@ -524,3 +524,30 @@ ON CONFLICT DO NOTHING;
 -- Migrate any pre-existing profiles from the old 'free' default to 'silver'.
 UPDATE profiles SET subscription_tier = 'silver' WHERE subscription_tier = 'free';
 ALTER TABLE profiles ALTER COLUMN subscription_tier SET DEFAULT 'silver';
+
+-- ── Pricing page: QR code + user-submitted payment claims ──────────────────────
+-- No Supabase Storage anywhere in this app — everything else already goes
+-- through the direct Postgres connection with full access, so images are
+-- stored as bytea here too rather than adding a service_role key + bucket
+-- RLS policies just for this.
+
+-- Global UPI QR code image — single row, admin-uploaded, shown on Pricing.
+CREATE TABLE IF NOT EXISTS payment_qr_code (
+    id          TEXT PRIMARY KEY DEFAULT 'default',
+    image       BYTEA,
+    mime_type   TEXT,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO payment_qr_code (id) VALUES ('default') ON CONFLICT (id) DO NOTHING;
+
+-- Extend payment_history to support user-submitted pending claims, not just
+-- admin-recorded confirmed payments. Existing rows (all admin-created so far)
+-- default to 'verified' so nothing already in the table changes meaning.
+ALTER TABLE payment_history ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'verified';
+    -- 'pending' | 'verified' | 'rejected'
+ALTER TABLE payment_history ADD COLUMN IF NOT EXISTS requested_group TEXT REFERENCES auth_groups(name);
+    -- plan the user claims to have paid for; NULL for admin-created rows
+    -- (those already carry the real group via subscription_id -> user_subscriptions.group_name)
+ALTER TABLE payment_history ADD COLUMN IF NOT EXISTS screenshot BYTEA;
+ALTER TABLE payment_history ADD COLUMN IF NOT EXISTS screenshot_mime TEXT;
+CREATE INDEX IF NOT EXISTS idx_payments_status ON payment_history(status);

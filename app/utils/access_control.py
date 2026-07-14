@@ -7,14 +7,15 @@ user_subscriptions, payment_history).
 profiles.subscription_tier is the user's current group name;
 profiles.subscription_status doubles as the suspend/activate flag.
 
-Home, Contact, and Disclaimer stay always-public by design — they're not in
-GOVERNED_PAGES and never call require_page_access().
+Home, Contact, Disclaimer, and Pricing stay always-public by design — they're
+not in GOVERNED_PAGES and never call require_page_access(). Pricing needs to
+be visible to logged-out visitors so they can compare plans before signing up.
 """
 import streamlit as st
 
 from backend.page_tester import PAGE_REGISTRY
 
-_UNGOVERNED = {"Home", "Contact", "Disclaimer"}
+_UNGOVERNED = {"Home", "Contact", "Disclaimer", "Pricing"}
 
 GOVERNED_PAGES: list[dict] = [p for p in PAGE_REGISTRY if p["name"] not in _UNGOVERNED]
 
