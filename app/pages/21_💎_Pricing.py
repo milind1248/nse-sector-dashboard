@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+import re
 from datetime import date
 
 import streamlit as st
@@ -23,6 +24,13 @@ with st.sidebar:
 
 from app.utils.user_session import is_logged_in, current_user
 from backend.storage import subscription_db as sdb
+from backend.page_tester import PAGE_REGISTRY
+
+_ICON_RE = re.compile(r"_([^\x00-\x7F]+)_")
+_PAGE_ICONS = {
+    p["name"]: (m.group(1) if (m := _ICON_RE.search(p["file"])) else "")
+    for p in PAGE_REGISTRY
+}
 
 st.title("💎 Pricing")
 st.caption("Compare plans and the pages each one unlocks. Pay via UPI, then share your payment "
@@ -57,7 +65,8 @@ for col, g in zip(cols, groups):
         pages = sdb.get_group_pages(g["name"])
         if pages:
             for p in pages:
-                st.markdown(f"✅ {p}")
+                icon = _PAGE_ICONS.get(p, "")
+                st.markdown(f"✅ {icon} {p}" if icon else f"✅ {p}")
         else:
             st.caption("No pages configured yet.")
 
