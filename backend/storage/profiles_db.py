@@ -41,14 +41,16 @@ def get_profile(user_id: str) -> dict | None:
     con = get_conn()
     row = con.execute("""
         SELECT id, email, full_name, avatar_url, auth_provider,
-               subscription_tier, subscription_status, created_at, last_login_at
+               subscription_tier, subscription_status, created_at, last_login_at,
+               phone, alt_email, address
         FROM profiles WHERE id = %s
     """, (user_id,)).fetchone()
     con.close()
     if row is None:
         return None
     cols = ["id", "email", "full_name", "avatar_url", "auth_provider",
-            "subscription_tier", "subscription_status", "created_at", "last_login_at"]
+            "subscription_tier", "subscription_status", "created_at", "last_login_at",
+            "phone", "alt_email", "address"]
     return dict(zip(cols, row))
 
 
@@ -56,5 +58,16 @@ def touch_last_login(user_id: str) -> None:
     con = get_conn()
     con.execute("UPDATE profiles SET last_login_at = %s WHERE id = %s",
                 (datetime.now(), user_id))
+    con.commit()
+    con.close()
+
+
+def update_profile(user_id: str, full_name: str | None, phone: str | None,
+                    alt_email: str | None, address: str | None) -> None:
+    con = get_conn()
+    con.execute("""
+        UPDATE profiles SET full_name = %s, phone = %s, alt_email = %s, address = %s
+        WHERE id = %s
+    """, (full_name, phone, alt_email, address, user_id))
     con.commit()
     con.close()

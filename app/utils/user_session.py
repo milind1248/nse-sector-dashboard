@@ -83,7 +83,7 @@ def _extract_name_avatar(user) -> tuple[str | None, str | None]:
     return full_name, avatar_url
 
 
-def _login_user(user, auth_provider: str):
+def _login_user(user, auth_provider: str, session=None):
     from backend.storage import profiles_db
     full_name, avatar_url = _extract_name_avatar(user)
     display_name = full_name or (user.email.split("@")[0] if user.email else "there")
@@ -94,6 +94,15 @@ def _login_user(user, auth_provider: str):
         "full_name": display_name,
         "avatar_url": avatar_url,
     }
+    if session is not None:
+        # Kept only in st.session_state (no cookie), same trust boundary as the
+        # rest of _user above — needed so a later page can reconstruct an
+        # authenticated client (client.auth.set_session(...)) to change the
+        # user's own password/email via change_password()/change_email().
+        st.session_state["_supabase_session"] = {
+            "access_token": session.access_token,
+            "refresh_token": session.refresh_token,
+        }
     st.session_state["_show_auth_dialog"] = False
 
 
@@ -109,6 +118,7 @@ def is_logged_in() -> bool:
 
 def logout():
     st.session_state.pop("_user", None)
+    st.session_state.pop("_supabase_session", None)
     st.session_state["_show_auth_dialog"] = False
 
 
@@ -124,8 +134,44 @@ def sign_in_with_password(email: str, password: str) -> tuple[bool, str]:
         return False, _friendly_error(e)
     if resp.user is None:
         return False, "Invalid email or password."
-    _login_user(resp.user, "email")
+    _login_user(resp.user, "email", resp.session)
     return True, ""
+
+
+def _authenticated_client():
+    """Fresh client carrying the current user's session — needed for
+    self-service account changes (client.auth.update_user), which require an
+    authenticated session unlike sign_in/sign_up which only need the anon key."""
+    tokens = st.session_state.get("_supabase_session")
+    if not tokens:
+        return None
+    client = _new_client()
+    if client is None:
+        return None
+    client.auth.set_session(tokens["access_token"], tokens["refresh_token"])
+    return client
+
+
+def change_password(new_password: str) -> tuple[bool, str]:
+    client = _authenticated_client()
+    if client is None:
+        return False, "Your session has expired. Please sign out and sign in again."
+    try:
+        client.auth.update_user({"password": new_password})
+    except Exception as e:
+        return False, _friendly_error(e)
+    return True, "Password updated."
+
+
+def change_email(new_email: str) -> tuple[bool, str]:
+    client = _authenticated_client()
+    if client is None:
+        return False, "Your session has expired. Please sign out and sign in again."
+    try:
+        client.auth.update_user({"email": new_email})
+    except Exception as e:
+        return False, _friendly_error(e)
+    return True, "Check your inbox to confirm the new email address."
 
 
 def sign_up(email: str, password: str, full_name: str) -> tuple[bool, str]:
@@ -149,7 +195,7 @@ def sign_up(email: str, password: str, full_name: str) -> tuple[bool, str]:
         return False, "Sign-up failed. Please try again."
     if resp.session is None:
         return False, "Account created — check your email to confirm it, then sign in."
-    _login_user(resp.user, "email")
+    _login_user(resp.user, "email", resp.session)
     return True, ""
 
 
@@ -267,7 +313,7 @@ def handle_oauth_callback():
             "auth_code": code, "code_verifier": verifier,
         })
         if resp.user is not None:
-            _login_user(resp.user, "google")
+            _login_user(resp.user, "google", resp.session)
         else:
             logger.warning("Google OAuth exchange_code_for_session returned no user")
             st.session_state["_auth_flash"] = ("error", "Google sign-in failed. Please try again.")

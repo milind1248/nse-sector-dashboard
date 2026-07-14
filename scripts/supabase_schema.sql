@@ -551,3 +551,8 @@ ALTER TABLE payment_history ADD COLUMN IF NOT EXISTS requested_group TEXT REFERE
 ALTER TABLE payment_history ADD COLUMN IF NOT EXISTS screenshot BYTEA;
 ALTER TABLE payment_history ADD COLUMN IF NOT EXISTS screenshot_mime TEXT;
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payment_history(status);
+
+-- ── My Profile: contact details ─────────────────────────────────────────────
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS phone      TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS alt_email  TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS address    TEXT;
