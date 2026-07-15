@@ -44,6 +44,23 @@ def _connection_string() -> str:
         return secrets["supabase"]["db_connection_string"]
 
 
+def _session_mode_connection_string() -> str:
+    """Session Pooler variant (port 5432) of the main connection string.
+
+    get_conn() uses Transaction Pooler (port 6543) — Supabase's Session
+    Pooler caps concurrent connections at 15, which Streamlit Cloud's request
+    volume was hitting (EMAXCONNSESSION). Transaction mode multiplexes many
+    short request-scoped connections over far fewer backend connections,
+    matching this app's open->query->close pattern.
+
+    But transaction-mode pooling does NOT reliably preserve session-scoped
+    Postgres state (advisory locks, LISTEN/NOTIFY) across statements — the
+    scheduler's cluster-wide advisory lock (backend/data_ingestion/scheduler.py)
+    needs a real, persistent session, so it uses this instead of get_conn().
+    """
+    return _connection_string().replace(":6543/", ":5432/")
+
+
 class PGConnection:
     """sqlite3.Connection-compatible wrapper around a psycopg2 connection."""
 
@@ -81,15 +98,7 @@ class PGConnection:
         self.close()
 
 
-def get_conn() -> PGConnection:
-    """Open a fresh connection to the Supabase Postgres database.
-
-    Retries transient connection failures with backoff — Supabase's free-tier
-    project can take several seconds to respond on the first connection after
-    being idle (observed ~7s vs ~1s on a warm connection), which without a
-    retry has been enough to fail an admin job trigger outright.
-    """
-    conn_str = _connection_string()
+def _connect_with_retry(conn_str: str) -> PGConnection:
     last_err = None
     for attempt in range(_RETRY_ATTEMPTS):
         try:
@@ -101,3 +110,22 @@ def get_conn() -> PGConnection:
                 logger.warning(f"DB connect attempt {attempt + 1} failed ({e}); retrying in {delay}s")
                 time.sleep(delay)
     raise last_err
+
+
+def get_conn() -> PGConnection:
+    """Open a fresh connection to the Supabase Postgres database (Transaction
+    Pooler — see _session_mode_connection_string() for why this app doesn't
+    use Session Pooler for the general-purpose path).
+
+    Retries transient connection failures with backoff — Supabase's free-tier
+    project can take several seconds to respond on the first connection after
+    being idle (observed ~7s vs ~1s on a warm connection), which without a
+    retry has been enough to fail an admin job trigger outright.
+    """
+    return _connect_with_retry(_connection_string())
+
+
+def get_session_conn() -> PGConnection:
+    """Session Pooler connection for callers that need real session-scoped
+    Postgres state (advisory locks, etc.) — see _session_mode_connection_string()."""
+    return _connect_with_retry(_session_mode_connection_string())

@@ -39,7 +39,7 @@ from backend.data_ingestion.gann_pipeline import run_gann_pipeline
 from backend.data_ingestion.smart_money_pipeline import run_smart_money_pipeline
 from backend.data_ingestion.job_logger import log_start, log_finish
 from backend.storage.cache import invalidate_all
-from backend.storage.db import get_conn
+from backend.storage.db import get_conn, get_session_conn
 from config import SCHEDULE_TZ
 
 logger = logging.getLogger(__name__)
@@ -61,9 +61,14 @@ _lock_conn = None
 def _try_acquire_scheduler_lock() -> bool:
     """Try to grab the cluster-wide scheduler advisory lock via a dedicated
     connection. Returns True (and keeps the connection open) if this process
-    now owns it; False if another process already holds it."""
+    now owns it; False if another process already holds it.
+
+    Uses get_session_conn() (Session Pooler), not get_conn() (Transaction
+    Pooler) — advisory locks are session-scoped Postgres state that
+    transaction-mode pooling doesn't reliably preserve across statements.
+    """
     global _lock_conn
-    conn = get_conn()
+    conn = get_session_conn()
     cur = conn.execute("SELECT pg_try_advisory_lock(%s)", (_ADVISORY_LOCK_KEY,))
     acquired = bool(cur.fetchone()[0])
     if acquired:
