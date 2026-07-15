@@ -47,16 +47,21 @@ def _connection_string() -> str:
 def _session_mode_connection_string() -> str:
     """Session Pooler variant (port 5432) of the main connection string.
 
-    get_conn() uses Transaction Pooler (port 6543) — Supabase's Session
-    Pooler caps concurrent connections at 15, which Streamlit Cloud's request
-    volume was hitting (EMAXCONNSESSION). Transaction mode multiplexes many
-    short request-scoped connections over far fewer backend connections,
-    matching this app's open->query->close pattern.
+    TRIED AND REVERTED: Session Pooler caps concurrent connections at 15,
+    which Streamlit Cloud's request volume was hitting (EMAXCONNSESSION).
+    Transaction Pooler (port 6543) multiplexes many short-lived connections
+    over far fewer backend connections, which matches this app's
+    open->query->close pattern in theory — but on this Supabase project it
+    was found actively broken for querying: psycopg2.connect() succeeds,
+    then the very first query fails with "SSL connection has been closed
+    unexpectedly", 100% reproducible, not intermittent. Reverted the
+    connection string in secrets.toml back to Session Pooler (5432) as the
+    working configuration. Don't re-attempt 6543 without first confirming
+    with Supabase support/docs why transaction mode breaks querying here.
 
-    But transaction-mode pooling does NOT reliably preserve session-scoped
-    Postgres state (advisory locks, LISTEN/NOTIFY) across statements — the
-    scheduler's cluster-wide advisory lock (backend/data_ingestion/scheduler.py)
-    needs a real, persistent session, so it uses this instead of get_conn().
+    _connection_string() currently already points at 5432, so this function
+    is a no-op today — kept so get_session_conn() stays correct/ready if the
+    base connection string is ever changed to Transaction Pooler again.
     """
     return _connection_string().replace(":6543/", ":5432/")
 
@@ -113,14 +118,17 @@ def _connect_with_retry(conn_str: str) -> PGConnection:
 
 
 def get_conn() -> PGConnection:
-    """Open a fresh connection to the Supabase Postgres database (Transaction
-    Pooler — see _session_mode_connection_string() for why this app doesn't
-    use Session Pooler for the general-purpose path).
+    """Open a fresh connection to the Supabase Postgres database (Session
+    Pooler as of this writing — see _session_mode_connection_string() for
+    the Transaction Pooler attempt that had to be reverted).
 
     Retries transient connection failures with backoff — Supabase's free-tier
     project can take several seconds to respond on the first connection after
     being idle (observed ~7s vs ~1s on a warm connection), which without a
-    retry has been enough to fail an admin job trigger outright.
+    retry has been enough to fail an admin job trigger outright. Note this
+    only retries failures at connect() time — a query that fails on an
+    already-"open" connection (e.g. the SSL-closed failure mode observed
+    with Transaction Pooler) is not covered by this retry.
     """
     return _connect_with_retry(_connection_string())
 
