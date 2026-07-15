@@ -19,11 +19,19 @@ both inside a running Streamlit page (via `st.secrets`) and in standalone
 scripts like `run.py schedule` / `scripts/*.py` that never import streamlit
 (falls back to reading the TOML file directly).
 """
+import logging
+import time
 from pathlib import Path
 
 import psycopg2
 
+logger = logging.getLogger(__name__)
+
 _SECRETS_PATH = Path(__file__).resolve().parent.parent.parent / ".streamlit" / "secrets.toml"
+
+_CONNECT_TIMEOUT = 10   # seconds — fail fast instead of hanging on a dead network path
+_RETRY_ATTEMPTS = 3
+_RETRY_DELAY = 2        # seconds, doubles each attempt
 
 
 def _connection_string() -> str:
@@ -74,5 +82,22 @@ class PGConnection:
 
 
 def get_conn() -> PGConnection:
-    """Open a fresh connection to the Supabase Postgres database."""
-    return PGConnection(psycopg2.connect(_connection_string()))
+    """Open a fresh connection to the Supabase Postgres database.
+
+    Retries transient connection failures with backoff — Supabase's free-tier
+    project can take several seconds to respond on the first connection after
+    being idle (observed ~7s vs ~1s on a warm connection), which without a
+    retry has been enough to fail an admin job trigger outright.
+    """
+    conn_str = _connection_string()
+    last_err = None
+    for attempt in range(_RETRY_ATTEMPTS):
+        try:
+            return PGConnection(psycopg2.connect(conn_str, connect_timeout=_CONNECT_TIMEOUT))
+        except psycopg2.OperationalError as e:
+            last_err = e
+            if attempt < _RETRY_ATTEMPTS - 1:
+                delay = _RETRY_DELAY * (2 ** attempt)
+                logger.warning(f"DB connect attempt {attempt + 1} failed ({e}); retrying in {delay}s")
+                time.sleep(delay)
+    raise last_err
