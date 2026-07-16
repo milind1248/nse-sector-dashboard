@@ -1891,22 +1891,27 @@ with tab_trend:
             if not last_n["_matches_filter"].all():
                 continue
             latest = g.iloc[-1]
+            # Newest day first (left-to-right = most recent to oldest), covering
+            # the full lookback window rather than a fixed number of days.
             streak = "".join(
-                _trend_combined_badge(r["Action"], r["OI Signal"]) for _, r in g.tail(10).iterrows()
+                _trend_combined_badge(r["Action"], r["OI Signal"])
+                for _, r in g.iloc[::-1].iterrows()
             )
             trend_summary_rows.append({
                 "Symbol": sym,
                 "Latest Delivery %": latest["dlv_pct"],
                 "Latest Action": latest["Action"],
                 "Latest OI Signal": latest["OI Signal"],
-                "Last 10 Days": streak,
+                "Signal Streak (newest → oldest)": streak,
                 "Days Matched (in window)": int(g["_matches_filter"].sum()),
             })
 
         st.subheader("📌 Trend Summary")
         st.caption(
             f"Stocks where the last {trend_consec_days} day(s) all matched the selected "
-            "Action + OI Signal filter. 🟢 Buying+Long Buildup · 🔴 Selling+Short Buildup · "
+            "Action + OI Signal filter. Signal Streak shows every trading day in the "
+            f"{trend_lookback}-day lookback window, most recent first (left → right). "
+            "🟢 Buying+Long Buildup · 🔴 Selling+Short Buildup · "
             "🟩 Buying+Short Covering · 🟥 Selling+Long Unwinding · ⚪ mixed/neutral"
         )
         if not trend_summary_rows:
