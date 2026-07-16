@@ -37,7 +37,7 @@ import random as _random
 _rupee_spans = "".join(
     f'<span style="left:{_random.uniform(0,100):.1f}%;'
     f'animation-delay:{_random.uniform(0,2.5):.2f}s;'
-    f'animation-duration:{_random.uniform(2.2,3.2):.2f}s;'
+    f'animation-duration:{_random.uniform(5.0,7.0):.2f}s;'
     f'font-size:{_random.randint(16,32)}px;">₹</span>'
     for _ in range(45)
 )
