@@ -50,6 +50,9 @@ from app.utils.visitor import get_visitor_count, render_visitor_counter
 show_logo()
 get_visitor_count()   # increment DB counter once per session
 
+from app.utils.effects import render_rupee_rain
+render_rupee_rain()
+
 from app.utils.user_session import handle_oauth_callback
 handle_oauth_callback()   # consumes ?code=... if this is a Google OAuth redirect landing
 
