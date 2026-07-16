@@ -32,6 +32,43 @@ _PAGE_ICONS = {
     for p in PAGE_REGISTRY
 }
 
+import random as _random
+
+_rupee_spans = "".join(
+    f'<span style="left:{_random.uniform(0,100):.1f}%;'
+    f'animation-delay:{_random.uniform(0,2.5):.2f}s;'
+    f'animation-duration:{_random.uniform(2.2,3.2):.2f}s;'
+    f'font-size:{_random.randint(16,32)}px;">₹</span>'
+    for _ in range(45)
+)
+st.markdown(
+    f"""
+    <style>
+    #rupee-rain {{
+        position: fixed; inset: 0; pointer-events: none;
+        overflow: hidden; z-index: 9999;
+    }}
+    #rupee-rain span {{
+        position: absolute; top: -10%; color: #2ecc71;
+        opacity: 0.85; animation-name: rupee-fall;
+        animation-timing-function: linear; animation-fill-mode: forwards;
+        text-shadow: 0 0 6px rgba(46,204,113,0.6);
+    }}
+    @keyframes rupee-fall {{
+        to {{ top: 110%; opacity: 0; }}
+    }}
+    </style>
+    <div id="rupee-rain">{_rupee_spans}</div>
+    """,
+    unsafe_allow_html=True,
+)
+# No cleanup <script> here — st.markdown(unsafe_allow_html=True) doesn't execute
+# injected <script> tags (only st.components.v1.html's iframe does), so a
+# setTimeout-based DOM removal would silently never run. Not needed anyway:
+# each span's own CSS animation (animation-fill-mode: forwards) already ends
+# invisible and off-screen after ~5s; the empty, pointer-events:none container
+# left behind is harmless.
+
 st.title("💎 Pricing")
 st.caption("Compare plans and the pages each one unlocks. Pay via UPI, then share your payment "
            "screenshot below — we'll review it and activate your plan.")
