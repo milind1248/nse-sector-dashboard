@@ -22,6 +22,8 @@ def _load_schedule_config() -> dict:
         "market_pulse_snapshot": {"hour": 20, "minute": 0},
         "ai_scan_daily":         {"hour": 21, "minute": 0},
         "gann_daily":            {"hour": 21, "minute": 30},
+        "nsdl_sync":             {"hour": 17, "minute": 30},
+        "sector_factsheet_sync": {"hour": 17, "minute": 45},
     }
     try:
         from backend.storage.schedule_config_db import get_schedule_config
@@ -37,6 +39,8 @@ from backend.data_ingestion.ai_scan_pipeline import run_ai_scan_pipeline
 from backend.data_ingestion.market_pulse_pipeline import run_market_pulse_pipeline
 from backend.data_ingestion.gann_pipeline import run_gann_pipeline
 from backend.data_ingestion.smart_money_pipeline import run_smart_money_pipeline
+from backend.data_ingestion.nsdl_fetcher import sync_nsdl_to_db
+from backend.data_ingestion.sector_sync import sync_all as sync_sector_factsheets
 from backend.data_ingestion.job_logger import log_start, log_finish
 from backend.storage.cache import invalidate_all
 from backend.storage.db import get_conn, get_session_conn
@@ -166,6 +170,24 @@ def _register_jobs(scheduler):
         CronTrigger(hour=h, minute=m, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
         id="gann_daily",
         name=f"Gann analysis @ {h:02d}:{m:02d}",
+    )
+
+    h, m = _t("nsdl_sync")
+    scheduler.add_job(
+        _logged("nsdl_sync", "NSDL FPI Sector Sync (Fortnightly Data, Idempotent Daily Check)",
+                lambda: sync_nsdl_to_db()),
+        CronTrigger(hour=h, minute=m, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
+        id="nsdl_sync",
+        name=f"NSDL FPI sync @ {h:02d}:{m:02d}",
+    )
+
+    h, m = _t("sector_factsheet_sync")
+    scheduler.add_job(
+        _logged("sector_factsheet_sync", "Sector Factsheet Sync (NiftyIndices PDFs)",
+                lambda: sync_sector_factsheets()),
+        CronTrigger(hour=h, minute=m, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
+        id="sector_factsheet_sync",
+        name=f"Sector factsheet sync @ {h:02d}:{m:02d}",
     )
 
     scheduler.add_job(

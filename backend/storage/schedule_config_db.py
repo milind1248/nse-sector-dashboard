@@ -19,6 +19,8 @@ _DEFAULTS = {
     "market_pulse_snapshot": {"hour": 20, "minute": 0},
     "ai_scan_daily":         {"hour": 21, "minute": 0},
     "gann_daily":            {"hour": 21, "minute": 30},
+    "nsdl_sync":             {"hour": 17, "minute": 30},
+    "sector_factsheet_sync": {"hour": 17, "minute": 45},
 }
 
 

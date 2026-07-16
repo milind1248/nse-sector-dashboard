@@ -433,7 +433,9 @@ INSERT INTO schedule_config (job_id, hour, minute) VALUES
     ('smart_money',           19, 0),
     ('market_pulse_snapshot', 19, 30),
     ('ai_scan_daily',         20, 0),
-    ('gann_daily',            20, 30)
+    ('gann_daily',            20, 30),
+    ('nsdl_sync',             17, 30),
+    ('sector_factsheet_sync', 17, 45)
 ON CONFLICT (job_id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS announcement (
