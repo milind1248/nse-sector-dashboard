@@ -812,9 +812,9 @@ if not fno_symbols:
     st.stop()
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_stock, tab_screener, tab_delivery, tab_fii = st.tabs([
+tab_stock, tab_screener, tab_delivery, tab_fii, tab_trend = st.tabs([
     "🔍 Stock Analysis (90-Day)", "📊 Smart Money Screener",
-    "📦 Delivery Tracker", "📋 Historical FII Trade",
+    "📦 Delivery Tracker", "📋 Historical FII Trade", "🎯 Trend Scanner",
 ])
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1777,6 +1777,183 @@ with tab_fii:
                 mime="text/csv",
             )
             st.caption(f"Showing {len(df_fii):,} trades (cap: 5,000). Source: fii_data.db")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 5 — Trend Scanner (Delivery % + Action + OI Signal screener, self-contained)
+# ══════════════════════════════════════════════════════════════════════════════
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_trend_data(symbols: tuple, lookback_days: int) -> pd.DataFrame:
+    con = _db()
+    cutoff = (date.today() - timedelta(days=lookback_days)).isoformat()
+    df = pd.read_sql("""
+        SELECT symbol, trade_date, dlv_pct, action, pct_price_chg, pct_oi_chg
+        FROM smart_money_history
+        WHERE symbol = ANY(%s) AND trade_date >= %s
+        ORDER BY symbol, trade_date
+    """, con, params=(list(symbols), cutoff))
+    con.close()
+    return df
+
+
+with tab_trend:
+    st.caption(
+        "Combines Delivery % + trade-size Action with Futures OI Signal per day to flag "
+        "directional agreement — scan for stocks where the signal has persisted for the "
+        "last N days to catch an emerging trend."
+    )
+
+    tc1, tc2, tc3, tc4 = st.columns([1, 1.3, 1.6, 1.1])
+    with tc1:
+        trend_lookback = st.slider("Lookback (days)", 5, 60, 30, 5, key="trend_lookback")
+    with tc2:
+        trend_action_filter = st.multiselect(
+            "Action", ["Buying", "Selling", "Neutral"],
+            default=["Buying", "Selling"], key="trend_action_filter",
+        )
+    with tc3:
+        trend_oi_filter = st.multiselect(
+            "OI Signal",
+            ["Long Buildup", "Short Buildup", "Short Covering", "Long Unwinding", "Neutral"],
+            default=["Long Buildup", "Short Buildup"], key="trend_oi_filter",
+        )
+    with tc4:
+        trend_consec_days = st.number_input("Last N days must match", 1, 10, 1, key="trend_consec")
+
+    trend_raw = _load_trend_data(tuple(fno_symbols), trend_lookback)
+
+    if trend_raw.empty:
+        st.info("No smart money history found for the selected lookback window.")
+    else:
+        trend_raw["trade_date"] = pd.to_datetime(trend_raw["trade_date"]).dt.date
+
+        # ── Per-symbol trailing average over this same lookback window ────────
+        _trend_sym_avg = trend_raw.groupby("symbol")[["dlv_pct", "action"]].mean()
+        trend_raw = trend_raw.join(_trend_sym_avg, on="symbol", rsuffix="_avg")
+
+        def _trend_action_label(row):
+            d, a, d_avg, a_avg = row["dlv_pct"], row["action"], row["dlv_pct_avg"], row["action_avg"]
+            if pd.isna(d) or pd.isna(a) or pd.isna(d_avg) or pd.isna(a_avg):
+                return "Neutral"
+            if d > d_avg and a > a_avg:
+                return "Buying"
+            if d < d_avg and a < a_avg:
+                return "Selling"
+            return "Neutral"
+
+        def _trend_oi_signal(row):
+            p, o = row["pct_price_chg"], row["pct_oi_chg"]
+            if pd.isna(p) or pd.isna(o):
+                return "Neutral"
+            if p > 0 and o > 0: return "Long Buildup"
+            if p > 0 and o < 0: return "Short Covering"
+            if p < 0 and o < 0: return "Long Unwinding"
+            if p < 0 and o > 0: return "Short Buildup"
+            return "Neutral"
+
+        trend_raw["Action"] = trend_raw.apply(_trend_action_label, axis=1)
+        trend_raw["OI Signal"] = trend_raw.apply(_trend_oi_signal, axis=1)
+
+        _TREND_STRONG_GREEN = ("Buying", "Long Buildup")
+        _TREND_STRONG_RED = ("Selling", "Short Buildup")
+        _TREND_LIGHT_GREEN = ("Buying", "Short Covering")
+        _TREND_LIGHT_RED = ("Selling", "Long Unwinding")
+
+        def _trend_combined_color(action, oi_signal):
+            pair = (action, oi_signal)
+            if pair == _TREND_STRONG_GREEN:
+                return "background-color:#1a4731;color:#4ade80;font-weight:700"
+            if pair == _TREND_STRONG_RED:
+                return "background-color:#4a0f0f;color:#f87171;font-weight:700"
+            if pair == _TREND_LIGHT_GREEN:
+                return "background-color:#0f2e1a;color:#86efac"
+            if pair == _TREND_LIGHT_RED:
+                return "background-color:#2e1414;color:#fca5a5"
+            return "background-color:#242942;color:#94a3b8"
+
+        def _trend_combined_badge(action, oi_signal):
+            pair = (action, oi_signal)
+            if pair == _TREND_STRONG_GREEN: return "🟢"
+            if pair == _TREND_STRONG_RED: return "🔴"
+            if pair == _TREND_LIGHT_GREEN: return "🟩"
+            if pair == _TREND_LIGHT_RED: return "🟥"
+            return "⚪"
+
+        trend_raw["_matches_filter"] = (
+            trend_raw["Action"].isin(trend_action_filter) & trend_raw["OI Signal"].isin(trend_oi_filter)
+        )
+
+        # ── Trend Summary: symbols whose last N days ALL match the filter ─────
+        trend_summary_rows = []
+        for sym, g in trend_raw.sort_values(["symbol", "trade_date"]).groupby("symbol"):
+            if len(g) < trend_consec_days:
+                continue
+            last_n = g.tail(trend_consec_days)
+            if not last_n["_matches_filter"].all():
+                continue
+            latest = g.iloc[-1]
+            streak = "".join(
+                _trend_combined_badge(r["Action"], r["OI Signal"]) for _, r in g.tail(10).iterrows()
+            )
+            trend_summary_rows.append({
+                "Symbol": sym,
+                "Latest Delivery %": latest["dlv_pct"],
+                "Latest Action": latest["Action"],
+                "Latest OI Signal": latest["OI Signal"],
+                "Last 10 Days": streak,
+                "Days Matched (in window)": int(g["_matches_filter"].sum()),
+            })
+
+        st.subheader("📌 Trend Summary")
+        st.caption(
+            f"Stocks where the last {trend_consec_days} day(s) all matched the selected "
+            "Action + OI Signal filter. 🟢 Buying+Long Buildup · 🔴 Selling+Short Buildup · "
+            "🟩 Buying+Short Covering · 🟥 Selling+Long Unwinding · ⚪ mixed/neutral"
+        )
+        if not trend_summary_rows:
+            st.info(
+                "No stocks match this filter combination right now — try widening the "
+                "lookback or reducing 'Last N days must match'."
+            )
+        else:
+            trend_summary_df = (
+                pd.DataFrame(trend_summary_rows)
+                .sort_values("Days Matched (in window)", ascending=False)
+            )
+            st.dataframe(
+                trend_summary_df.style.format({"Latest Delivery %": "{:.1f}%"}, na_rep="—"),
+                width='stretch', hide_index=True,
+            )
+
+        # ── Daily Detail: long-format table for rows matching the filter ──────
+        st.subheader("📋 Daily Detail")
+        trend_detail = trend_raw[trend_raw["_matches_filter"]].sort_values(
+            ["trade_date", "symbol"], ascending=[False, True]
+        )
+        if trend_detail.empty:
+            st.info("No individual day rows match the selected Action + OI Signal filter.")
+        else:
+            trend_detail_display = pd.DataFrame({
+                "Symbol": trend_detail["symbol"],
+                "Date": trend_detail["trade_date"],
+                "Delivery %": trend_detail["dlv_pct"],
+                "Action": trend_detail["Action"],
+                "OI Signal": trend_detail["OI Signal"],
+            })
+
+            def _trend_row_style(row):
+                c = _trend_combined_color(row["Action"], row["OI Signal"])
+                return ["", "", "", c, c]
+
+            styled_trend_detail = (
+                trend_detail_display.style
+                .apply(_trend_row_style, axis=1)
+                .format({"Delivery %": "{:.1f}%"}, na_rep="—")
+            )
+            st.dataframe(styled_trend_detail, width='stretch', height=500, hide_index=True)
+            st.caption(
+                f"{len(trend_detail_display)} row(s) across "
+                f"{trend_detail_display['Symbol'].nunique()} stock(s)."
+            )
 
 from app.utils.disclaimer import show_footer
 show_footer()
