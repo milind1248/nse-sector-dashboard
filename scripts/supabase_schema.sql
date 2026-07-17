@@ -359,6 +359,42 @@ CREATE TABLE IF NOT EXISTS shareholding_refresh_meta (
     value   TEXT NOT NULL   -- schemaless key/value store, kept as TEXT
 );
 
+-- ── Bulk / Block Deals — daily NSE archive CSVs (large institutional/promoter
+-- trades). No natural single-column PK (a client can appear multiple times in
+-- one day at different prices/quantities), so the unique index below is the
+-- de-dup key for idempotent daily re-fetch.
+CREATE TABLE IF NOT EXISTS bulk_deals (
+    id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    trade_date     DATE NOT NULL,
+    symbol         TEXT NOT NULL,
+    security_name  TEXT,
+    client_name    TEXT,
+    deal_type      TEXT,             -- 'BUY' | 'SELL'
+    quantity       BIGINT,
+    price          DOUBLE PRECISION,
+    fetched_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bulk_deals_unique
+    ON bulk_deals(trade_date, symbol, client_name, deal_type, quantity, price);
+CREATE INDEX IF NOT EXISTS idx_bulk_deals_symbol ON bulk_deals(symbol);
+CREATE INDEX IF NOT EXISTS idx_bulk_deals_date ON bulk_deals(trade_date);
+
+CREATE TABLE IF NOT EXISTS block_deals (
+    id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    trade_date     DATE NOT NULL,
+    symbol         TEXT NOT NULL,
+    security_name  TEXT,
+    client_name    TEXT,
+    deal_type      TEXT,             -- 'BUY' | 'SELL'
+    quantity       BIGINT,
+    price          DOUBLE PRECISION,
+    fetched_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_block_deals_unique
+    ON block_deals(trade_date, symbol, client_name, deal_type, quantity, price);
+CREATE INDEX IF NOT EXISTS idx_block_deals_symbol ON block_deals(symbol);
+CREATE INDEX IF NOT EXISTS idx_block_deals_date ON block_deals(trade_date);
+
 -- ── Admin / diagnostics ─────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS job_run_log (
@@ -435,7 +471,8 @@ INSERT INTO schedule_config (job_id, hour, minute) VALUES
     ('ai_scan_daily',         20, 0),
     ('gann_daily',            20, 30),
     ('nsdl_sync',             17, 30),
-    ('sector_factsheet_sync', 17, 45)
+    ('sector_factsheet_sync', 17, 45),
+    ('bulk_deals_daily',      18, 45)
 ON CONFLICT (job_id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS announcement (

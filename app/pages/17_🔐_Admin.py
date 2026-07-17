@@ -1005,6 +1005,7 @@ _SCH_JOBS = [
     ("gann_daily",            "Gann Cache — All 5 Methods (All Stocks)",        "9:30 PM"),
     ("nsdl_sync",             "NSDL FPI Sector Sync (Fortnightly Data)",        "5:30 PM"),
     ("sector_factsheet_sync", "Sector Factsheet Sync (NiftyIndices PDFs)",      "5:45 PM"),
+    ("bulk_deals_daily",      "Bulk & Block Deals Sync (NSE Archive CSVs)",     "6:45 PM"),
 ]
 
 _hour_options   = list(range(0, 24))

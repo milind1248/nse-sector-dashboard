@@ -24,6 +24,7 @@ def _load_schedule_config() -> dict:
         "gann_daily":            {"hour": 21, "minute": 30},
         "nsdl_sync":             {"hour": 17, "minute": 30},
         "sector_factsheet_sync": {"hour": 17, "minute": 45},
+        "bulk_deals_daily":      {"hour": 18, "minute": 45},
     }
     try:
         from backend.storage.schedule_config_db import get_schedule_config
@@ -41,6 +42,7 @@ from backend.data_ingestion.gann_pipeline import run_gann_pipeline
 from backend.data_ingestion.smart_money_pipeline import run_smart_money_pipeline
 from backend.data_ingestion.nsdl_fetcher import sync_nsdl_to_db
 from backend.data_ingestion.sector_sync import sync_all as sync_sector_factsheets
+from backend.data_ingestion.bulk_deals_pipeline import run_bulk_deals_pipeline
 from backend.data_ingestion.job_logger import log_start, log_finish
 from backend.storage.cache import invalidate_all
 from backend.storage.db import get_conn, get_session_conn
@@ -188,6 +190,15 @@ def _register_jobs(scheduler):
         CronTrigger(hour=h, minute=m, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
         id="sector_factsheet_sync",
         name=f"Sector factsheet sync @ {h:02d}:{m:02d}",
+    )
+
+    h, m = _t("bulk_deals_daily")
+    scheduler.add_job(
+        _logged("bulk_deals_daily", "Bulk & Block Deals Sync (NSE Archive CSVs)",
+                lambda: run_bulk_deals_pipeline()),
+        CronTrigger(hour=h, minute=m, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
+        id="bulk_deals_daily",
+        name=f"Bulk & Block deals sync @ {h:02d}:{m:02d}",
     )
 
     scheduler.add_job(

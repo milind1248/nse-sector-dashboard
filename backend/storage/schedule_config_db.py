@@ -21,6 +21,7 @@ _DEFAULTS = {
     "gann_daily":            {"hour": 21, "minute": 30},
     "nsdl_sync":             {"hour": 17, "minute": 30},
     "sector_factsheet_sync": {"hour": 17, "minute": 45},
+    "bulk_deals_daily":      {"hour": 18, "minute": 45},
 }
 
 
