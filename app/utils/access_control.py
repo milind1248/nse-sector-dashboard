@@ -36,6 +36,7 @@ _PAGE_PREVIEWS: dict[str, str] = {
     "Stock Picker": "app/assets/page_previews/stock_picker.png",
     "Smart Money": "app/assets/page_previews/smart_money.png",
     "FII Accumulation": "app/assets/page_previews/fii_accumulation.png",
+    "Bulk Deals": "app/assets/page_previews/bulk_deals.png",
     "Alerts": "app/assets/page_previews/alerts.png",
     "HM Scanner": "app/assets/page_previews/hm_scanner.png",
     "AI Forecast": "app/assets/page_previews/ai_forecast.png",
@@ -101,7 +102,7 @@ def require_page_access(page_key: str) -> None:
         preview = _PAGE_PREVIEWS.get(page_key)
         if preview:
             def _go_pricing():
-                st.switch_page("pages/21_💎_Pricing.py")
+                st.switch_page("pages/22_💎_Pricing.py")
             render_gated_overlay(
                 preview,
                 f"Upgrade to unlock {page_key}",

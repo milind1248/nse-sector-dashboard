@@ -33,20 +33,20 @@ PAGE_REGISTRY: list[dict] = [
     {"name": "Stock Picker",     "file": "app/pages/7_🎯_Stock_Picker.py",     "tabs": 2,  "timeout": 30},
     {"name": "Smart Money",      "file": "app/pages/8_💰_Smart_Money.py",      "tabs": 3,  "timeout": 40},
     {"name": "FII Accumulation", "file": "app/pages/9_📊_FII_Accumulation.py", "tabs": 0,  "timeout": 30},
-    {"name": "Alerts",           "file": "app/pages/10_🔔_Alerts.py",          "tabs": 3,  "timeout": 240},
-    {"name": "HM Scanner",       "file": "app/pages/11_🔭_HM_Scanner.py",      "tabs": 0,  "timeout": 90},
-    {"name": "AI Forecast",      "file": "app/pages/12_🤖_AI_Forecast.py",     "tabs": 0,  "timeout": 30},
-    {"name": "Gann Analysis",    "file": "app/pages/13_🔢_Gann_Analysis.py",   "tabs": 0,  "timeout": 45},
-    {"name": "Export",           "file": "app/pages/14_📤_Export.py",          "tabs": 0,  "timeout": 20},
-    {"name": "Contact",          "file": "app/pages/15_📧_Contact.py",         "tabs": 0,  "timeout": 15},
-    {"name": "Disclaimer",       "file": "app/pages/16_⚖️_Disclaimer.py",     "tabs": 0,  "timeout": 15},
-    {"name": "Paper Trading",    "file": "app/pages/19_💹_Paper_Trading.py",   "tabs": 3,  "timeout": 20},
-    {"name": "Pricing",          "file": "app/pages/21_💎_Pricing.py",         "tabs": 0,  "timeout": 20},
-    {"name": "My Profile",       "file": "app/pages/22_👤_My_Profile.py",      "tabs": 0,  "timeout": 20},
-    {"name": "Bulk Deals",       "file": "app/pages/23_📑_Bulk_Deals.py",      "tabs": 2,  "timeout": 20},
-    # Admin (17_🔐_Admin.py) excluded — it's the test runner itself
-    # User Guide (18_📖_User_Guide.py) excluded — static content, no backend calls to test
-    # User Management (20_👥_User_Management.py) excluded — same reason as Admin
+    {"name": "Bulk Deals",       "file": "app/pages/10_📑_Bulk_Deals.py",      "tabs": 2,  "timeout": 20},
+    {"name": "Alerts",           "file": "app/pages/11_🔔_Alerts.py",          "tabs": 3,  "timeout": 240},
+    {"name": "HM Scanner",       "file": "app/pages/12_🔭_HM_Scanner.py",      "tabs": 0,  "timeout": 90},
+    {"name": "AI Forecast",      "file": "app/pages/13_🤖_AI_Forecast.py",     "tabs": 0,  "timeout": 30},
+    {"name": "Gann Analysis",    "file": "app/pages/14_🔢_Gann_Analysis.py",   "tabs": 0,  "timeout": 45},
+    {"name": "Export",           "file": "app/pages/15_📤_Export.py",          "tabs": 0,  "timeout": 20},
+    {"name": "Contact",          "file": "app/pages/16_📧_Contact.py",         "tabs": 0,  "timeout": 15},
+    {"name": "Disclaimer",       "file": "app/pages/17_⚖️_Disclaimer.py",     "tabs": 0,  "timeout": 15},
+    {"name": "Paper Trading",    "file": "app/pages/20_💹_Paper_Trading.py",   "tabs": 3,  "timeout": 20},
+    {"name": "Pricing",          "file": "app/pages/22_💎_Pricing.py",         "tabs": 0,  "timeout": 20},
+    {"name": "My Profile",       "file": "app/pages/23_👤_My_Profile.py",      "tabs": 0,  "timeout": 20},
+    # Admin (18_🔐_Admin.py) excluded — it's the test runner itself
+    # User Guide (19_📖_User_Guide.py) excluded — static content, no backend calls to test
+    # User Management (21_👥_User_Management.py) excluded — same reason as Admin
 ]
 
 # Dummy secrets used during testing so is_admin() / verify_password() don't crash.
