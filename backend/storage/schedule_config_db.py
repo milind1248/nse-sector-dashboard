@@ -21,7 +21,6 @@ _DEFAULTS = {
     "gann_daily":            {"hour": 21, "minute": 30},
     "nsdl_sync":             {"hour": 17, "minute": 30},
     "sector_factsheet_sync": {"hour": 17, "minute": 45},
-    "backup_supabase_weekly": {"hour": 2, "minute": 0},
 }
 
 

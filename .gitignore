@@ -40,3 +40,8 @@ data/nse_dashboard.db
 
 # Weekly Supabase DR backups (scripts/backup_supabase.py) — data, never commit
 backups/
+
+# Local-only backup scheduler — deliberately never pushed to the server repo
+# (backend/data_ingestion/scheduler.py is what Streamlit Cloud's process
+# runs; this file is a separate, local-machine-only scheduler loop).
+scripts/local_backup_scheduler.py

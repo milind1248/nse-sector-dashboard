@@ -24,7 +24,6 @@ def _load_schedule_config() -> dict:
         "gann_daily":            {"hour": 21, "minute": 30},
         "nsdl_sync":             {"hour": 17, "minute": 30},
         "sector_factsheet_sync": {"hour": 17, "minute": 45},
-        "backup_supabase_weekly": {"hour": 2, "minute": 0},
     }
     try:
         from backend.storage.schedule_config_db import get_schedule_config
@@ -218,23 +217,6 @@ def _register_jobs(scheduler):
         id="subscription_expiry_check",
         name="Subscription expiry check @ 00:10 IST daily",
         misfire_grace_time=3600,
-    )
-
-    def _run_backup_supabase():
-        from scripts.backup_supabase import run_backup
-        run_backup()
-
-    h, m = _t("backup_supabase_weekly")
-    scheduler.add_job(
-        _logged(
-            "backup_supabase_weekly",
-            "Weekly Supabase Backup (pg_dump, local DR copy)",
-            _run_backup_supabase,
-        ),
-        CronTrigger(day_of_week="sun", hour=h, minute=m, timezone=SCHEDULE_TZ),
-        id="backup_supabase_weekly",
-        name=f"Weekly Supabase backup @ {h:02d}:{m:02d} IST on Sunday",
-        misfire_grace_time=86400,
     )
 
 

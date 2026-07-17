@@ -1005,7 +1005,6 @@ _SCH_JOBS = [
     ("gann_daily",            "Gann Cache — All 5 Methods (All Stocks)",        "9:30 PM"),
     ("nsdl_sync",             "NSDL FPI Sector Sync (Fortnightly Data)",        "5:30 PM"),
     ("sector_factsheet_sync", "Sector Factsheet Sync (NiftyIndices PDFs)",      "5:45 PM"),
-    ("backup_supabase_weekly", "Weekly Supabase Backup (pg_dump, local DR copy)", "2:00 AM Sun"),
 ]
 
 _hour_options   = list(range(0, 24))
