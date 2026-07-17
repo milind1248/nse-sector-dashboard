@@ -32,3 +32,8 @@ start_app.bat
 data/announcement.json
 data/schedule_config.json
 start_dashboard.bat
+
+# Legacy SQLite DB — app reads/writes Supabase Postgres exclusively now
+# (backend/storage/db.py::get_conn()). Kept locally only as the source
+# for the already-run scripts/migrate_sqlite_to_supabase.py backfill.
+data/nse_dashboard.db
