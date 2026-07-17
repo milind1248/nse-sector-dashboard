@@ -28,6 +28,20 @@ GOVERNED_PAGES: list[dict] = [p for p in PAGE_REGISTRY if p["name"] not in _UNGO
 # (see app/assets/page_previews/) and never regenerated live.
 _PAGE_PREVIEWS: dict[str, str] = {
     "Market Pulse": "app/assets/page_previews/market_pulse.png",
+    "Sector Analysis": "app/assets/page_previews/sector_analysis.png",
+    "Index Stocks": "app/assets/page_previews/index_stocks.png",
+    "FII DII Flow": "app/assets/page_previews/fii_dii_flow.png",
+    "FII Sectors": "app/assets/page_previews/fii_sectors.png",
+    "FPI Sectors": "app/assets/page_previews/fpi_sectors.png",
+    "Stock Picker": "app/assets/page_previews/stock_picker.png",
+    "Smart Money": "app/assets/page_previews/smart_money.png",
+    "FII Accumulation": "app/assets/page_previews/fii_accumulation.png",
+    "Alerts": "app/assets/page_previews/alerts.png",
+    "HM Scanner": "app/assets/page_previews/hm_scanner.png",
+    "AI Forecast": "app/assets/page_previews/ai_forecast.png",
+    "Gann Analysis": "app/assets/page_previews/gann_analysis.png",
+    "Export": "app/assets/page_previews/export.png",
+    "Paper Trading": "app/assets/page_previews/paper_trading.png",
 }
 
 
