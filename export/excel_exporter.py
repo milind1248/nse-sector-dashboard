@@ -31,8 +31,21 @@ def _apply_pct_colors(ws, col_letters: list[str], start_row: int = 2):
                     pass
 
 
+def _strip_tz(df: pd.DataFrame) -> pd.DataFrame:
+    """Excel/openpyxl can't write timezone-aware datetimes. Postgres
+    timestamptz columns (via psycopg2/pandas) come back tz-aware, so drop
+    the tzinfo (values stay in whatever zone they were already in) before
+    any sheet is written."""
+    df = df.copy()
+    for col in df.columns:
+        if isinstance(df[col].dtype, pd.DatetimeTZDtype):
+            df[col] = df[col].dt.tz_localize(None)
+    return df
+
+
 def _write_sheet(wb: openpyxl.Workbook, name: str, df: pd.DataFrame,
                  pct_cols: list[str] = None):
+    df = _strip_tz(df)
     ws = wb.create_sheet(name)
     for col_num, col_name in enumerate(df.columns, 1):
         cell = ws.cell(row=1, column=col_num, value=col_name)
