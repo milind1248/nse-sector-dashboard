@@ -57,12 +57,18 @@ def render_gated_overlay(
                 overflow: hidden;
                 margin-bottom: 1rem;
                 line-height: 0;
+                /* Opt this element out of Chrome Android's "Force Dark" /
+                   auto-dark-theme, which can mis-detect our chart screenshot
+                   as UI chrome and desaturate/invert it to flat gray on
+                   mobile — doesn't affect desktop rendering. */
+                color-scheme: light;
             }}
             div.st-key-gated_overlay_{slug} img.gated-bg-img {{
                 display: block;
                 width: 100%;
                 height: auto;
                 filter: blur(0px) brightness(0.6) saturate(0.85);
+                color-scheme: light;
             }}
             div.st-key-gated_overlay_{slug} .gated-scrim {{
                 position: absolute;
