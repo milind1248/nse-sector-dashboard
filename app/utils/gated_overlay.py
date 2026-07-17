@@ -109,6 +109,25 @@ def render_gated_overlay(
                 min-width: 220px;
                 z-index: 2;
             }}
+            @media (max-width: 640px) {{
+                div.st-key-gated_overlay_{slug} img.gated-bg-img {{
+                    filter: blur(0px) brightness(0.8) saturate(0.9);
+                }}
+                div.st-key-gated_overlay_{slug} .gated-scrim {{
+                    background: radial-gradient(ellipse at center, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.08) 60%);
+                }}
+                div.st-key-gated_overlay_{slug} .gated-card {{
+                    top: 30%;
+                    width: 96%;
+                }}
+                div.st-key-gated_overlay_{slug} .gated-message {{
+                    font-size: 12px;
+                }}
+                div.st-key-gated_overlay_{slug} div[data-testid="stHorizontalBlock"] {{
+                    top: 66%;
+                    width: 82%;
+                }}
+            }}
             </style>
             <img class="gated-bg-img" src="data:image/png;base64,{b64}" />
             <div class="gated-scrim"></div>
