@@ -30,6 +30,7 @@ def render_gated_overlay(
     cta_label: str,
     cta_key: str,
     on_cta,
+    animated: bool = False,
 ) -> bool:
     """Render the blurred-background paywall card. Returns True if an image
     was found and the overlay was rendered; False if the caller should fall
@@ -39,6 +40,15 @@ def render_gated_overlay(
     scrollbars) — the card and CTA button are positioned as percentages of
     the container so they stay correctly placed regardless of the image's
     actual rendered height at any viewport width.
+
+    animated=True adds a slow CSS-only "Ken Burns" pan/zoom on the same
+    static image plus a subtle diagonal shimmer sweep — no new image
+    assets, no JS, no extra network requests, so it can't slow page load
+    or add a DB/API call. Pure `transform`/`background-position` CSS
+    animations are GPU-composited and supported identically in every
+    evergreen browser (Chrome, Firefox, Safari, Edge — desktop and
+    mobile) without vendor prefixes at this spec level. Opt-in per call
+    site (default False) so it can be trialled on one page first.
     """
     path = Path(image_path)
     if not path.exists():
@@ -46,6 +56,44 @@ def render_gated_overlay(
 
     b64 = base64.b64encode(path.read_bytes()).decode()
     slug = _slug(cta_key)
+
+    _anim_css = ""
+    _anim_class = ""
+    if animated:
+        _anim_class = " gated-anim"
+        _anim_css = f"""
+            div.st-key-gated_overlay_{slug} img.gated-bg-img.gated-anim {{
+                animation: gated_kenburns_{slug} 22s ease-in-out infinite;
+                will-change: transform;
+                transform-origin: center center;
+            }}
+            @keyframes gated_kenburns_{slug} {{
+                0%   {{ transform: scale(1.0); }}
+                50%  {{ transform: scale(1.07) translate(-1%, -1%); }}
+                100% {{ transform: scale(1.0); }}
+            }}
+            div.st-key-gated_overlay_{slug} .gated-shimmer {{
+                position: absolute;
+                inset: 0;
+                background: linear-gradient(115deg,
+                    transparent 35%, rgba(255,255,255,0.10) 48%,
+                    rgba(255,255,255,0.10) 52%, transparent 65%);
+                background-size: 250% 250%;
+                animation: gated_shimmer_{slug} 7s linear infinite;
+                pointer-events: none;
+            }}
+            @keyframes gated_shimmer_{slug} {{
+                0%   {{ background-position: 200% 0%; }}
+                100% {{ background-position: -50% 0%; }}
+            }}
+            /* Respect reduced-motion preference — freeze both animations */
+            @media (prefers-reduced-motion: reduce) {{
+                div.st-key-gated_overlay_{slug} img.gated-bg-img.gated-anim,
+                div.st-key-gated_overlay_{slug} .gated-shimmer {{
+                    animation: none;
+                }}
+            }}
+        """
 
     with st.container(key=f"gated_overlay_{slug}"):
         st.markdown(
@@ -75,6 +123,7 @@ def render_gated_overlay(
                 inset: 0;
                 background: radial-gradient(ellipse at center, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.15) 60%);
             }}
+            {_anim_css}
             div.st-key-gated_overlay_{slug} .gated-card {{
                 position: absolute;
                 top: 40%;
@@ -135,7 +184,8 @@ def render_gated_overlay(
                 }}
             }}
             </style>
-            <img class="gated-bg-img" src="data:image/png;base64,{b64}" />
+            <img class="gated-bg-img{_anim_class}" src="data:image/png;base64,{b64}" />
+            {'<div class="gated-shimmer"></div>' if animated else ''}
             <div class="gated-scrim"></div>
             <div class="gated-card">
                 <div class="gated-lock">🔒</div>

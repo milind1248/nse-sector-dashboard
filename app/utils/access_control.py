@@ -45,6 +45,11 @@ _PAGE_PREVIEWS: dict[str, str] = {
     "Paper Trading": "app/assets/page_previews/paper_trading.png",
 }
 
+# Pages using the CSS Ken-Burns pan/zoom + shimmer overlay (see
+# gated_overlay.py's `animated` param) instead of a static image — trial
+# rollout, one page at a time.
+_ANIMATED_PAGES = {"Market Pulse"}
+
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _cached_group_pages(group_name: str) -> list[str]:
@@ -69,6 +74,7 @@ def require_page_access(page_key: str) -> None:
                 "🔓 Sign In",
                 f"_ov_signin_{page_key}",
                 _open_signin,
+                animated=page_key in _ANIMATED_PAGES,
             )
         else:
             st.info("🔒 Please sign in to view this page.")
@@ -110,6 +116,7 @@ def require_page_access(page_key: str) -> None:
                 "💎 View Plans",
                 f"_ov_upgrade_{page_key}",
                 _go_pricing,
+                animated=page_key in _ANIMATED_PAGES,
             )
         else:
             st.warning(
