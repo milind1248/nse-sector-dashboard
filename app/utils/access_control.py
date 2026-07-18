@@ -46,9 +46,9 @@ _PAGE_PREVIEWS: dict[str, str] = {
 }
 
 # Pages using the CSS Ken-Burns pan/zoom + shimmer overlay (see
-# gated_overlay.py's `animated` param) instead of a static image — trial
-# rollout, one page at a time.
-_ANIMATED_PAGES = {"Market Pulse"}
+# gated_overlay.py's `animated` param) instead of a static image. Trialled
+# on Market Pulse first and approved — now on every page with a preview.
+_ANIMATED_PAGES = set(_PAGE_PREVIEWS.keys())
 
 
 @st.cache_data(ttl=300, show_spinner=False)
