@@ -302,6 +302,18 @@ with tab_grant:
                     user["id"], sub_id, amount, payment_date,
                     payment_ref=payment_ref or None, verified_by="admin", notes=notes or None,
                 )
+                from app.utils.notify import send_user_email
+                send_user_email(
+                    gsel_email,
+                    "Your subscription is now active",
+                    f"Hi {user.get('full_name') or 'there'},\n\n"
+                    f"Good news — your {gsel_group.title()} plan is now active, covering "
+                    f"{_fmt_date(period_start)} to {_fmt_date(period_end)}.\n\n"
+                    "You now have access to everything included in this plan. "
+                    "Sign in any time to explore.\n\n"
+                    "Visit: https://market.cfer.in\n\n"
+                    "Thanks for subscribing,\nMarket Sector Analysis",
+                )
                 st.cache_data.clear()
                 st.session_state["_grant_flash"] = (
                     f"Granted {gsel_group} to {gsel_email} for "
