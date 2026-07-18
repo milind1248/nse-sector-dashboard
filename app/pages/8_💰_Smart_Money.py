@@ -1821,11 +1821,19 @@ with tab_trend:
 
     trend_raw = _load_trend_data(tuple(fno_symbols), trend_lookback)
 
-    if trend_raw.empty:
-        st.info("No smart money history found for the selected lookback window.")
-    else:
+    if not trend_raw.empty:
         trend_raw["trade_date"] = pd.to_datetime(trend_raw["trade_date"]).dt.date
+        # A day with pct_oi_chg still NULL means NSE hasn't published that
+        # day's F&O Bhavcopy yet (normal same-day timing lag) — not a real
+        # "Neutral" OI signal. Drop it entirely rather than let it silently
+        # become each symbol's "latest day" anchor for the Last-N-days check,
+        # which would break the match even when the prior day clearly
+        # qualifies (and still shows correctly in Daily Detail).
+        trend_raw = trend_raw.dropna(subset=["pct_oi_chg"])
 
+    if trend_raw.empty:
+        st.info("No smart money history with complete OI data found for the selected lookback window.")
+    else:
         # ── Per-symbol trailing average over this same lookback window ────────
         _trend_sym_avg = trend_raw.groupby("symbol")[["dlv_pct", "action"]].mean()
         trend_raw = trend_raw.join(_trend_sym_avg, on="symbol", rsuffix="_avg")
