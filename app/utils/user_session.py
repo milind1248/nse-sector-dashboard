@@ -89,12 +89,26 @@ def _login_user(user, auth_provider: str, session=None):
     display_name = full_name or (user.email.split("@")[0] if user.email else "there")
     is_new_user = profiles_db.upsert_profile(user.id, user.email, full_name, avatar_url, auth_provider)
     if is_new_user:
-        from app.utils.notify import queue_notification
+        from app.utils.notify import queue_notification, send_user_email
         queue_notification(
             f"[NSE Dashboard] New User Registered: {user.email}",
             f"A new user just registered.\n\nEmail: {user.email}\n"
             f"Name: {display_name}\nSign-in method: {auth_provider}",
         )
+        if user.email:
+            send_user_email(
+                user.email,
+                "Welcome to Market Sector Analysis",
+                f"Hi {display_name},\n\n"
+                "Welcome to Market Sector Analysis — you're all set up.\n\n"
+                "Your account starts on the free Silver plan, which already includes "
+                "Market Pulse, Sector Analysis, FII/DII Flow, and Paper Trading. "
+                "If you'd like access to more pages (Smart Money, AI Forecast, Gann "
+                "Analysis, Bulk Deals, and more), you can view and subscribe to a "
+                "plan any time from the Pricing page.\n\n"
+                "Visit: https://market.cfer.in\n\n"
+                "Thanks for joining,\nMarket Sector Analysis",
+            )
     st.session_state["_user"] = {
         "id": user.id,
         "email": user.email,

@@ -155,13 +155,25 @@ else:
                     payment_ref or None, screenshot.getvalue(), screenshot.type,
                     notes=notes or None,
                 )
-                from app.utils.notify import queue_notification
+                from app.utils.notify import queue_notification, send_user_email
                 queue_notification(
                     f"[NSE Dashboard] Payment Claim Submitted: {current_user()['email']}",
                     f"A payment claim was submitted for review.\n\n"
                     f"Email: {current_user()['email']}\nPlan: {plan}\n"
                     f"Amount: ₹{amount:,.0f}\nPayment date: {pay_date}\n"
                     f"Reference: {payment_ref or '—'}\nNotes: {notes or '—'}",
+                )
+                send_user_email(
+                    current_user()["email"],
+                    "Your subscription is under review",
+                    f"Hi {current_user().get('full_name') or 'there'},\n\n"
+                    f"We've received your payment claim for the {plan.title()} plan "
+                    f"(₹{amount:,.0f}, paid on {pay_date}).\n\n"
+                    "Your subscription is now under review. We'll verify the payment "
+                    "and activate your plan shortly — you'll get another email as soon "
+                    "as it's approved.\n\n"
+                    "Visit: https://market.cfer.in\n\n"
+                    "Thanks for your patience,\nMarket Sector Analysis",
                 )
                 st.session_state["_pricing_flash"] = (
                     "Submitted — the admin will review your payment and activate your plan shortly."

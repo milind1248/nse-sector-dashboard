@@ -17,9 +17,17 @@ on literally every page — pops and fires it on the *next* page load, a stable
 render that has time to complete the fetch.
 """
 import json
+import logging
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 import streamlit as st
 import streamlit.components.v1 as components
+
+logger = logging.getLogger(__name__)
+
+_ADMIN_BCC = "milind1248@gmail.com"
 
 
 def _js_str(s: str) -> str:
@@ -58,3 +66,41 @@ def render_pending_notification() -> None:
         """,
         height=0,
     )
+
+
+def send_user_email(to_email: str, subject: str, message: str) -> bool:
+    """User-facing transactional email (welcome, subscription status changes),
+    sent synchronously via Gmail SMTP — separate from the admin-only Web3Forms
+    path above, since Web3Forms' Auto Responder (the only way it can reply to
+    an arbitrary submitter) requires a paid plan this account doesn't have.
+
+    Wrapped in try/except with a short timeout: a flaky email must never
+    block or fail the user's actual signup/payment action. Returns False
+    (never raises) on any failure — callers should not treat this as
+    critical-path.
+    """
+    try:
+        sender = st.secrets["smtp"]["sender_email"]
+        app_password = st.secrets["smtp"]["app_password"]
+    except Exception:
+        logger.warning("SMTP secrets not configured — skipping user email to %s", to_email)
+        return False
+
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = f"Market Sector Analysis <{sender}>"
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        # BCC deliberately NOT set as a header — that would leak the BCC
+        # address to the primary recipient in raw headers. It's added only
+        # to the SMTP envelope recipient list below.
+        msg.attach(MIMEText(message, "plain"))
+
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
+            server.starttls()
+            server.login(sender, app_password)
+            server.sendmail(sender, [to_email, _ADMIN_BCC], msg.as_string())
+        return True
+    except Exception as e:
+        logger.warning("Failed to send user email to %s: %s", to_email, e)
+        return False

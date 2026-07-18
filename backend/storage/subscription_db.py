@@ -196,6 +196,23 @@ def expire_subscriptions() -> int:
     return len(affected_users)
 
 
+def list_expiring_soon(days: int = 5) -> list[dict]:
+    """Active subscriptions whose period_end is exactly `days` from today.
+    Naturally fires once per subscription (period_end is a fixed date, and
+    this is checked once daily), so no separate "already notified" flag is
+    needed — same idempotency shape as expire_subscriptions()."""
+    con = get_conn()
+    rows = con.execute("""
+        SELECT s.user_id, p.email, p.full_name, s.group_name, s.period_end
+        FROM user_subscriptions s JOIN profiles p ON p.id = s.user_id
+        WHERE s.status = 'active'
+          AND s.period_end = CURRENT_DATE + %s
+    """, (days,)).fetchall()
+    con.close()
+    cols = ["user_id", "email", "full_name", "group_name", "period_end"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
 def cancel_subscription(user_id: str) -> None:
     """Self-service cancel: marks the user's active subscription(s) cancelled
     and immediately reverts them to the default group."""

@@ -230,6 +230,41 @@ def _register_jobs(scheduler):
         misfire_grace_time=3600,
     )
 
+    def _run_expiry_reminders():
+        from backend.storage.subscription_db import list_expiring_soon
+        from app.utils.notify import send_user_email
+        expiring = list_expiring_soon(days=5)
+        sent = 0
+        for row in expiring:
+            if not row["email"]:
+                continue
+            ok = send_user_email(
+                row["email"],
+                "Your subscription expires in 5 days",
+                f"Hi {row['full_name'] or 'there'},\n\n"
+                f"Your {row['group_name'].title()} plan is set to expire on "
+                f"{row['period_end'].strftime('%d %b %Y')}.\n\n"
+                "To keep your access without interruption, renew any time from "
+                "the Pricing page before it expires.\n\n"
+                "Visit: https://market.cfer.in\n\n"
+                "Thanks,\nMarket Sector Analysis",
+            )
+            if ok:
+                sent += 1
+        logger.info(f"Subscription expiry reminders: {sent}/{len(expiring)} sent.")
+
+    scheduler.add_job(
+        _logged(
+            "subscription_expiry_reminder",
+            "Subscription Expiry Reminder (5 Days Before)",
+            _run_expiry_reminders,
+        ),
+        CronTrigger(hour=9, minute=0, timezone=SCHEDULE_TZ),  # every day, incl. weekends
+        id="subscription_expiry_reminder",
+        name="Subscription expiry reminder @ 09:00 IST daily",
+        misfire_grace_time=3600,
+    )
+
 
 def start_scheduler_background():
     """Start scheduler as a background thread — called once from run.py at boot."""

@@ -374,6 +374,18 @@ with tab_pending:
                                 st.error("End period must be on or after start period.")
                             else:
                                 sdb.approve_payment(claim["id"], p_start, p_end, verified_by="admin")
+                                from app.utils.notify import send_user_email
+                                send_user_email(
+                                    claim["email"],
+                                    "Your subscription is now active",
+                                    f"Hi there,\n\n"
+                                    f"Good news — your {claim['requested_group'].title()} plan is "
+                                    f"now active, covering {_fmt_date(p_start)} to {_fmt_date(p_end)}.\n\n"
+                                    "You now have access to everything included in this plan. "
+                                    "Sign in any time to explore.\n\n"
+                                    "Visit: https://market.cfer.in\n\n"
+                                    "Thanks for subscribing,\nMarket Sector Analysis",
+                                )
                                 st.cache_data.clear()
                                 st.session_state["_pending_flash"] = (
                                     f"Approved {claim['requested_group']} for {claim['email']}."
