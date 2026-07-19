@@ -298,7 +298,7 @@ def render_segment_tab(segment: str):
                 "Avg Price": "₹{:.2f}", "Mark Price": lambda v: f"₹{v:.2f}" if isinstance(v, (int, float)) else "—",
                 "P&L": lambda v: f"₹{v:+.2f}" if isinstance(v, (int, float)) else "—",
             }),
-            use_container_width=True, hide_index=True
+            width='stretch', hide_index=True
         )
 
         close_cols = st.columns(min(len(display_rows), 4) or 1)
@@ -338,7 +338,7 @@ def render_segment_tab(segment: str):
                     "fill_price": lambda v: f"₹{v:.2f}" if isinstance(v, (int, float)) else "—",
                     "realized_pnl": lambda v: f"₹{v:+.2f}" if isinstance(v, (int, float)) else "—",
                 }),
-                use_container_width=True, hide_index=True
+                width='stretch', hide_index=True
             )
 
             pending = [o for o in orders if o["status"] == "PENDING"]

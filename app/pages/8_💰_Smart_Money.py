@@ -1772,7 +1772,7 @@ with tab_fii:
                         "Quantity":  "{:,.0f}",
                         "Value (₹)": "₹{:,.0f}",
                     }, na_rep="–"),
-                use_container_width=True, hide_index=True, height=550,
+                width='stretch', hide_index=True, height=550,
             )
 
             st.download_button(

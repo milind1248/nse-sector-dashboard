@@ -337,7 +337,7 @@ with tab_scan:
         styled = show_df.style.apply(_color_signal_row, axis=1).format(_fmt, na_rep="—")
         st.dataframe(
             styled,
-            use_container_width=True,
+            width='stretch',
             hide_index=True,
             column_config={
                 "Symbol": st.column_config.LinkColumn(
@@ -400,7 +400,7 @@ with tab_single:
         per_year["Year"] = per_year["Year"].astype(str)
 
         with st.expander("📅 Signals per Year", expanded=False):
-            st.dataframe(per_year, use_container_width=True, hide_index=True)
+            st.dataframe(per_year, width='stretch', hide_index=True)
 
         # TradingView link
         tv_url = tv_chart_url(sym_s, interval_s)
@@ -421,7 +421,7 @@ with tab_single:
             if not bot_sigs.empty:
                 _fmt_s = {c: ("{:.0f}" if c == "Score" else "{:.1f}") for c in bot_sigs.columns if bot_sigs[c].dtype.kind == "f"}
                 st.dataframe(bot_sigs.sort_index(ascending=False).style.format(_fmt_s, na_rep="—"),
-                             use_container_width=True)
+                             width='stretch')
             else:
                 st.info("No bottom signals in this period.")
 
@@ -435,7 +435,7 @@ with tab_single:
             if not top_sigs.empty:
                 _fmt_s = {c: "{:.1f}" for c in top_sigs.columns if top_sigs[c].dtype.kind == "f"}
                 st.dataframe(top_sigs.sort_index(ascending=False).style.format(_fmt_s, na_rep="—"),
-                             use_container_width=True)
+                             width='stretch')
             else:
                 st.info("No top signals in this period.")
     elif run_single:
@@ -514,7 +514,7 @@ with tab_bt:
         }
         show_summary = bt_summary[disp_cols].rename(columns=cols_rename)
         _fmt_sum = {c: ("{:.0f}" if c == "Signals" else "{:.1f}") for c in show_summary.columns if show_summary[c].dtype.kind in ("f", "i") and c != "Symbol"}
-        st.dataframe(show_summary.style.format(_fmt_sum, na_rep="—"), use_container_width=True, hide_index=True)
+        st.dataframe(show_summary.style.format(_fmt_sum, na_rep="—"), width='stretch', hide_index=True)
 
         # Trade log
         with st.expander("📋 Trade Log (Bottom Signals)", expanded=False):
@@ -535,7 +535,7 @@ with tab_bt:
                 })
                 _fmt_tl = {c: "{:.1f}" for c in tl.columns if tl[c].dtype.kind == "f"}
                 styled_tl = tl.style.map(_color_outcome, subset=["Outcome"]).format(_fmt_tl, na_rep="—")
-                st.dataframe(styled_tl, use_container_width=True, hide_index=True)
+                st.dataframe(styled_tl, width='stretch', hide_index=True)
                 csv_data = tl.to_csv(index=False).encode("utf-8")
                 st.download_button("⬇ Download CSV", csv_data, "hm_bottom_backtest.csv", "text/csv")
 
@@ -561,7 +561,7 @@ with tab_bt:
             "avg_return_%": "Avg Return%", "median_mfe_%": "Median MFE%",
             "avg_score": "Avg Score", "response_score": "Response Score",
         })
-        st.dataframe(show_top_summary, use_container_width=True, hide_index=True)
+        st.dataframe(show_top_summary, width='stretch', hide_index=True)
 
         with st.expander("📋 Trade Log (Top Signals)", expanded=False):
             if not bt_top_trades.empty:
@@ -579,7 +579,7 @@ with tab_bt:
                 })
                 _fmt_tl = {c: "{:.1f}" for c in tl.columns if tl[c].dtype.kind == "f"}
                 styled_tl = tl.style.map(_color_outcome, subset=["Outcome"]).format(_fmt_tl, na_rep="—")
-                st.dataframe(styled_tl, use_container_width=True, hide_index=True)
+                st.dataframe(styled_tl, width='stretch', hide_index=True)
                 csv_data = tl.to_csv(index=False).encode("utf-8")
                 st.download_button("⬇ Download CSV", csv_data, "hm_top_backtest.csv", "text/csv")
 

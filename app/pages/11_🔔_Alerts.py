@@ -1733,7 +1733,7 @@ with tab_frvp:
             fig.update_yaxes(showgrid=True, gridcolor="#1e2130", tickformat=",.0f")
             fig.update_xaxes(showgrid=False, col=2)
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
             # ── Key levels table ──────────────────────────────────────────────
             st.markdown("**Key Price Levels**")
@@ -1744,7 +1744,7 @@ with tab_frvp:
                 "Bias": ["Resistance", "BUY / SELL gate", "Support",
                          f"{'↑ Above POC' if signal=='BUY' else '↓ Below POC'}"],
             })
-            st.dataframe(kl, use_container_width=True, hide_index=True)
+            st.dataframe(kl, width='stretch', hide_index=True)
 
             st.caption(
                 f"FRVP logic: Step 1 — anchor from the structural swing high/low of the last 3–6 months "
@@ -2180,7 +2180,7 @@ with tab_frvp_hm:
             .apply(_hm_row_colour, axis=1)
             .format(_scan_fmt)
         )
-        st.dataframe(styled, use_container_width=True, hide_index=True)
+        st.dataframe(styled, width='stretch', hide_index=True)
 
         # ── Export ────────────────────────────────────────────────────────────
         st.download_button(
@@ -2243,7 +2243,7 @@ with tab_frvp_hm:
                     "AvgPnLPoints": lambda v: f"{v:+.2f}" if isinstance(v, (int, float)) else "—",
                 }, na_rep="—")
             )
-            st.dataframe(styled_bt, use_container_width=True, hide_index=True)
+            st.dataframe(styled_bt, width='stretch', hide_index=True)
 
             avg_wr = df_bt["WinRate%"].dropna().mean()
             bm1, bm2, bm3, bm4 = st.columns(4)
@@ -2309,7 +2309,7 @@ with tab_frvp_hm:
                     .map(_tl_dir_color,    subset=["Signal"])
                     .format(_tl_fmt)
                 )
-                st.dataframe(styled_tl, use_container_width=True, hide_index=True)
+                st.dataframe(styled_tl, width='stretch', hide_index=True)
 
                 st.download_button(
                     "⬇ Export Trade Log CSV",
@@ -2359,7 +2359,7 @@ with tab_best_ma:
             rebound_atr = st.slider("Rebound Target (ATR units)", 0.5, 3.0, 1.0, 0.1, key="best_ma_rebound")
 
     # ── Analyze button ─────────────────────────────────────────────────────────
-    if st.button("▶ Analyze", type="primary", use_container_width=False):
+    if st.button("▶ Analyze", type="primary", width='content'):
         ticker = f"{selected_stock}.NS"
         direction_lower = direction_type.lower()
 
@@ -2525,7 +2525,7 @@ with tab_best_ma:
             )
             fig.update_layout(title=f"{selected_stock} — Price & Best-Respected MA", height=480,
                                template="plotly_dark", legend=dict(orientation="h", y=1.08))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
             st.markdown("---")
 
@@ -2550,7 +2550,7 @@ with tab_best_ma:
                        .reset_index(drop=True))
             st.dataframe(
                 df_cand.style.format({"Score": "{:.1f}"}),
-                use_container_width=True,
+                width='stretch',
                 hide_index=True
             )
 
@@ -2586,7 +2586,7 @@ with tab_best_ma:
                         "Bars to Outcome": t.bars_to_outcome if t.bars_to_outcome is not None else "—",
                     } for t in prim_touches[-100:]]
                     if touches_data:
-                        st.dataframe(pd.DataFrame(touches_data), use_container_width=True, hide_index=True)
+                        st.dataframe(pd.DataFrame(touches_data), width='stretch', hide_index=True)
 
             st.markdown("---")
 

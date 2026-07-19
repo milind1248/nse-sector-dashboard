@@ -1140,7 +1140,7 @@ with tab_emb:
         margin=dict(l=10, r=10, t=10, b=10), height=540,
     )
 
-    st.plotly_chart(fig_emb, use_container_width=True)
+    st.plotly_chart(fig_emb, width='stretch')
 
     # ── Projected dates table ─────────────────────────────────────────────────
     st.markdown("**📋 Projected Key Dates from Start**")
@@ -1158,7 +1158,7 @@ with tab_emb:
             "Projected Date": proj.strftime("%d %b %Y"),
             "Shape": shape,
         })
-    st.dataframe(pd.DataFrame(_legend_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(_legend_rows), width='stretch', hide_index=True)
 
     # ── Backtest ──────────────────────────────────────────────────────────────
     st.markdown("---")
@@ -1217,7 +1217,7 @@ with tab_emb:
 
         st.dataframe(
             _emb_df.style.map(_emb_color, subset=["Accuracy %"]),
-            use_container_width=True, hide_index=True,
+            width='stretch', hide_index=True,
         )
     else:
         st.info("Not enough historical data to run backtest for this stock.")
