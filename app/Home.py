@@ -612,10 +612,11 @@ with tab_trend:
         all_sector_names,
         default=all_sector_names[:5],
         max_selections=8,
+        key="trend_sectors",
     )
 
     view = st.radio("Show:", ["₹ Crore (net investment)", "% Change vs Prior Fortnight"],
-                     horizontal=True)
+                     horizontal=True, key="trend_view_mode")
 
     if selected_sectors:
         date_labels_asc = [d.strftime("%d %b %y") for d in sorted(all_periods.keys())]

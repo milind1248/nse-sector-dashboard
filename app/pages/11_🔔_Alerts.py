@@ -258,7 +258,9 @@ with tab_breakout:
         st.plotly_chart(fig, width='stretch')
 
         alert_sectors = df_alerts["Sector"].unique().tolist()
-        sel = st.selectbox("Jump to sector analysis:", alert_sectors)
+        if "al_jump_sector" in st.session_state and st.session_state["al_jump_sector"] not in alert_sectors:
+            del st.session_state["al_jump_sector"]
+        sel = st.selectbox("Jump to sector analysis:", alert_sectors, key="al_jump_sector")
         if st.button(f"Analyse {sel} →", type="primary"):
             st.session_state["selected_sector"] = sel
             st.switch_page("pages/2_📈_Sector_Analysis.py")

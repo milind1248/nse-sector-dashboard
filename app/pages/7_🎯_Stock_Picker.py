@@ -209,7 +209,12 @@ st.markdown("---")
 # Individual stock chart
 st.subheader("Stock Chart — Deep Dive")
 sym_options = [r["Symbol"] for r in stock_rows]
-chosen = st.selectbox("Select stock for chart", sym_options, index=0)
+# Guard: if the previously selected symbol has dropped out of the current
+# (momentum-sorted) options list, clear it first — a stable key= combined
+# with a stale value not in options would otherwise raise an exception.
+if "sp_chart_stock" in st.session_state and st.session_state["sp_chart_stock"] not in sym_options:
+    del st.session_state["sp_chart_stock"]
+chosen = st.selectbox("Select stock for chart", sym_options, key="sp_chart_stock")
 
 if chosen:
     chosen_row = next((r for r in stock_rows if r["Symbol"] == chosen), None)

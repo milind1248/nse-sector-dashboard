@@ -57,7 +57,7 @@ tabs = st.tabs(["📅 Daily Flow", "📊 Fortnightly Sector Breakdown"])
 
 with tabs[0]:
     period_map = {"Weekly": 7, "Fortnightly": 14, "Monthly": 30, "Quarterly": 90}
-    period = st.radio("View period", list(period_map.keys()), horizontal=True, index=1)
+    period = st.radio("View period", list(period_map.keys()), horizontal=True, index=1, key="fii_period")
     days   = period_map[period]
 
     with st.status("🌐 Loading daily FII/DII flow data…", expanded=False) as _s4:

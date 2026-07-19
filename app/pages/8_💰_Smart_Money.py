@@ -821,7 +821,12 @@ tab_stock, tab_screener, tab_delivery, tab_fii, tab_trend = st.tabs([
 # TAB 1 — 90-Day Stock Deep Dive with DB cache
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_stock:
-    symbol = st.selectbox("Search stock symbol (type to filter)", fno_symbols, index=0)
+    # Guard: fno_symbols is refreshed daily from NSE's F&O bhavcopy, so
+    # membership can shift — clear a stale prior selection before using a
+    # stable key= (an invalid persisted value would otherwise raise).
+    if "sm_stock_symbol" in st.session_state and st.session_state["sm_stock_symbol"] not in fno_symbols:
+        del st.session_state["sm_stock_symbol"]
+    symbol = st.selectbox("Search stock symbol (type to filter)", fno_symbols, key="sm_stock_symbol")
 
     if symbol:
         all_90d = _trading_dates_for_90d()           # list of 90 trading dates

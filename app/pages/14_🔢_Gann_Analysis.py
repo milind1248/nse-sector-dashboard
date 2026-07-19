@@ -249,10 +249,12 @@ names      = [s for s, _ in all_stocks]
 sa, sb = st.columns([3, 1])
 with sa:
     default = names.index("RELIANCE") if "RELIANCE" in names else 0
-    sel = st.selectbox("Select Stock", names, index=default)
+    if "gn_stock" in st.session_state and st.session_state["gn_stock"] not in names:
+        del st.session_state["gn_stock"]
+    sel = st.selectbox("Select Stock", names, index=default, key="gn_stock")
 with sb:
     pw = st.slider("Pivot window (bars)", 5, 20, 10,
-                   help="Bars each side used to identify a swing high/low")
+                   help="Bars each side used to identify a swing high/low", key="gn_pivot_window")
 
 # ── Data load: DB first, live fallback ─────────────────────────────────────────
 
@@ -536,7 +538,8 @@ with tab_deg:
         st.stop()
 
     pivot_choice = st.radio(
-        "Calculate levels from", ["Swing High", "Swing Low"], horizontal=True
+        "Calculate levels from", ["Swing High", "Swing Low"], horizontal=True,
+        key="gn_pivot_choice",
     )
     ref_pivot = ph if pivot_choice == "Swing High" else pl
     if ref_pivot is None:

@@ -532,12 +532,15 @@ st.markdown("---")
 fc1, fc2, fc3 = st.columns(3)
 with fc1:
     sectors_avail = sorted(scr["Sector"].dropna().unique().tolist())
-    sel_sector = st.selectbox("Sector", ["All"] + sectors_avail)
+    sector_options = ["All"] + sectors_avail
+    if "fa_sector" in st.session_state and st.session_state["fa_sector"] not in sector_options:
+        del st.session_state["fa_sector"]
+    sel_sector = st.selectbox("Sector", sector_options, key="fa_sector")
 with fc2:
     min_streak = st.selectbox("Min Streak (consecutive qtrs FII ↑)", [0, 1, 2, 3], index=0,
-                               format_func=lambda x: f"{x}Q+" if x > 0 else "Any")
+                               format_func=lambda x: f"{x}Q+" if x > 0 else "Any", key="fa_min_streak")
 with fc3:
-    signal_filter = st.selectbox("Signal", ["All", "Accumulating", "Reducing", "Stable"])
+    signal_filter = st.selectbox("Signal", ["All", "Accumulating", "Reducing", "Stable"], key="fa_signal")
 
 disp = scr.copy()
 if sel_sector != "All":
