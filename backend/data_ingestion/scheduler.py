@@ -22,6 +22,7 @@ def _load_schedule_config() -> dict:
         "market_pulse_snapshot": {"hour": 20, "minute": 0},
         "ai_scan_daily":         {"hour": 21, "minute": 0},
         "gann_daily":            {"hour": 21, "minute": 30},
+        "sentiment_daily":       {"hour": 21, "minute": 45},
         "nsdl_sync":             {"hour": 17, "minute": 30},
         "sector_factsheet_sync": {"hour": 17, "minute": 45},
         "bulk_deals_daily":      {"hour": 18, "minute": 45},
@@ -43,6 +44,7 @@ from backend.data_ingestion.smart_money_pipeline import run_smart_money_pipeline
 from backend.data_ingestion.nsdl_fetcher import sync_nsdl_to_db
 from backend.data_ingestion.sector_sync import sync_all as sync_sector_factsheets
 from backend.data_ingestion.bulk_deals_pipeline import run_bulk_deals_pipeline
+from backend.data_ingestion.sentiment_pipeline import run_sentiment_scan_pipeline
 from backend.data_ingestion.job_logger import log_start, log_finish
 from backend.storage.cache import invalidate_all
 from backend.storage.db import get_conn, get_session_conn
@@ -172,6 +174,18 @@ def _register_jobs(scheduler):
         CronTrigger(hour=h, minute=m, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
         id="gann_daily",
         name=f"Gann analysis @ {h:02d}:{m:02d}",
+    )
+
+    h, m = _t("sentiment_daily")
+    scheduler.add_job(
+        _logged(
+            "sentiment_daily",
+            "News Sentiment — VADER (All Dashboard Stocks)",
+            run_sentiment_scan_pipeline,
+        ),
+        CronTrigger(hour=h, minute=m, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
+        id="sentiment_daily",
+        name=f"Sentiment scan @ {h:02d}:{m:02d}",
     )
 
     h, m = _t("nsdl_sync")

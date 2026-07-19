@@ -155,6 +155,100 @@ with st.expander("📋 Aligned Signals — All Dashboard Stocks (Both Models Agr
 
 st.markdown("---")
 
+# ── Nifty 50 / dashboard-universe news sentiment (DB-backed, cook-once) ──────
+_NIFTY50_SYMBOLS = {
+    "ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK",
+    "BAJAJ-AUTO", "BAJFINANCE", "BAJAJFINSV", "BEL", "BHARTIARTL",
+    "CIPLA", "COALINDIA", "DRREDDY", "EICHERMOT", "ETERNAL",
+    "GRASIM", "HCLTECH", "HDFCBANK", "HDFCLIFE", "HEROMOTOCO",
+    "HINDALCO", "HINDUNILVR", "ICICIBANK", "ITC", "INDUSINDBK",
+    "INFY", "JSWSTEEL", "JIOFIN", "KOTAKBANK", "LT",
+    "M&M", "MARUTI", "NTPC", "NESTLEIND", "ONGC",
+    "POWERGRID", "RELIANCE", "SBILIFE", "SHRIRAMFIN", "SBIN",
+    "SUNPHARMA", "TCS", "TATACONSUM", "TATAMOTORS", "TATASTEEL",
+    "TECHM", "TITAN", "TRENT", "ULTRACEMCO", "WIPRO",
+}
+
+with st.expander("📰 News Sentiment — Nifty 50", expanded=False):
+    try:
+        from backend.storage.sentiment_db import load_all_latest as _load_sent_all, cache_age_days as _sent_age
+        from app.utils.auth import is_admin as _is_admin_sent
+
+        _sent_age_days = _sent_age()
+        sh1, sh2 = st.columns([5, 2])
+        with sh1:
+            if _sent_age_days is None:
+                st.caption("🕐 No sentiment data yet — auto-scan runs daily at **9:45 PM IST** via scheduler. Click **Force Scan** to run now.")
+            elif _sent_age_days == 0:
+                st.caption("✅ Sentiment computed **today** · Auto-refreshes nightly at 9:45 PM IST · VADER + finance-lexicon scoring on Google News RSS headlines. For research only, not investment advice.")
+            elif _sent_age_days <= 2:
+                st.caption(f"✅ Last computed **{_sent_age_days} day(s) ago** · Auto-refreshes nightly.")
+            else:
+                st.caption(f"⚠️ Last computed **{_sent_age_days} day(s) ago** — scheduler may be offline. Click **Force Scan** to refresh.")
+        with sh2:
+            if _is_admin_sent():
+                _run_sent_scan = st.button("⚡ Force Scan", type="secondary", width='stretch',
+                                           key="sent_force_scan",
+                                           help="Admin only. Fetches + scores news for every dashboard stock.")
+            else:
+                _run_sent_scan = False
+                st.caption("🔒 Admin only")
+
+        if _run_sent_scan:
+            from backend.data_ingestion.sentiment_pipeline import run_sentiment_scan_pipeline
+            with st.spinner("Fetching + scoring news headlines for all dashboard stocks…"):
+                _sent_summary = run_sentiment_scan_pipeline(triggered_by="manual")
+            st.success(
+                f"✅ Done — {_sent_summary['bullish']} bullish · {_sent_summary['bearish']} bearish · "
+                f"{_sent_summary['neutral']} neutral · {_sent_summary['failed']} failed"
+            )
+            st.cache_data.clear()
+            st.rerun()
+
+        _sent_rows = _load_sent_all()
+        if _sent_rows:
+            _sent_df_all = pd.DataFrame(_sent_rows)
+
+            fc0, fc1, fc2 = st.columns([2, 3, 2])
+            with fc0:
+                _sent_universe = st.radio("Universe", ["Nifty 50", "All Dashboard Stocks"],
+                                          horizontal=True, key="sent_universe")
+            with fc1:
+                _sent_search = st.text_input("🔍 Search symbol", key="sent_search", placeholder="e.g. RELIANCE")
+            with fc2:
+                _sent_filter = st.multiselect(
+                    "Filter", ["Bullish", "Bearish", "Neutral"],
+                    default=["Bullish", "Bearish", "Neutral"], key="sent_filter",
+                )
+
+            _sent_df = (
+                _sent_df_all[_sent_df_all["Symbol"].isin(_NIFTY50_SYMBOLS)]
+                if _sent_universe == "Nifty 50" else _sent_df_all
+            )
+            _filtered = _sent_df[_sent_df["Sentiment"].isin(_sent_filter)]
+            if _sent_search:
+                _filtered = _filtered[_filtered["Symbol"].str.contains(_sent_search.upper(), na=False)]
+            _filtered = _filtered.sort_values("Score", ascending=False)
+
+            def _sent_color(v):
+                if v == "Bullish": return "color:#00C853;font-weight:700"
+                if v == "Bearish": return "color:#D50000;font-weight:700"
+                return "color:#FFD600"
+
+            st.caption(f"{len(_filtered)} of {len(_sent_df)} stocks shown ({_sent_universe})")
+            st.dataframe(
+                _filtered[["Symbol", "Sector", "Score", "Sentiment", "Headlines", "Positive", "Negative", "Neutral"]]
+                    .style.map(_sent_color, subset=["Sentiment"])
+                    .format({"Score": "{:+.3f}"}),
+                width='stretch', hide_index=True, height=380,
+            )
+        else:
+            st.info("No sentiment data yet — scheduler runs automatically at 9:45 PM IST. Click **⚡ Force Scan** above to run now.")
+    except Exception as _sent_err:
+        st.info("📰 News sentiment temporarily unavailable.")
+
+st.markdown("---")
+
 # ── Build stock list (all stocks, grouped by sector) ─────────────────────────
 _all_stocks: list[tuple[str, str]] = []
 for sec, stocks in sorted(SECTOR_STOCKS.items()):
@@ -815,6 +909,83 @@ with col_right:
         else:
             st.warning("Backtest unavailable.")
 
+# ── News Sentiment (per-stock) ────────────────────────────────────────────────
+st.markdown("---")
+st.subheader(f"📰 {ticker_name} — News Sentiment")
+
+try:
+    from backend.storage.sentiment_db import load_sentiment as _load_stock_sentiment
+
+    _sent_result, _sent_date = _load_stock_sentiment(ticker_name)
+
+    sc1, sc2 = st.columns([1, 5])
+    with sc1:
+        _live_sent_btn = st.button("🔄 Refresh now", key="sent_refresh_stock",
+                                   help="Live fetch — bypasses the nightly cache")
+    with sc2:
+        if _sent_result and not _live_sent_btn:
+            st.caption(f"📦 Cached from **{_sent_date}** · Recomputed nightly at 9:45 PM IST")
+
+    if _live_sent_btn:
+        from backend.calculations.news_sentiment import analyze_stock_news
+        with st.spinner(f"Fetching live news for {ticker_name}…"):
+            _live_res = analyze_stock_news(ticker_name)
+        _summary = _live_res["summary"]
+        _headlines_df = _live_res["headlines"]
+    elif _sent_result:
+        _summary = _sent_result["summary"]
+        _headlines_df = pd.DataFrame(_sent_result["headlines"])
+    else:
+        _summary = None
+        _headlines_df = pd.DataFrame()
+
+    if _summary and _summary.get("n", 0) > 0:
+        _label = _summary["label"]
+        _score = _summary["score"]
+        _lcolor = {"Bullish": "#00C853", "Bearish": "#D50000"}.get(_label, "#FFD600")
+
+        sm1, sm2, sm3, sm4 = st.columns(4)
+        sm1.markdown(f"""<div style='{_card};border-left:4px solid {_lcolor}'>
+          <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Overall Sentiment</div>
+          <div style='color:{_lcolor};font-size:26px;font-weight:700'>{_label}</div>
+          <div style='color:#ccc;font-size:13px;margin-top:4px'>Score {_score:+.3f}</div>
+        </div>""", unsafe_allow_html=True)
+        sm2.markdown(f"""<div style='{_card};border-left:4px solid #00C853'>
+          <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Positive</div>
+          <div style='color:#00C853;font-size:26px;font-weight:700'>{_summary.get('pos', 0)}</div>
+        </div>""", unsafe_allow_html=True)
+        sm3.markdown(f"""<div style='{_card};border-left:4px solid #D50000'>
+          <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Negative</div>
+          <div style='color:#D50000;font-size:26px;font-weight:700'>{_summary.get('neg', 0)}</div>
+        </div>""", unsafe_allow_html=True)
+        sm4.markdown(f"""<div style='{_card};border-left:4px solid #8899bb'>
+          <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Headlines Analyzed</div>
+          <div style='color:#ccc;font-size:26px;font-weight:700'>{_summary.get('n', 0)}</div>
+        </div>""", unsafe_allow_html=True)
+
+        if not _headlines_df.empty and "headline" in _headlines_df.columns:
+            _cols = ["published", "headline", "source", "sentiment", "score"]
+            if "link" in _headlines_df.columns:
+                _cols.append("link")
+            _disp = _headlines_df[[c for c in _cols if c in _headlines_df.columns]].copy() \
+                if "sentiment" in _headlines_df.columns else _headlines_df
+            _disp.columns = [c.title() for c in _disp.columns]
+            st.dataframe(
+                _disp, width='stretch', hide_index=True, height=280,
+                column_config={
+                    "Link": st.column_config.LinkColumn(
+                        "Article", display_text="Open ↗", help="Opens the original article in a new tab",
+                        width="small",
+                    ),
+                    "Score": st.column_config.NumberColumn("Score", width="small"),
+                    "Sentiment": st.column_config.TextColumn("Sentiment", width="small"),
+                } if "Link" in _disp.columns else None,
+            )
+    else:
+        st.info("No recent news found for this stock, or sentiment isn't cached yet — click **🔄 Refresh now** for a live check.")
+except Exception:
+    st.info("📰 News sentiment temporarily unavailable for this stock.")
+
 # ── Methodology note ──────────────────────────────────────────────────────────
 st.markdown("---")
 with st.expander("📖 Model Methodology"):
@@ -845,6 +1016,35 @@ with st.expander("📖 Model Methodology"):
 **Walk-Forward Backtesting**
 - Training window: rolling 252 bars · Test window: next 21 bars · Slide: 21 bars (no look-ahead bias)
 - ~12 independent test folds → overall directional accuracy shown
+
+**News Sentiment (VADER)**
+- Headlines sourced from Google News RSS (India edition) — up to 25 recent items per stock,
+  last 10 days, searched as `"{{symbol}}" NSE stock` with a broader `{{symbol}} share price`
+  fallback query if the first search returns nothing
+- Scored with **VADER** (lexicon + rule-based sentiment analyzer), boosted with a small
+  finance-specific keyword list (e.g. "beats estimates", "order win", "target raised" as
+  positive; "downgrade", "probe", "target cut" as negative) so generic-language sentiment
+  models don't miss finance-specific phrasing — each match on the boost list is worth ±0.3,
+  clamped to the [-1, +1] range
+- Per-headline label: **🟢 Positive** (score > +0.15) · **🔴 Negative** (score < -0.15) ·
+  **⚪ Neutral** (between)
+- Stock-level aggregate: a **recency-weighted average** of all headline scores — the newest
+  headline weighs roughly 3× the oldest in a 25-headline window (weight ∝ position^0.7,
+  newest first) — so a wave of fresh news moves the aggregate faster than a single old story
+  lingering in the list. Aggregate label: **Bullish** (> +0.15) · **Bearish** (< -0.15) ·
+  **Neutral** (between)
+- Nifty 50 / all-dashboard-stock table is **cook-once**: a nightly scheduler job (9:45 PM IST)
+  fetches + scores every stock and caches the result, so the page loads instantly with zero
+  live network calls. Use **🔄 Refresh now** on a single stock, or **⚡ Force Scan** (admin)
+  for the full table, to bypass the cache for a live check
+- **Why VADER, not a transformer model**: an earlier version used FinBERT (a finance-tuned
+  transformer), but Streamlit Cloud's Python 3.14 runtime has no prebuilt wheels for
+  torch/transformers — pip falls back to a source build that segfaults the process at import
+  time. VADER and the RSS parser are pure Python with no compiled dependencies, so this can't
+  happen; that's a deliberate trade of some per-headline nuance for a scoring engine that
+  can never crash the server
+- For research and screening only — headline-level sentiment is a noisy, short-horizon signal
+  and is not a substitute for reading the actual news or fundamental analysis
 
 **How to Use Both Signals Together**
 

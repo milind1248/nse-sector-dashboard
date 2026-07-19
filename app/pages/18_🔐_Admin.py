@@ -1003,6 +1003,7 @@ _SCH_JOBS = [
     ("market_pulse_snapshot", "Market Pulse Snapshot (Breadth + Heatmap + RRG)", "8:00 PM"),
     ("ai_scan_daily",         "AI Scan — XGBoost Direction (All Stocks)",      "9:00 PM"),
     ("gann_daily",            "Gann Cache — All 5 Methods (All Stocks)",        "9:30 PM"),
+    ("sentiment_daily",       "News Sentiment — VADER (All Stocks)",            "9:45 PM"),
     ("nsdl_sync",             "NSDL FPI Sector Sync (Fortnightly Data)",        "5:30 PM"),
     ("sector_factsheet_sync", "Sector Factsheet Sync (NiftyIndices PDFs)",      "5:45 PM"),
     ("bulk_deals_daily",      "Bulk & Block Deals Sync (NSE Archive CSVs)",     "6:45 PM"),

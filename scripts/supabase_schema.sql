@@ -93,6 +93,25 @@ CREATE TABLE IF NOT EXISTS ai_scan_results (
     UNIQUE(scan_date, symbol)
 );
 
+-- ── News Sentiment ──────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS sentiment_cache (
+    id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    symbol         TEXT NOT NULL,
+    sector         TEXT,
+    scan_date      DATE NOT NULL,
+    score          DOUBLE PRECISION,
+    label          TEXT,             -- 'Bullish' | 'Bearish' | 'Neutral' | 'No news' | 'Unavailable'
+    n_headlines    INTEGER,
+    n_pos          INTEGER,
+    n_neg          INTEGER,
+    n_neu          INTEGER,
+    engine         TEXT,             -- 'VADER + finance lexicon'
+    headlines_json TEXT,             -- top ~15 scored headlines (date, source, headline, score, link)
+    computed_at    TIMESTAMPTZ,
+    UNIQUE(symbol, scan_date)
+);
+
 -- ── Gann Analysis ───────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS gann_cache (
@@ -472,7 +491,8 @@ INSERT INTO schedule_config (job_id, hour, minute) VALUES
     ('gann_daily',            20, 30),
     ('nsdl_sync',             17, 30),
     ('sector_factsheet_sync', 17, 45),
-    ('bulk_deals_daily',      18, 45)
+    ('bulk_deals_daily',      18, 45),
+    ('sentiment_daily',       20, 45)
 ON CONFLICT (job_id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS announcement (

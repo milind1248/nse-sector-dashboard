@@ -20,3 +20,5 @@ scikit-learn>=1.4.0
 pmdarima>=2.0.0
 networkx>=3.0
 supabase>=2.9.0,<3.0.0
+feedparser>=6.0.0
+vaderSentiment>=3.3.2
