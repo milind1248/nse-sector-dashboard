@@ -1988,7 +1988,15 @@ with tab_frvp_hm:
 
                     # Check target/SL on next hold_days bars
                     result = "OPEN"
-                    exit_date = exit_price = bars_held = ""
+                    # exit_price/bars_held must stay numeric (NaN, not "") —
+                    # they get overwritten with round(...)/int values below,
+                    # and a mixed str/float "object" column breaks PyArrow's
+                    # Arrow conversion when st.dataframe() renders the table
+                    # (the ExitPrice formatter at line ~2293 already expects
+                    # float/NaN via its `v == v` NaN check, not a string).
+                    exit_date = ""
+                    exit_price = _math.nan
+                    bars_held = _math.nan
                     max_pos = min(signal_pos + hold_days, n - 1)
                     if signal_pos < n - 1:
                         result = "NO_HIT"
@@ -2292,6 +2300,7 @@ with tab_frvp_hm:
                     "SL":          "₹{:.2f}",
                     "ExitPrice":   lambda v: f"₹{v:.2f}" if isinstance(v, (int, float)) and v == v else "—",
                     "PnLPoints":   lambda v: f"{v:+.2f}" if isinstance(v, (int, float)) and v == v else "—",
+                    "BarsHeld":    lambda v: f"{int(v)}" if isinstance(v, (int, float)) and v == v else "—",
                 })
                 styled_tl = (
                     tl_view.style
