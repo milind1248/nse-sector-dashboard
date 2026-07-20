@@ -1868,6 +1868,12 @@ with tab_frvp_hm:
         only_fresh = st.checkbox("Show only stocks with a fresh signal today", key="frvp_hm_only_fresh")
         view = df_show[df_show["Fresh Today"]] if only_fresh else df_show
 
+        # StopLoss is computed off TODAY's bar (Low - 0.5*ATR), not off the historical
+        # "Last Signal Date" shown in the same row — showing it for a stale signal reads
+        # as if it belongs to that old trade, when it's just today's live ATR reference
+        # with no active setup behind it. Blank it out unless the signal is fresh today.
+        view = view.assign(StopLoss=view["StopLoss"].where(view["Fresh Today"], other=None))
+
         def _row_colour(row):
             if row["Fresh Today"]:
                 c = "background-color:#0d3b0d; color:#ccffcc"
@@ -1885,7 +1891,7 @@ with tab_frvp_hm:
                 "CMP": lambda v: f"₹{v:,.2f}" if v is not None else "—",
                 "VAH": lambda v: f"₹{v:,.2f}" if v is not None else "—",
                 "EMA20": lambda v: f"₹{v:,.2f}" if v is not None else "—",
-                "StopLoss": lambda v: f"₹{v:,.2f}" if v is not None else "—",
+                "StopLoss": lambda v: f"₹{v:,.2f}" if pd.notna(v) else "—",
                 "HM Regime": _bool_icon, "Above VAH": _bool_icon,
                 "EMA Pullback": _bool_icon, "Fresh Today": _bool_icon,
                 "Last Signal Date": lambda v: v if v else "—",
