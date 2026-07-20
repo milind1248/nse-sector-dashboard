@@ -1872,7 +1872,14 @@ with tab_frvp_hm:
         # "Last Signal Date" shown in the same row — showing it for a stale signal reads
         # as if it belongs to that old trade, when it's just today's live ATR reference
         # with no active setup behind it. Blank it out unless the signal is fresh today.
-        view = view.assign(StopLoss=view["StopLoss"].where(view["Fresh Today"], other=None))
+        # Pre-formatted to its final display string here (not left as None/NaN for the
+        # Styler to handle) — st.dataframe() doesn't reliably run .format() callables on
+        # None/NaN cells in an object-dtype column, it just stringifies them as "None".
+        def _stop_display(row):
+            if row["Fresh Today"] and pd.notna(row["StopLoss"]):
+                return f"₹{row['StopLoss']:,.2f}"
+            return "—"
+        view = view.assign(StopLoss=view.apply(_stop_display, axis=1))
 
         def _row_colour(row):
             if row["Fresh Today"]:
@@ -1891,7 +1898,6 @@ with tab_frvp_hm:
                 "CMP": lambda v: f"₹{v:,.2f}" if v is not None else "—",
                 "VAH": lambda v: f"₹{v:,.2f}" if v is not None else "—",
                 "EMA20": lambda v: f"₹{v:,.2f}" if v is not None else "—",
-                "StopLoss": lambda v: f"₹{v:,.2f}" if pd.notna(v) else "—",
                 "HM Regime": _bool_icon, "Above VAH": _bool_icon,
                 "EMA Pullback": _bool_icon, "Fresh Today": _bool_icon,
                 "Last Signal Date": lambda v: v if v else "—",
