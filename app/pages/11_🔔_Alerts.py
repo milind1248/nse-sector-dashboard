@@ -71,13 +71,14 @@ show_sebi_notice()
 st.caption("Technical scanners and alerts across all NSE sectors. For informational and educational purposes only.")
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_breakout, tab_ema, tab_hm, tab_frvp, tab_frvp_hm, tab_best_ma = st.tabs([
+tab_breakout, tab_ema, tab_hm, tab_frvp, tab_frvp_hm, tab_best_ma, tab_monte_carlo = st.tabs([
     "📡 Breakout Alerts",
     "📈 20 EMA Pullback Scanner",
     "🎯 H-M Scanner",
     "📊 FRVP Signal",
     "🔍 FRVP H-M Scanner",
     "📏 Best MA",
+    "🎲 Monte Carlo Test",
 ])
 
 # Pre-render loading skeletons into tabs 2 and 3 BEFORE any scanner starts.
@@ -2320,6 +2321,162 @@ with tab_best_ma:
                 "continue to respect any MA. Past performance is not indicative of future results. "
                 "For educational purposes only."
             )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 7 — MONTE CARLO TEST
+# Upload any trade-log CSV with a return-per-trade column and stress-test it
+# with bootstrap resampling + trade-order shuffle. Works with any strategy's
+# results, not just this page's own scanners — purely a statistics tool, no
+# trading signal of its own.
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_monte_carlo:
+    st.subheader("🎲 Monte Carlo Strategy Test")
+    st.caption(
+        "Upload a trade log (CSV) with one row per trade and a return-per-trade % column. "
+        "Runs bootstrap resampling and trade-order shuffle to show the realistic range of "
+        "outcomes and drawdown risk behind your results — not just the one sequence that "
+        "happened to occur. For informational and educational purposes only."
+    )
+
+    from backend.calculations.monte_carlo_generic import (
+        detect_return_column, clean_returns, bootstrap_simulation, shuffle_simulation,
+        summarize_simulation, basic_trade_stats,
+    )
+
+    uploaded = st.file_uploader("Upload trade log CSV", type=["csv"], key="mc_upload")
+
+    if uploaded is None:
+        st.info("Upload a CSV to get started. Any column with a name like "
+               "'Return%', 'PnL%', 'Ret', or similar is auto-detected — values can be "
+               "plain numbers (2.5) or percent strings (2.5%).")
+    else:
+        try:
+            mc_df = pd.read_csv(uploaded)
+        except Exception as e:
+            st.error(f"Could not read this file as CSV: {e}")
+            mc_df = None
+
+        if mc_df is not None and not mc_df.empty:
+            st.markdown("**Preview**")
+            st.dataframe(mc_df.head(10), width='stretch', hide_index=True)
+
+            detected_col = detect_return_column(mc_df)
+            numeric_cols = [c for c in mc_df.columns]
+            default_idx = numeric_cols.index(detected_col) if detected_col in numeric_cols else 0
+
+            mc_c1, mc_c2, mc_c3 = st.columns(3)
+            with mc_c1:
+                return_col = st.selectbox(
+                    "Return % column", numeric_cols, index=default_idx, key="mc_return_col",
+                    help="Auto-detected where possible — change if it picked the wrong column."
+                )
+            with mc_c2:
+                mc_sims = st.number_input("Simulations", min_value=200, max_value=20000,
+                                          value=2000, step=200, key="mc_sims")
+            with mc_c3:
+                mc_capital = st.number_input("Starting capital (₹)", min_value=1_000,
+                                             value=100_000, step=10_000, key="mc_capital")
+
+            returns = clean_returns(mc_df[return_col])
+            n_dropped = len(mc_df) - len(returns)
+            if n_dropped > 0:
+                st.warning(f"{n_dropped} row(s) couldn't be read as a number in this column and were skipped.")
+
+            if returns.empty:
+                st.error("No valid numeric returns found in the selected column. Pick a different column.")
+            else:
+                stats = basic_trade_stats(returns)
+                st.markdown("---")
+                st.markdown("**Trade Log Summary**")
+                s1, s2, s3, s4, s5 = st.columns(5)
+                s1.metric("Trades", stats["n_trades"])
+                s2.metric("Win Rate", f"{stats['win_rate_pct']:.1f}%")
+                s3.metric("Avg Return", f"{stats['avg_return_pct']:+.2f}%")
+                s4.metric("Best Trade", f"{stats['best_trade_pct']:+.2f}%")
+                s5.metric("Worst Trade", f"{stats['worst_trade_pct']:+.2f}%")
+
+                run_mc = st.button("▶ Run Monte Carlo", type="primary", key="mc_run")
+
+                if run_mc:
+                    with st.spinner(f"Running {mc_sims:,} bootstrap + {mc_sims:,} shuffle simulations…"):
+                        boot = bootstrap_simulation(returns, n_sims=mc_sims, initial_capital=mc_capital)
+                        shuf = shuffle_simulation(returns, n_sims=mc_sims, initial_capital=mc_capital)
+                    st.session_state["mc_boot"] = boot
+                    st.session_state["mc_shuf"] = shuf
+                    st.rerun()
+
+                boot = st.session_state.get("mc_boot", pd.DataFrame())
+                shuf = st.session_state.get("mc_shuf", pd.DataFrame())
+
+                if not boot.empty and not shuf.empty:
+                    boot_summary = summarize_simulation(boot)
+                    shuf_summary = summarize_simulation(shuf)
+
+                    st.markdown("---")
+                    st.subheader("📊 Bootstrap Simulation — Plausible Outcome Range")
+                    st.caption("Resamples your trades WITH replacement — the range of outcomes this "
+                              "trade population could plausibly produce, not just the one path you saw.")
+                    m1, m2, m3, m4, m5 = st.columns(5)
+                    m1.metric("Prob. of Profit", f"{boot_summary['prob_profit_pct']:.1f}%")
+                    m2.metric("Median Return", f"{boot_summary['total_return_p50']:+.1f}%")
+                    m3.metric("5th–95th Pctile",
+                             f"{boot_summary['total_return_p5']:+.0f}% to {boot_summary['total_return_p95']:+.0f}%")
+                    m4.metric("Median Max DD", f"-{boot_summary['max_dd_p50']:.1f}%")
+                    m5.metric("Worst-Case Max DD (95th)", f"-{boot_summary['max_dd_p95']:.1f}%")
+
+                    fig_hist = go.Figure()
+                    fig_hist.add_trace(go.Histogram(x=boot["total_return_pct"], nbinsx=60,
+                                                    marker_color="#42A5F5", name="Total Return"))
+                    fig_hist.add_vline(x=0, line_dash="dash", line_color="#EF5350")
+                    fig_hist.add_vline(x=boot_summary["total_return_p50"], line_dash="dot",
+                                       line_color="#FFD600", annotation_text="Median")
+                    fig_hist.update_layout(template="plotly_dark", height=340,
+                                           title=f"Distribution of Total Return across {mc_sims:,} Bootstrap Simulations",
+                                           xaxis_title="Total Return (%)", yaxis_title="Simulations")
+                    st.plotly_chart(fig_hist, width='stretch')
+
+                    st.markdown("---")
+                    st.subheader("🔀 Trade-Order Shuffle — Sequence-of-Returns Risk")
+                    st.caption("Same exact trades every time (identical total return by construction) — "
+                              "only the order is randomized. Shows how much worse your drawdown could "
+                              "plausibly have been just from bad luck in trade sequencing.")
+                    sh1, sh2, sh3 = st.columns(3)
+                    sh1.metric("Actual Total Return", f"{shuf_summary['total_return_p50']:+.1f}%")
+                    sh2.metric("Median Max Drawdown", f"-{shuf_summary['max_dd_p50']:.1f}%")
+                    sh3.metric("Worst-Seen Max Drawdown", f"-{shuf_summary['worst_max_dd']:.1f}%")
+
+                    fig_dd = go.Figure()
+                    fig_dd.add_trace(go.Histogram(x=shuf["max_drawdown_pct"], nbinsx=50,
+                                                  marker_color="#EF5350", name="Max Drawdown"))
+                    fig_dd.update_layout(template="plotly_dark", height=320,
+                                         title="Distribution of Max Drawdown across Trade-Order Shuffles",
+                                         xaxis_title="Max Drawdown (%)", yaxis_title="Simulations")
+                    st.plotly_chart(fig_dd, width='stretch')
+
+                    st.download_button(
+                        "⬇ Export Bootstrap Simulations CSV",
+                        boot.to_csv(index=False).encode(),
+                        file_name="monte_carlo_bootstrap.csv", mime="text/csv", key="mc_export_boot",
+                    )
+
+                    with st.expander("📖 How to read this"):
+                        st.markdown("""
+- **Bootstrap simulation** shows the *range* of results your trade population could plausibly
+  produce — your single actual result is one draw from this distribution, not the guaranteed outcome.
+- **Trade-order shuffle** isolates *sequence* risk — even a genuinely profitable trade log can
+  show a much deeper drawdown than what you actually experienced, purely from unlucky ordering
+  of losing trades. Size your risk around this number, not the drawdown you happened to see.
+- Equity compounds directly off each trade's return % — no position sizing or leverage is
+  assumed, so this reflects exactly the numbers in your uploaded file.
+                        """)
+                else:
+                    st.info("Click **▶ Run Monte Carlo** to simulate.")
+
+    st.caption(
+        "⚠️ **Disclaimer:** This tool analyzes a trade log you provide — it does not generate, "
+        "validate, or endorse any trading strategy. Simulation results describe statistical "
+        "properties of your uploaded data only. For educational purposes only."
+    )
 
 from app.utils.disclaimer import show_footer
 show_footer()
