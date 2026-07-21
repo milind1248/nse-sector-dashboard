@@ -22,3 +22,4 @@ networkx>=3.0
 supabase>=2.9.0,<3.0.0
 feedparser>=6.0.0
 vaderSentiment>=3.3.2
+pytest>=8.0.0

@@ -200,3 +200,33 @@ ALERT_TYPES = [
     "STOCK_EMA200_CROSS",
     "STOCK_BULLISH",
 ]
+
+# ── H-M Bullish Expansion + Adaptive FRVP Confluence Scanner ─────────────────
+# Research-only, CLI-gated (see run.py hm_expansion_scan/hm_expansion_backtest).
+# Not wired into any Streamlit page — flip to True only once validated.
+ENABLE_HM_FRVP_EXPANSION_SCANNER = False
+
+HM_EXPANSION_DEFAULTS = {
+    # Oversold origin
+    "oversold_level": 9.0, "oversold_lookback": 10, "oversold_mode": "ANY_LINE",
+    # Ordering / rising
+    "ordering_confirmation_bars": 2, "rising_confirmation_bars": 2,
+    # Separation / touch
+    "min_white_green_gap": 0.50, "min_green_red_gap": 0.50, "min_total_gap": 1.25,
+    "touch_tolerance": 0.25, "non_touch_confirmation_bars": 2,
+    # Gap expansion
+    "gap_expansion_mode": "STABLE_OR_EXPANDING", "max_gap_contraction": 0.10,
+    # Slope
+    "slope_lookback": 3, "slope_mode": "ABSOLUTE",
+    "min_white_slope": 1.00, "min_green_slope": 0.60, "min_red_slope": 0.25,
+    "require_slope_order": False,
+    # Adaptive FRVP (matches the Pine source's input.* defaults exactly)
+    "frvp_lookback": 300, "frvp_n_bins": 40, "frvp_va_pct": 0.70,
+    "frvp_cut_tolerance_pct": 0.30, "frvp_min_profile_bars": 10,
+    # EMA20
+    "ema_slope_lookback": 5, "min_ema_slope_pct": 0.25, "require_consecutive_ema_rise": True,
+    "ema_pullback_lookback": 5, "ema_touch_tolerance_above": 0.01, "ema_break_tolerance_below": 0.02,
+    "respect_mode": "BASIC", "max_close_above_ema_pct": 5.0,
+    # Scoring
+    "min_score": 70,
+}
