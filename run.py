@@ -36,13 +36,17 @@ logger.info("Logging to %s", _LOG_FILE)
 
 
 def launch_dashboard():
-    # Start background scheduler in this process before Streamlit boots
+    # Start background scheduler in this process before Streamlit boots.
+    # Uses a retrying watchdog, not a single fire-and-forget attempt — if the
+    # advisory lock is transiently held by a stale connection from an
+    # abruptly-killed previous process, this keeps retrying every 5 min
+    # instead of giving up for the rest of this process's lifetime.
     try:
-        from backend.data_ingestion.scheduler import get_scheduler
-        get_scheduler()
-        logger.info("Background scheduler started — jobs will fire at configured IST times.")
+        from backend.data_ingestion.scheduler import start_scheduler_watchdog
+        start_scheduler_watchdog()
+        logger.info("Scheduler watchdog started — will acquire the lock and start jobs once available.")
     except Exception as e:
-        logger.error(f"Scheduler failed to start: {e}")
+        logger.error(f"Scheduler watchdog failed to start: {e}")
 
     # Launch Streamlit in the same process (no subprocess — shares memory + scheduler)
     from streamlit.web import cli as stcli

@@ -1,6 +1,8 @@
 """APScheduler-based daily job runner."""
 import hashlib
 import logging
+import threading
+import time
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -313,6 +315,42 @@ def get_scheduler():
         return None
     _scheduler_instance = start_scheduler_background()
     return _scheduler_instance
+
+
+def start_scheduler_watchdog(retry_interval_seconds: int = 300) -> threading.Thread:
+    """Background daemon thread that keeps retrying get_scheduler() until it
+    succeeds, instead of the single fire-and-forget attempt at boot.
+
+    Why this exists: the advisory lock's holding connection is only released
+    when it disconnects. If a process is killed abruptly (Cloud restart,
+    redeploy, OOM) rather than shut down cleanly, that dead connection can
+    linger on the DB side for a while before the pooler notices and drops
+    it. A new process that calls get_scheduler() during that window gets
+    None back and — without this watchdog — would never try again for its
+    entire lifetime, silently running with zero scheduled jobs while the
+    site itself stays fully up (page-serving uses a different connection
+    pool, so it isn't affected). This thread just keeps knocking until the
+    stale lock finally clears.
+
+    Exits once the scheduler is confirmed running — no need to keep polling
+    after that, since get_scheduler()'s own singleton check makes repeat
+    calls cheap but pointless once _scheduler_instance is set and running.
+    """
+    def _loop():
+        while True:
+            sched = get_scheduler()
+            if sched is not None and sched.running:
+                logger.info("Scheduler watchdog: scheduler is running — watchdog exiting.")
+                return
+            logger.info(
+                f"Scheduler watchdog: advisory lock not acquired yet — "
+                f"retrying in {retry_interval_seconds}s."
+            )
+            time.sleep(retry_interval_seconds)
+
+    t = threading.Thread(target=_loop, name="scheduler-watchdog", daemon=True)
+    t.start()
+    return t
 
 
 def reschedule_job(job_id: str, hour: int, minute: int):
