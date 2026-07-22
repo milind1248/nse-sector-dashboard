@@ -71,7 +71,7 @@ show_sebi_notice()
 st.caption("Technical scanners and alerts across all NSE sectors. For informational and educational purposes only.")
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_breakout, tab_ema, tab_hm, tab_frvp, tab_frvp_hm, tab_best_ma, tab_monte_carlo = st.tabs([
+tab_breakout, tab_ema, tab_hm, tab_frvp, tab_frvp_hm, tab_best_ma, tab_monte_carlo, tab_position_sizing = st.tabs([
     "📡 Breakout Alerts",
     "📈 20 EMA Pullback Scanner",
     "🎯 H-M Scanner",
@@ -79,6 +79,7 @@ tab_breakout, tab_ema, tab_hm, tab_frvp, tab_frvp_hm, tab_best_ma, tab_monte_car
     "🔍 FRVP H-M Scanner",
     "📏 Best MA",
     "🎲 Monte Carlo Test",
+    "🧮 Position Sizing",
 ])
 
 # Pre-render loading skeletons into tabs 2 and 3 BEFORE any scanner starts.
@@ -2476,6 +2477,125 @@ with tab_monte_carlo:
         "⚠️ **Disclaimer:** This tool analyzes a trade log you provide — it does not generate, "
         "validate, or endorse any trading strategy. Simulation results describe statistical "
         "properties of your uploaded data only. For educational purposes only."
+    )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 8 — POSITION SIZING CALCULATOR
+# Pure math on numbers you enter — no market data, no trade signal of its
+# own. Two standard sizing methods (risk-based / capital-based) side by side.
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_position_sizing:
+    st.subheader("🧮 Position Sizing Calculator")
+    st.caption(
+        "Enter your capital, entry, and stop-loss to size a position. This is a calculator "
+        "only — it doesn't fetch prices or suggest trades. For informational and educational "
+        "purposes only, not investment advice."
+    )
+
+    from backend.calculations.position_sizing import (
+        risk_based_size, capital_based_size, reward_risk, scenario_table,
+    )
+
+    ps_c1, ps_c2, ps_c3 = st.columns(3)
+    with ps_c1:
+        ps_capital = st.number_input("Total Capital (₹)", min_value=1_000, value=100_000,
+                                     step=5_000, key="ps_capital")
+    with ps_c2:
+        ps_entry = st.number_input("Entry Price (₹)", min_value=0.01, value=1000.0,
+                                   step=0.5, key="ps_entry")
+    with ps_c3:
+        ps_stop = st.number_input("Stop-Loss Price (₹)", min_value=0.01, value=970.0,
+                                  step=0.5, key="ps_stop")
+
+    ps_target = st.number_input("Target Price (₹) — optional, for Reward:Risk", min_value=0.0,
+                                value=0.0, step=0.5, key="ps_target")
+
+    if ps_stop >= ps_entry:
+        st.warning("Stop-loss is at or above entry — this calculator assumes a long position "
+                  "(stop below entry). Numbers will still compute, but double-check your inputs.")
+
+    st.markdown("---")
+    mode_c1, mode_c2 = st.columns(2)
+
+    with mode_c1:
+        st.markdown("**Method 1 — Risk-Based (Fixed % Risk)**")
+        st.caption("Size so a stop-out loses exactly this % of your capital, no matter how far the stop is.")
+        ps_risk_pct = st.slider("Risk per trade (%)", 0.1, 5.0, 1.0, 0.1, key="ps_risk_pct")
+        risk_res = risk_based_size(ps_capital, ps_risk_pct, ps_entry, ps_stop)
+        if risk_res:
+            rm1, rm2 = st.columns(2)
+            rm1.metric("Shares to Buy", f"{risk_res['shares']:,}")
+            rm2.metric("Position Value", f"₹{risk_res['position_value']:,.0f}")
+            rm3, rm4 = st.columns(2)
+            rm3.metric("Risk Amount", f"₹{risk_res['risk_amount']:,.0f}")
+            rm4.metric("% of Capital Used", f"{risk_res['pct_of_capital']:.1f}%")
+            if risk_res["exceeds_capital"]:
+                st.error(
+                    f"⚠️ This position (₹{risk_res['position_value']:,.0f}) needs more than your "
+                    f"total capital (₹{ps_capital:,.0f}) — your stop is too tight relative to "
+                    f"capital for a full-size position at this risk %. Either widen the stop, "
+                    f"reduce risk %, or accept a smaller position than the risk-based size."
+                )
+        else:
+            st.info("Enter a valid entry, stop, and capital above zero.")
+
+    with mode_c2:
+        st.markdown("**Method 2 — Capital-Based (Fixed % Allocation)**")
+        st.caption("Size so the position uses exactly this % of your capital, regardless of stop distance.")
+        ps_alloc_pct = st.slider("Capital allocation (%)", 1.0, 100.0, 10.0, 1.0, key="ps_alloc_pct")
+        cap_res = capital_based_size(ps_capital, ps_alloc_pct, ps_entry, ps_stop if ps_stop > 0 else None)
+        if cap_res:
+            cm1, cm2 = st.columns(2)
+            cm1.metric("Shares to Buy", f"{cap_res['shares']:,}")
+            cm2.metric("Position Value", f"₹{cap_res['position_value']:,.0f}")
+            if "risk_pct_of_capital" in cap_res:
+                cm3, cm4 = st.columns(2)
+                cm3.metric("Risk if Stopped Out", f"₹{cap_res['risk_amount']:,.0f}")
+                cm4.metric("Risk % of Capital", f"{cap_res['risk_pct_of_capital']:.2f}%")
+                if cap_res["risk_pct_of_capital"] > 3.0:
+                    st.warning(
+                        f"⚠️ This allocation risks {cap_res['risk_pct_of_capital']:.1f}% of capital "
+                        f"if stopped out — well above the commonly used 1-2% per-trade risk guideline. "
+                        f"Consider Method 1 (risk-based) instead if you want to cap this directly."
+                    )
+        else:
+            st.info("Enter a valid entry and capital above zero.")
+
+    if ps_target > 0:
+        rr = reward_risk(ps_entry, ps_stop, ps_target)
+        if rr:
+            st.markdown("---")
+            st.markdown("**Reward : Risk**")
+            rr1, rr2 = st.columns(2)
+            rr1.metric("Reward:Risk Ratio", f"{rr['reward_risk_ratio']:.2f} : 1")
+            rr2.metric("Reward per Share", f"₹{rr['reward_per_share']:,.2f}")
+            if rr["reward_risk_ratio"] < 1.5:
+                st.caption("A ratio below 1.5:1 means you'd need a win rate well above 50% just to break even after costs.")
+
+    st.markdown("---")
+    st.markdown("**Risk % Comparison**")
+    st.caption("How position size and capital usage change across common risk levels, for your current entry/stop.")
+    scen = scenario_table(ps_capital, ps_entry, ps_stop)
+    if scen:
+        scen_df = pd.DataFrame(scen)
+        def _pct_color(v):
+            if not isinstance(v, (int, float)):
+                return ""
+            if v > 100:
+                return "color:#EF5350;font-weight:700"
+            if v > 50:
+                return "color:#FFD600"
+            return "color:#4ade80"
+        st.dataframe(
+            scen_df.style.map(_pct_color, subset=["% of Capital"])
+                        .format({"Position Value (₹)": "₹{:,.0f}", "Risk Amount (₹)": "₹{:,.0f}",
+                                "% of Capital": "{:.1f}%"}),
+            width='stretch', hide_index=True,
+        )
+
+    st.caption(
+        "⚠️ **Disclaimer:** This is a mathematical calculator based on numbers you enter — it does "
+        "not analyze any stock, fetch live prices, or recommend a trade. For educational purposes only."
     )
 
 from app.utils.disclaimer import show_footer
