@@ -96,6 +96,57 @@ def load_all_latest() -> list[dict]:
         con.close()
 
 
+def market_sentiment_summary() -> dict:
+    """Aggregate view across the latest scan — overall score, bullish/
+    bearish/neutral counts, and the trend vs. the previous scan date.
+    Returns {} if no scan has ever run."""
+    con = _conn()
+    try:
+        dates = con.execute(
+            "SELECT DISTINCT scan_date FROM sentiment_cache ORDER BY scan_date DESC LIMIT 2"
+        ).fetchall()
+        if not dates:
+            return {}
+        latest = dates[0][0]
+
+        row = con.execute("""
+            SELECT AVG(score), COUNT(*),
+                   SUM(CASE WHEN label = 'Bullish' THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN label = 'Bearish' THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN label = 'Neutral' THEN 1 ELSE 0 END)
+            FROM sentiment_cache WHERE scan_date = %s
+        """, (latest,)).fetchone()
+        avg_score, total, bullish, bearish, neutral = row
+        avg_score = float(avg_score) if avg_score is not None else 0.0
+
+        prev_avg = None
+        if len(dates) > 1:
+            prev = dates[1][0]
+            prev_row = con.execute(
+                "SELECT AVG(score) FROM sentiment_cache WHERE scan_date = %s", (prev,)
+            ).fetchone()
+            if prev_row and prev_row[0] is not None:
+                prev_avg = float(prev_row[0])
+
+        label = "Bullish" if avg_score > 0.15 else "Bearish" if avg_score < -0.15 else "Neutral"
+        return {
+            "scan_date": str(latest),
+            "avg_score": round(avg_score, 3),
+            "label": label,
+            "total": total or 0,
+            "bullish": bullish or 0,
+            "bearish": bearish or 0,
+            "neutral": neutral or 0,
+            "bullish_pct": round((bullish or 0) / total * 100, 1) if total else 0.0,
+            "bearish_pct": round((bearish or 0) / total * 100, 1) if total else 0.0,
+            "neutral_pct": round((neutral or 0) / total * 100, 1) if total else 0.0,
+            "prev_avg_score": round(prev_avg, 3) if prev_avg is not None else None,
+            "score_change": round(avg_score - prev_avg, 3) if prev_avg is not None else None,
+        }
+    finally:
+        con.close()
+
+
 def cache_age_days() -> int | None:
     """Days since last full sentiment scan. None if never run."""
     con = _conn()
@@ -110,10 +161,30 @@ def cache_age_days() -> int | None:
 
 def truncate_sentiment() -> None:
     """Delete all rows before a fresh nightly load — table stays at exactly
-    one row per stock."""
+    one row per stock. NOTE: kept for backward compatibility, but the nightly
+    pipeline now calls purge_old_sentiment() instead — a full truncate means
+    only ever one scan_date exists at a time, which makes a "vs yesterday"
+    trend comparison impossible (found and fixed while building the market
+    sentiment summary panel)."""
     con = _conn()
     try:
         con.execute("DELETE FROM sentiment_cache")
+        con.commit()
+    finally:
+        con.close()
+
+
+def purge_old_sentiment(keep_days: int = 8) -> None:
+    """Delete rows older than keep_days, preserving a rolling history window
+    instead of wiping everything — needed so market_sentiment_summary() can
+    compare today's aggregate against a prior scan date. Same-day re-runs
+    stay idempotent via store_sentiment()'s ON CONFLICT upsert."""
+    con = _conn()
+    try:
+        con.execute(
+            "DELETE FROM sentiment_cache WHERE scan_date < CURRENT_DATE - %s::int",
+            (keep_days,),
+        )
         con.commit()
     finally:
         con.close()

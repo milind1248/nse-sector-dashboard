@@ -60,9 +60,13 @@ def run_sentiment_scan_pipeline(triggered_by: str = "scheduler", max_workers: in
     Logging (log_start/log_finish) is the caller's responsibility.
     Returns summary dict: {total, bullish, bearish, neutral, failed}.
     """
-    from backend.storage.sentiment_db import store_sentiment, truncate_sentiment
+    from backend.storage.sentiment_db import store_sentiment, purge_old_sentiment
 
-    truncate_sentiment()
+    # Rolling 8-day window, not a full wipe — store_sentiment() upserts by
+    # (symbol, scan_date) so same-day re-runs stay idempotent, and keeping a
+    # few days of history lets market_sentiment_summary() compare today's
+    # aggregate against a prior scan date for a "vs yesterday" trend.
+    purge_old_sentiment(keep_days=8)
 
     stock_list = _build_stock_list()
     logger.info("Sentiment scan pipeline started — %d stocks, triggered_by=%s",

@@ -205,9 +205,72 @@ with st.expander("📰 News Sentiment — Nifty 50", expanded=False):
             st.cache_data.clear()
             st.rerun()
 
+        # ── Market Sentiment Overview — aggregate gauge + top movers ────────
+        try:
+            from backend.storage.sentiment_db import market_sentiment_summary as _mkt_summary
+            _mkt = _mkt_summary()
+        except Exception:
+            _mkt = {}
+
+        if _mkt:
+            st.markdown("#### 🌡️ Market Sentiment Overview")
+            _card = ("background:#1a2236;border-radius:10px;padding:18px 16px;text-align:center;"
+                    "min-height:110px;display:flex;flex-direction:column;justify-content:center")
+            _mkt_color = {"Bullish": "#00C853", "Bearish": "#D50000"}.get(_mkt["label"], "#FFD600")
+
+            ov1, ov2, ov3, ov4 = st.columns(4)
+            ov1.markdown(f"""<div style='{_card};border-left:4px solid {_mkt_color}'>
+              <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Overall Market Sentiment</div>
+              <div style='color:{_mkt_color};font-size:26px;font-weight:700'>{_mkt['label']}</div>
+              <div style='color:#ccc;font-size:13px;margin-top:4px'>Avg score {_mkt['avg_score']:+.3f}</div>
+            </div>""", unsafe_allow_html=True)
+
+            if _mkt["score_change"] is not None:
+                _chg = _mkt["score_change"]
+                _chg_color = "#00C853" if _chg > 0 else ("#D50000" if _chg < 0 else "#8899bb")
+                _chg_arrow = "▲" if _chg > 0 else ("▼" if _chg < 0 else "—")
+                ov2.markdown(f"""<div style='{_card};border-left:4px solid {_chg_color}'>
+                  <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>vs. Previous Scan</div>
+                  <div style='color:{_chg_color};font-size:26px;font-weight:700'>{_chg_arrow} {_chg:+.3f}</div>
+                  <div style='color:#ccc;font-size:13px;margin-top:4px'>Prior avg {_mkt['prev_avg_score']:+.3f}</div>
+                </div>""", unsafe_allow_html=True)
+            else:
+                ov2.markdown(f"""<div style='{_card};border-left:4px solid #8899bb'>
+                  <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>vs. Previous Scan</div>
+                  <div style='color:#8899bb;font-size:20px;font-weight:700'>Not enough history yet</div>
+                  <div style='color:#ccc;font-size:13px;margin-top:4px'>Available after tomorrow's scan</div>
+                </div>""", unsafe_allow_html=True)
+
+            ov3.markdown(f"""<div style='{_card};border-left:4px solid #00C853'>
+              <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Bullish</div>
+              <div style='color:#00C853;font-size:26px;font-weight:700'>{_mkt['bullish']} <span style='font-size:15px'>({_mkt['bullish_pct']:.0f}%)</span></div>
+              <div style='color:#ccc;font-size:13px;margin-top:4px'>of {_mkt['total']} stocks</div>
+            </div>""", unsafe_allow_html=True)
+
+            ov4.markdown(f"""<div style='{_card};border-left:4px solid #D50000'>
+              <div style='color:#8899bb;font-size:13px;margin-bottom:6px'>Bearish</div>
+              <div style='color:#D50000;font-size:26px;font-weight:700'>{_mkt['bearish']} <span style='font-size:15px'>({_mkt['bearish_pct']:.0f}%)</span></div>
+              <div style='color:#ccc;font-size:13px;margin-top:4px'>of {_mkt['total']} stocks</div>
+            </div>""", unsafe_allow_html=True)
+
+            st.caption(f"As of {_mkt['scan_date']} · {_mkt['neutral']} neutral ({_mkt['neutral_pct']:.0f}%)")
+            st.markdown("---")
+
         _sent_rows = _load_sent_all()
         if _sent_rows:
             _sent_df_all = pd.DataFrame(_sent_rows)
+
+            if len(_sent_df_all) >= 2:
+                _mv_col1, _mv_col2 = st.columns(2)
+                with _mv_col1:
+                    st.markdown("**🟢 Top 5 Bullish Movers**")
+                    _top_bull = _sent_df_all.nlargest(5, "Score")[["Symbol", "Sector", "Score", "Sentiment"]]
+                    st.dataframe(_top_bull.style.format({"Score": "{:+.3f}"}), width='stretch', hide_index=True)
+                with _mv_col2:
+                    st.markdown("**🔴 Top 5 Bearish Movers**")
+                    _top_bear = _sent_df_all.nsmallest(5, "Score")[["Symbol", "Sector", "Score", "Sentiment"]]
+                    st.dataframe(_top_bear.style.format({"Score": "{:+.3f}"}), width='stretch', hide_index=True)
+                st.markdown("---")
 
             fc0, fc1, fc2 = st.columns([2, 3, 2])
             with fc0:
