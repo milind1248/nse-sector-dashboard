@@ -96,6 +96,23 @@ def load_all_latest() -> list[dict]:
         con.close()
 
 
+def load_sentiment_history(symbol: str, days: int = 8) -> list[dict]:
+    """All retained sentiment rows for one symbol, oldest first — used to
+    validate past sentiment calls against what actually happened next.
+    Only returns what's actually in the rolling retention window (see
+    purge_old_sentiment); will be sparse until a few days of history
+    accumulate."""
+    con = _conn()
+    try:
+        rows = con.execute("""
+            SELECT scan_date, score, label FROM sentiment_cache
+            WHERE symbol = %s ORDER BY scan_date ASC
+        """, (symbol,)).fetchall()
+        return [{"scan_date": str(r[0]), "score": r[1], "label": r[2]} for r in rows]
+    finally:
+        con.close()
+
+
 def market_sentiment_summary() -> dict:
     """Aggregate view across the latest scan — overall score, bullish/
     bearish/neutral counts, and the trend vs. the previous scan date.

@@ -1049,6 +1049,110 @@ try:
 except Exception:
     st.info("📰 News sentiment temporarily unavailable for this stock.")
 
+# ── Sentiment vs Actual Price — did the news call the move? ──────────────────
+st.markdown("---")
+st.subheader(f"📈 {ticker_name} — Sentiment vs. Actual Price Move")
+st.caption(
+    "For each past day the sentiment engine scored this stock, shows what the news "
+    "sentiment implied (Bullish → expect up, Bearish → expect down) against what the "
+    "stock actually did the next trading day. Builds up daily — only as much history "
+    "as has been retained so far."
+)
+
+try:
+    from backend.storage.sentiment_db import load_sentiment_history as _load_sent_hist
+
+    _hist = _load_sent_hist(ticker_name)
+    # Drop the most recent entry — its "next trading day" hasn't happened yet,
+    # so there's nothing to validate it against.
+    _checkable = _hist[:-1] if len(_hist) > 1 else []
+
+    if not _checkable:
+        st.info(
+            "Not enough sentiment history yet to compare against actual price moves — "
+            "this builds up one day at a time as the nightly scan runs. Check back "
+            "after a few more days."
+        )
+    else:
+        import yfinance as _yf_sent
+        _px = _yf_sent.download(ticker_ns, period="1mo", interval="1d",
+                                auto_adjust=True, progress=False)
+        if _px is None or _px.empty:
+            st.info("Couldn't fetch price data to validate against right now.")
+        else:
+            if hasattr(_px.columns, "levels"):
+                _px.columns = _px.columns.droplevel(1)
+            _px.index = pd.to_datetime(_px.index).date
+
+            _val_rows = []
+            for _row in _checkable:
+                _d = datetime.date.fromisoformat(_row["scan_date"])
+                _future_dates = [dt for dt in _px.index if dt > _d]
+                if not _future_dates:
+                    continue
+                _next_d = min(_future_dates)
+                _prior_dates = [dt for dt in _px.index if dt <= _d]
+                if not _prior_dates:
+                    continue
+                _base_d = max(_prior_dates)
+                try:
+                    _base_close = float(_px.loc[_base_d, "Close"])
+                    _next_close = float(_px.loc[_next_d, "Close"])
+                except Exception:
+                    continue
+                _actual_ret = (_next_close - _base_close) / _base_close * 100
+
+                if _row["label"] == "Bullish":
+                    _match = "✅ Match" if _actual_ret > 0 else "❌ No"
+                elif _row["label"] == "Bearish":
+                    _match = "✅ Match" if _actual_ret < 0 else "❌ No"
+                else:
+                    _match = "— Neutral"
+
+                _val_rows.append({
+                    "Sentiment Date": _row["scan_date"], "Sentiment": _row["label"],
+                    "Score": round(_row["score"], 3) if _row["score"] is not None else None,
+                    "Next Trading Day": str(_next_d), "Actual Return %": round(_actual_ret, 2),
+                    "Direction Match": _match,
+                })
+
+            if not _val_rows:
+                st.info("No overlapping price data found for the retained sentiment dates yet.")
+            else:
+                _val_df = pd.DataFrame(_val_rows)
+                _directional = _val_df[_val_df["Direction Match"] != "— Neutral"]
+                if not _directional.empty:
+                    _hit_rate = (_directional["Direction Match"] == "✅ Match").mean() * 100
+                    st.metric("Directional Hit Rate", f"{_hit_rate:.0f}%",
+                             help=f"Across {len(_directional)} directional (Bullish/Bearish) calls with next-day data available.")
+
+                def _match_color(v):
+                    if v == "✅ Match":
+                        return "color:#4ade80;font-weight:700"
+                    if v == "❌ No":
+                        return "color:#f87171;font-weight:700"
+                    return "color:#8899bb"
+                def _ret_color(v):
+                    if not isinstance(v, (int, float)):
+                        return ""
+                    return "color:#4ade80;font-weight:700" if v > 0 else (
+                        "color:#f87171;font-weight:700" if v < 0 else "")
+
+                st.dataframe(
+                    _val_df.style
+                        .map(_match_color, subset=["Direction Match"])
+                        .map(_ret_color, subset=["Actual Return %"])
+                        .format({"Actual Return %": "{:+.2f}%", "Score": "{:+.3f}"}, na_rep="—"),
+                    width='stretch', hide_index=True,
+                )
+    st.caption(
+        "⚠️ A handful of directional calls is not statistically meaningful — this is a "
+        "running log for transparency, not a claim of predictive accuracy. For research "
+        "purposes only."
+    )
+except Exception:
+    st.info("📈 Sentiment-vs-actual comparison temporarily unavailable for this stock.")
+
 # ── Methodology note ──────────────────────────────────────────────────────────
 st.markdown("---")
 with st.expander("📖 Model Methodology"):
