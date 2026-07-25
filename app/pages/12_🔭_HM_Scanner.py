@@ -150,12 +150,22 @@ def _angle_fetch_single(symbol: str, tf_key: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def _run_angle_scan(symbols: tuple, tf_key: str, params_key: tuple) -> tuple:
+def _run_angle_scan(symbols: tuple, tf_key: str, params_key: tuple, gates_key: tuple) -> tuple:
     """Scan the universe for the H-M Angle bullish-expansion pattern.
-    params_key is a hashable tuple mirroring ExpansionParams' tunable fields
-    (needed since ExpansionParams itself isn't hashable for st.cache_data)."""
+    params_key/gates_key are hashable tuples (ExpansionParams itself isn't
+    hashable for st.cache_data).
+
+    Every sub-condition compute_expansion() emits (oversold, ordering,
+    rising, separation, gap-expansion, slope-strength, accelerating) is
+    always computed and shown in the results table — gates_key controls
+    which of those must be True for a stock to count as a match. This lets
+    a search catch an early "buying just started, lines turning up" stock
+    without also demanding wide, non-touching, fast-expanding gaps — those
+    stricter checks are opt-in narrowing filters, not baseline requirements."""
     (oversold_level, min_white_slope, min_green_slope, min_red_slope,
-     min_wg_gap, min_gr_gap, min_total_gap, require_accel) = params_key
+     min_wg_gap, min_gr_gap, min_total_gap) = params_key
+    (gate_oversold, gate_ordering, gate_rising, gate_separation,
+     gate_gap_expansion, gate_slope_strength, gate_accelerating) = gates_key
 
     params = ExpansionParams(
         oversold_level=oversold_level,
@@ -165,7 +175,6 @@ def _run_angle_scan(symbols: tuple, tf_key: str, params_key: tuple) -> tuple:
         min_white_green_gap=min_wg_gap,
         min_green_red_gap=min_gr_gap,
         min_total_gap=min_total_gap,
-        require_accelerating_slope=require_accel,
     )
 
     raw_data = _angle_fetch_batch(symbols, tf_key)
@@ -180,8 +189,25 @@ def _run_angle_scan(symbols: tuple, tf_key: str, params_key: tuple) -> tuple:
                 continue
             df = compute_expansion(df, params)
             last = df.iloc[-1]
-            if not bool(last["hm_bullish_expansion"]):
+
+            match = True
+            if gate_oversold:
+                match = match and bool(last["oversold_origin"])
+            if gate_ordering:
+                match = match and bool(last["bullish_ordering"])
+            if gate_rising:
+                match = match and bool(last["all_lines_rising"])
+            if gate_separation:
+                match = match and bool(last["minimum_separation_met"]) and bool(last["lines_not_touching"])
+            if gate_gap_expansion:
+                match = match and bool(last["gaps_expanding"])
+            if gate_slope_strength:
+                match = match and bool(last["strong_upward_slopes"])
+            if gate_accelerating:
+                match = match and bool(last["slopes_accelerating"])
+            if not match:
                 continue
+
             rows.append({
                 "Symbol": sym.replace(".NS", ""),
                 "White (RSI)": round(float(last["white_line"]), 1),
@@ -193,6 +219,11 @@ def _run_angle_scan(symbols: tuple, tf_key: str, params_key: tuple) -> tuple:
                 "Green Slope": round(float(last["green_slope"]), 2),
                 "Red Slope": round(float(last["red_slope"]), 2),
                 "Bars Since Oversold": int(last["bars_since_oversold"]) if not pd.isna(last["bars_since_oversold"]) else None,
+                "Ordered W>G>R": bool(last["bullish_ordering"]),
+                "All Rising": bool(last["all_lines_rising"]),
+                "Gap OK": bool(last["minimum_separation_met"]) and bool(last["lines_not_touching"]),
+                "Gaps Expanding": bool(last["gaps_expanding"]),
+                "Slope Strong": bool(last["strong_upward_slopes"]),
                 "Accelerating": bool(last["slopes_accelerating"]),
             })
         except Exception:
@@ -687,6 +718,17 @@ with tab_angle:
         "lines fan apart bullishly from an oversold origin. Not a validated trading signal."
     )
 
+    import math as _math
+    import plotly.graph_objects as go
+
+    _LINE_COLORS = {"White": "#e5e7eb", "Green": "#22c55e", "Red": "#ef4444"}
+
+    def _colored_label(text: str, color: str) -> None:
+        st.markdown(
+            f"<span style='color:{color}; font-weight:600'>{text}</span>",
+            unsafe_allow_html=True,
+        )
+
     with st.expander("⚙️ Angle Scan Settings", expanded=True):
         ac1, ac2 = st.columns(2)
         angle_universe = ac1.selectbox("Universe", ["Nifty 50", "Nifty 500"], key="angle_univ")
@@ -695,47 +737,82 @@ with tab_angle:
         )
         angle_tf = ANGLE_TIMEFRAMES[angle_tf_label]
 
-        st.markdown("###### Oversold origin & line separation")
-        oc1, oc2, oc3, oc4 = st.columns(4)
-        angle_oversold = oc1.slider("RSI(9) below", 10, 60, 50, key="angle_oversold")
-        angle_wg_gap = oc2.slider("Min White-Green Gap", 0.0, 5.0, 0.5, step=0.1, key="angle_wg_gap")
-        angle_gr_gap = oc3.slider("Min Green-Red Gap", 0.0, 5.0, 0.5, step=0.1, key="angle_gr_gap")
-        angle_total_gap = oc4.slider("Min Total Gap", 0.0, 10.0, 1.25, step=0.25, key="angle_total_gap")
+        st.markdown("###### Which conditions must match? (uncheck to stop excluding stocks on that condition)")
+        gc1, gc2, gc3, gc4 = st.columns(4)
+        gate_oversold = gc1.checkbox("Oversold origin", value=True, key="angle_gate_oversold")
+        gate_ordering = gc2.checkbox("White>Green>Red order", value=True, key="angle_gate_ordering")
+        gate_rising = gc3.checkbox("All 3 lines rising", value=True, key="angle_gate_rising")
+        gate_accelerating = gc4.checkbox("Accelerating slope", value=False, key="angle_gate_accel")
+        gc5, gc6 = st.columns(2)
+        gate_separation = gc5.checkbox(
+            "Min gap / lines not touching", value=False, key="angle_gate_separation",
+            help="Off by default — this is the filter most likely to exclude a genuine early bottom "
+                 "where the lines have only just started separating.",
+        )
+        gate_gap_expansion = gc6.checkbox(
+            "Gaps expanding / not contracting", value=False, key="angle_gate_gap_expansion",
+        )
+        st.caption(
+            "Core bottom-catch = Oversold + Ordering + All Rising (default). "
+            "Turn on the others to narrow the list once you're hunting for a stronger, more mature setup."
+        )
+
+        st.markdown("###### Oversold origin threshold")
+        angle_oversold = st.slider(
+            "RSI(9) below", 10, 60, 50, key="angle_oversold", disabled=not gate_oversold,
+        )
+
+        st.markdown("###### Line separation thresholds (only applied if the gap gate above is checked)")
+        oc2, oc3, oc4 = st.columns(3)
+        angle_wg_gap = oc2.slider("Min White-Green Gap", 0.0, 5.0, 0.5, step=0.1,
+                                   key="angle_wg_gap", disabled=not gate_separation)
+        angle_gr_gap = oc3.slider("Min Green-Red Gap", 0.0, 5.0, 0.5, step=0.1,
+                                   key="angle_gr_gap", disabled=not gate_separation)
+        angle_total_gap = oc4.slider("Min Total Gap", 0.0, 10.0, 1.25, step=0.25,
+                                      key="angle_total_gap", disabled=not gate_separation)
 
         st.markdown("###### Line slope / angle")
-        sc1, sc2, sc3 = st.columns(3)
-        angle_white_deg = sc1.slider("White Line Angle (°)", 0, 80, 45, key="angle_white_deg")
-        angle_green_deg = sc2.slider("Green Line Angle (°)", 0, 80, 32, key="angle_green_deg")
-        angle_red_deg = sc3.slider("Red Line Angle (°)", 0, 80, 15, key="angle_red_deg")
-        angle_require_accel = st.checkbox(
-            "Require accelerating slope (each line steeper than yesterday)",
-            value=True, key="angle_require_accel",
+        gate_slope_strength = st.checkbox(
+            "Require minimum slope strength per line (below)", value=False, key="angle_gate_slope_strength",
+            help="Off by default. When off, the angle sliders still drive the live preview and the "
+                 "displayed slope values, they just don't exclude any stock from the results.",
         )
+        sc1, sc2, sc3 = st.columns(3)
+        with sc1:
+            _colored_label("⬜ White Line Angle (RSI)", _LINE_COLORS["White"])
+            angle_white_deg = st.slider("White angle", 0, 80, 45, key="angle_white_deg",
+                                         label_visibility="collapsed", disabled=not gate_slope_strength)
+        with sc2:
+            _colored_label("🟢 Green Line Angle (EMA3)", _LINE_COLORS["Green"])
+            angle_green_deg = st.slider("Green angle", 0, 80, 32, key="angle_green_deg",
+                                         label_visibility="collapsed", disabled=not gate_slope_strength)
+        with sc3:
+            _colored_label("🔴 Red Line Angle (WMA21)", _LINE_COLORS["Red"])
+            angle_red_deg = st.slider("Red angle", 0, 80, 15, key="angle_red_deg",
+                                       label_visibility="collapsed", disabled=not gate_slope_strength)
 
         # Convert the illustrative degree sliders into the same slope units
         # ExpansionParams already uses (RSI points per bar) — tan(angle) scaled
         # to a comparable magnitude so 45° ≈ this module's existing default of 1.0.
-        import math as _math
         _ANGLE_SCALE = 1.0 / _math.tan(_math.radians(45))
         angle_white_slope = round(_math.tan(_math.radians(angle_white_deg)) * _ANGLE_SCALE, 3)
         angle_green_slope = round(_math.tan(_math.radians(angle_green_deg)) * _ANGLE_SCALE, 3)
         angle_red_slope = round(_math.tan(_math.radians(angle_red_deg)) * _ANGLE_SCALE, 3)
 
-        # ── Live angle preview ──────────────────────────────────────────
+        # ── Live angle preview — always reflects the sliders above, even if
+        # the slope-strength gate is off, so you can still "play" with angle
+        # shape before deciding whether to enforce it as a filter.
         st.markdown("###### Live preview — how these angles look")
-        import plotly.graph_objects as go
         _xs = list(range(0, 11))
         _origin = 20.0
         _fig = go.Figure()
-        for _label, _deg, _color in (
-            ("White", angle_white_deg, "#e5e7eb"),
-            ("Green", angle_green_deg, "#4ade80"),
-            ("Red", angle_red_deg, "#f87171"),
+        for _label, _deg in (
+            ("White", angle_white_deg), ("Green", angle_green_deg), ("Red", angle_red_deg),
         ):
             _slope = _math.tan(_math.radians(_deg))
             _ys = [_origin + _slope * x for x in _xs]
             _fig.add_trace(go.Scatter(x=_xs, y=_ys, mode="lines", name=_label,
-                                       line=dict(color=_color, width=3)))
+                                       line=dict(color=_LINE_COLORS[_label], width=3)))
         _fig.update_layout(
             height=180, margin=dict(l=10, r=10, t=10, b=10),
             showlegend=True, xaxis=dict(visible=False), yaxis=dict(visible=False),
@@ -749,11 +826,15 @@ with tab_angle:
         angle_syms = tuple(_load_symbols(angle_universe))
         params_key = (
             float(angle_oversold), angle_white_slope, angle_green_slope, angle_red_slope,
-            float(angle_wg_gap), float(angle_gr_gap), float(angle_total_gap), bool(angle_require_accel),
+            float(angle_wg_gap), float(angle_gr_gap), float(angle_total_gap),
+        )
+        gates_key = (
+            bool(gate_oversold), bool(gate_ordering), bool(gate_rising), bool(gate_separation),
+            bool(gate_gap_expansion), bool(gate_slope_strength), bool(gate_accelerating),
         )
         _run_angle_scan.clear()
         with st.spinner(f"Scanning {len(angle_syms)} symbols for H-M Angle pattern…"):
-            df_angle, angle_fetch_ts = _run_angle_scan(angle_syms, angle_tf, params_key)
+            df_angle, angle_fetch_ts = _run_angle_scan(angle_syms, angle_tf, params_key, gates_key)
         st.session_state["hm_angle_df"] = df_angle
         st.session_state["hm_angle_ts"] = angle_fetch_ts
         st.session_state["hm_angle_tf"] = angle_tf
