@@ -722,12 +722,76 @@ with tab_angle:
     import plotly.graph_objects as go
 
     _LINE_COLORS = {"White": "#e5e7eb", "Green": "#22c55e", "Red": "#ef4444"}
+    _ANGLE_SCALE = 1.0 / _math.tan(_math.radians(45))  # slope=1.0 (RSI pts/bar) ⇔ 45°, both directions
 
     def _colored_label(text: str, color: str) -> None:
         st.markdown(
             f"<span style='color:{color}; font-weight:600'>{text}</span>",
             unsafe_allow_html=True,
         )
+
+    def _deg_to_slope(deg: float) -> float:
+        return round(_math.tan(_math.radians(deg)) * _ANGLE_SCALE, 3)
+
+    def _slope_to_deg(slope: float) -> float:
+        return round(_math.degrees(_math.atan(slope / _ANGLE_SCALE)), 1) if _ANGLE_SCALE else 0.0
+
+    # ── Reference chart — the real H-M chart is the source of truth. Read the
+    # actual current white/green/red slope off a real stock's chart, in the
+    # exact same slope units the scan filters use, then push those numbers
+    # into the scan sliders below instead of guessing an arbitrary angle. ──
+    with st.expander("📊 Reference Chart — read real angle values before scanning", expanded=True):
+        rc1, rc2 = st.columns([2, 1])
+        default_ref_sym = st.session_state.get("hm_single_sym", "RELIANCE.NS").replace(".NS", "")
+        ref_symbol_input = rc1.text_input("Reference stock (.NS)", value=default_ref_sym, key="angle_ref_sym").strip().upper()
+        ref_tf_label = rc2.selectbox("Timeframe", list(ANGLE_TIMEFRAMES.keys()), index=4, key="angle_ref_tf")
+        ref_tf = ANGLE_TIMEFRAMES[ref_tf_label]
+
+        load_ref = st.button("📈 Load Reference Chart", key="load_angle_ref_btn")
+        if load_ref:
+            ref_sym_full = ref_symbol_input if ref_symbol_input.endswith(".NS") else ref_symbol_input + ".NS"
+            with st.spinner(f"Fetching {ref_sym_full}…"):
+                df_ref_raw = _angle_fetch_single(ref_sym_full, ref_tf)
+            if not df_ref_raw.empty:
+                df_ref = add_indicators(df_ref_raw)
+                df_ref = generate_signals(df_ref, min_score=70, confirmation_mode="Balanced")
+                df_ref = compute_expansion(df_ref, ExpansionParams())
+                st.session_state["hm_angle_ref_df"] = df_ref
+                st.session_state["hm_angle_ref_sym"] = ref_sym_full
+            else:
+                st.warning(f"No data for {ref_sym_full} on this timeframe.")
+
+        df_ref = st.session_state.get("hm_angle_ref_df")
+        ref_sym_loaded = st.session_state.get("hm_angle_ref_sym")
+
+        if df_ref is not None and not df_ref.empty:
+            render_tv_chart(df_ref, ref_sym_loaded, main_height=380, osc_height=180, max_bars=300)
+
+            last_ref = df_ref.iloc[-1]
+            real_white_deg = _slope_to_deg(float(last_ref["white_slope"]))
+            real_green_deg = _slope_to_deg(float(last_ref["green_slope"]))
+            real_red_deg = _slope_to_deg(float(last_ref["red_slope"]))
+
+            rd1, rd2, rd3 = st.columns(3)
+            with rd1:
+                _colored_label(f"⬜ White: {real_white_deg}°", _LINE_COLORS["White"])
+            with rd2:
+                _colored_label(f"🟢 Green: {real_green_deg}°", _LINE_COLORS["Green"])
+            with rd3:
+                _colored_label(f"🔴 Red: {real_red_deg}°", _LINE_COLORS["Red"])
+            st.caption(
+                f"Angles computed from {ref_sym_loaded}'s actual current RSI/EMA3/WMA21 slope "
+                f"(bars-since-oversold: {int(last_ref['bars_since_oversold']) if not pd.isna(last_ref['bars_since_oversold']) else '—'})."
+            )
+
+            if st.button("⬇ Use these angles as scan filter values", key="apply_ref_angles_btn"):
+                st.session_state["angle_white_deg"] = max(0, min(80, round(real_white_deg)))
+                st.session_state["angle_green_deg"] = max(0, min(80, round(real_green_deg)))
+                st.session_state["angle_red_deg"] = max(0, min(80, round(real_red_deg)))
+                st.session_state["angle_gate_slope_strength"] = True
+                st.rerun()
+        else:
+            st.info("Load a reference stock's real chart above, then use its actual current angle values to set the scan sliders below.")
 
     with st.expander("⚙️ Angle Scan Settings", expanded=True):
         ac1, ac2 = st.columns(2)
@@ -791,31 +855,35 @@ with tab_angle:
             angle_red_deg = st.slider("Red angle", 0, 80, 15, key="angle_red_deg",
                                        label_visibility="collapsed", disabled=not gate_slope_strength)
 
-        # Convert the illustrative degree sliders into the same slope units
-        # ExpansionParams already uses (RSI points per bar) — tan(angle) scaled
-        # to a comparable magnitude so 45° ≈ this module's existing default of 1.0.
-        _ANGLE_SCALE = 1.0 / _math.tan(_math.radians(45))
-        angle_white_slope = round(_math.tan(_math.radians(angle_white_deg)) * _ANGLE_SCALE, 3)
-        angle_green_slope = round(_math.tan(_math.radians(angle_green_deg)) * _ANGLE_SCALE, 3)
-        angle_red_slope = round(_math.tan(_math.radians(angle_red_deg)) * _ANGLE_SCALE, 3)
+        # Same slope units + conversion used to read real angles off the
+        # reference chart above — so a slider set to "45°" here means the
+        # exact same thing as "45°" read from a real stock's chart.
+        angle_white_slope = _deg_to_slope(angle_white_deg)
+        angle_green_slope = _deg_to_slope(angle_green_deg)
+        angle_red_slope = _deg_to_slope(angle_red_deg)
 
-        # ── Live angle preview — always reflects the sliders above, even if
-        # the slope-strength gate is off, so you can still "play" with angle
-        # shape before deciding whether to enforce it as a filter.
-        st.markdown("###### Live preview — how these angles look")
+        # ── Live preview — plotted on the same 0-100 RSI-style y-axis as the
+        # real H-M oscillator (origin pinned at the oversold threshold above),
+        # so the fan shape here reads proportionally like the real chart,
+        # not an arbitrary unscaled line. Always reflects the sliders above,
+        # even if the slope-strength gate is off, so you can still "play"
+        # with angle shape before deciding whether to enforce it as a filter.
+        st.markdown("###### Live preview — how these angles look (same RSI 0–100 scale as the real chart)")
         _xs = list(range(0, 11))
-        _origin = 20.0
+        _origin = float(angle_oversold)
         _fig = go.Figure()
         for _label, _deg in (
             ("White", angle_white_deg), ("Green", angle_green_deg), ("Red", angle_red_deg),
         ):
-            _slope = _math.tan(_math.radians(_deg))
+            _slope = _math.tan(_math.radians(_deg)) * _ANGLE_SCALE  # same RSI-pts/bar unit as the real chart reading
             _ys = [_origin + _slope * x for x in _xs]
             _fig.add_trace(go.Scatter(x=_xs, y=_ys, mode="lines", name=_label,
                                        line=dict(color=_LINE_COLORS[_label], width=3)))
+        _fig.add_hline(y=_origin, line_dash="dot", line_color="#6b7280", opacity=0.6)
         _fig.update_layout(
-            height=180, margin=dict(l=10, r=10, t=10, b=10),
-            showlegend=True, xaxis=dict(visible=False), yaxis=dict(visible=False),
+            height=200, margin=dict(l=10, r=10, t=10, b=10),
+            showlegend=True, xaxis=dict(visible=False),
+            yaxis=dict(visible=True, range=[0, 100], showgrid=False, tickfont=dict(size=9)),
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
         )
         st.plotly_chart(_fig, use_container_width=True, key="angle_preview_chart")
