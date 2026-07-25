@@ -339,3 +339,18 @@ def attach_confirmed_frvp(df: pd.DataFrame, params: FRVPParams | None = None,
     out["cut2_date"] = cut2_date
     out["cut3_date"] = cut3_date
     return out
+
+
+def latest_confirmed_frvp(df: pd.DataFrame, params: FRVPParams | None = None) -> dict:
+    """Confirmed FRVP levels for only the most recent bar (t_pos = len(df)-1,
+    using strictly-prior data — see module docstring's no-lookahead
+    guarantee). This is the common "is today's close above the confirmed
+    Value Area High" live-scan check — computing only the last bar's chain
+    instead of attach_confirmed_frvp()'s full rolling history keeps a batch
+    scan across hundreds of stocks fast, since only one f_calc_asof() call
+    is needed per stock instead of one per historical bar."""
+    p = params or FRVPParams()
+    n = len(df)
+    if n < p.lookback + 3:
+        return {"confirmed_poc": None, "confirmed_vah": None, "confirmed_val": None, "completed_cuts": 0}
+    return f_calc_asof(df, n - 1, p)

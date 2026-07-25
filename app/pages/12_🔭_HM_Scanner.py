@@ -33,6 +33,7 @@ from backend.calculations.hm_indicators import add_indicators, generate_signals,
 from backend.calculations.hm_backtest import backtest_signals, backtest_top_signals, summarize_backtests
 from backend.calculations.hm_tv_chart import render_tv_chart, tv_chart_url, to_tv_symbol
 from backend.calculations.hm_expansion import compute_expansion, ExpansionParams
+from backend.calculations.frvp_adaptive import FRVPParams, latest_confirmed_frvp
 
 _IST = _pytz.timezone("Asia/Kolkata")
 
@@ -161,11 +162,19 @@ def _run_angle_scan(symbols: tuple, tf_key: str, params_key: tuple, gates_key: t
     which of those must be True for a stock to count as a match. This lets
     a search catch an early "buying just started, lines turning up" stock
     without also demanding wide, non-touching, fast-expanding gaps — those
-    stricter checks are opt-in narrowing filters, not baseline requirements."""
+    stricter checks are opt-in narrowing filters, not baseline requirements.
+
+    gate_above_vah (the last entry in gates_key) additionally requires the
+    latest close to sit above the confirmed Adaptive FRVP Value Area High
+    (backend.calculations.frvp_adaptive) — the same real-chart distinction
+    between a genuine breakout (price escapes its prior value area) and a
+    consolidation bump that stays trapped inside it. Only computed when this
+    gate is on, since the FRVP cut-chain is real per-stock work and would
+    otherwise slow down every scan for a filter most runs don't need."""
     (oversold_level, min_white_slope, min_green_slope, min_red_slope,
      min_wg_gap, min_gr_gap, min_total_gap) = params_key
     (gate_oversold, gate_ordering, gate_rising, gate_separation,
-     gate_gap_expansion, gate_slope_strength, gate_accelerating) = gates_key
+     gate_gap_expansion, gate_slope_strength, gate_accelerating, gate_above_vah) = gates_key
 
     params = ExpansionParams(
         oversold_level=oversold_level,
@@ -176,6 +185,7 @@ def _run_angle_scan(symbols: tuple, tf_key: str, params_key: tuple, gates_key: t
         min_green_red_gap=min_gr_gap,
         min_total_gap=min_total_gap,
     )
+    frvp_params = FRVPParams()
 
     raw_data = _angle_fetch_batch(symbols, tf_key)
     rows = []
@@ -208,7 +218,7 @@ def _run_angle_scan(symbols: tuple, tf_key: str, params_key: tuple, gates_key: t
             if not match:
                 continue
 
-            rows.append({
+            row = {
                 "Symbol": sym.replace(".NS", ""),
                 "White (RSI)": round(float(last["white_line"]), 1),
                 "Green (EMA3)": round(float(last["green_line"]), 1),
@@ -225,7 +235,19 @@ def _run_angle_scan(symbols: tuple, tf_key: str, params_key: tuple, gates_key: t
                 "Gaps Expanding": bool(last["gaps_expanding"]),
                 "Slope Strong": bool(last["strong_upward_slopes"]),
                 "Accelerating": bool(last["slopes_accelerating"]),
-            })
+            }
+
+            if gate_above_vah:
+                frvp = latest_confirmed_frvp(df_raw, frvp_params)
+                vah = frvp.get("confirmed_vah")
+                close = float(df_raw["Close"].iloc[-1])
+                above_vah = vah is not None and close > vah
+                if not above_vah:
+                    continue
+                row["Confirmed VAH"] = round(float(vah), 2)
+                row["Above VAH"] = True
+
+            rows.append(row)
         except Exception:
             continue
 
@@ -784,6 +806,20 @@ with tab_angle:
                 f"(bars-since-oversold: {int(last_ref['bars_since_oversold']) if not pd.isna(last_ref['bars_since_oversold']) else '—'})."
             )
 
+            # Breakout vs consolidation check — is the current close still
+            # trapped inside the prior FRVP value area, or has it escaped it?
+            ref_frvp = latest_confirmed_frvp(df_ref_raw, FRVPParams())
+            ref_vah = ref_frvp.get("confirmed_vah")
+            ref_close = float(df_ref_raw["Close"].iloc[-1])
+            if ref_vah is not None:
+                ref_above = ref_close > ref_vah
+                st.markdown(
+                    f"**FRVP check:** Close ₹{ref_close:,.2f} vs confirmed Value Area High "
+                    f"₹{ref_vah:,.2f} → {'🟢 **Above VAH — looks like a real breakout**' if ref_above else '🔴 **Inside/below VAH — likely still consolidating**'}"
+                )
+            else:
+                st.caption("FRVP check unavailable — needs 300+ bars of history at this timeframe.")
+
             if st.button("⬇ Use these angles as scan filter values", key="apply_ref_angles_btn"):
                 st.session_state["angle_white_deg"] = max(0, min(80, round(real_white_deg)))
                 st.session_state["angle_green_deg"] = max(0, min(80, round(real_green_deg)))
@@ -816,10 +852,25 @@ with tab_angle:
         gate_gap_expansion = gc6.checkbox(
             "Gaps expanding / not contracting", value=False, key="angle_gate_gap_expansion",
         )
+        gate_above_vah = st.checkbox(
+            "Close above FRVP Value Area High (confirms real breakout, not consolidation)",
+            value=False, key="angle_gate_above_vah",
+            help="Requires ~300+ bars of history at this timeframe. Distinguishes a genuine breakout "
+                 "(price has escaped its prior value area) from a bump that stays trapped inside it — "
+                 "adds real per-stock computation, so the scan takes longer with this on.",
+        )
         st.caption(
             "Core bottom-catch = Oversold + Ordering + All Rising (default). "
             "Turn on the others to narrow the list once you're hunting for a stronger, more mature setup."
         )
+        if st.button(
+            "🎯 Apply 'Confirmed Breakout' preset (gaps expanding + accelerating slope + above FRVP VAH)",
+            key="angle_apply_breakout_preset",
+        ):
+            st.session_state["angle_gate_gap_expansion"] = True
+            st.session_state["angle_gate_accel"] = True
+            st.session_state["angle_gate_above_vah"] = True
+            st.rerun()
 
         st.markdown("###### Oversold origin threshold")
         angle_oversold = st.slider(
@@ -898,7 +949,7 @@ with tab_angle:
         )
         gates_key = (
             bool(gate_oversold), bool(gate_ordering), bool(gate_rising), bool(gate_separation),
-            bool(gate_gap_expansion), bool(gate_slope_strength), bool(gate_accelerating),
+            bool(gate_gap_expansion), bool(gate_slope_strength), bool(gate_accelerating), bool(gate_above_vah),
         )
         _run_angle_scan.clear()
         with st.spinner(f"Scanning {len(angle_syms)} symbols for H-M Angle pattern…"):
