@@ -779,11 +779,13 @@ with tab_angle:
                 df_ref = generate_signals(df_ref, min_score=70, confirmation_mode="Balanced")
                 df_ref = compute_expansion(df_ref, ExpansionParams())
                 st.session_state["hm_angle_ref_df"] = df_ref
+                st.session_state["hm_angle_ref_raw"] = df_ref_raw
                 st.session_state["hm_angle_ref_sym"] = ref_sym_full
             else:
                 st.warning(f"No data for {ref_sym_full} on this timeframe.")
 
         df_ref = st.session_state.get("hm_angle_ref_df")
+        df_ref_raw = st.session_state.get("hm_angle_ref_raw")
         ref_sym_loaded = st.session_state.get("hm_angle_ref_sym")
 
         if df_ref is not None and not df_ref.empty:
@@ -808,24 +810,32 @@ with tab_angle:
 
             # Breakout vs consolidation check — is the current close still
             # trapped inside the prior FRVP value area, or has it escaped it?
-            ref_frvp = latest_confirmed_frvp(df_ref_raw, FRVPParams())
-            ref_vah = ref_frvp.get("confirmed_vah")
-            ref_close = float(df_ref_raw["Close"].iloc[-1])
-            if ref_vah is not None:
-                ref_above = ref_close > ref_vah
-                st.markdown(
-                    f"**FRVP check:** Close ₹{ref_close:,.2f} vs confirmed Value Area High "
-                    f"₹{ref_vah:,.2f} → {'🟢 **Above VAH — looks like a real breakout**' if ref_above else '🔴 **Inside/below VAH — likely still consolidating**'}"
-                )
-            else:
-                st.caption("FRVP check unavailable — needs 300+ bars of history at this timeframe.")
+            if df_ref_raw is not None and not df_ref_raw.empty:
+                ref_frvp = latest_confirmed_frvp(df_ref_raw, FRVPParams())
+                ref_vah = ref_frvp.get("confirmed_vah")
+                ref_close = float(df_ref_raw["Close"].iloc[-1])
+                if ref_vah is not None:
+                    ref_above = ref_close > ref_vah
+                    st.markdown(
+                        f"**FRVP check:** Close ₹{ref_close:,.2f} vs confirmed Value Area High "
+                        f"₹{ref_vah:,.2f} → {'🟢 **Above VAH — looks like a real breakout**' if ref_above else '🔴 **Inside/below VAH — likely still consolidating**'}"
+                    )
+                else:
+                    st.caption("FRVP check unavailable — needs 300+ bars of history at this timeframe.")
 
-            if st.button("⬇ Use these angles as scan filter values", key="apply_ref_angles_btn"):
-                st.session_state["angle_white_deg"] = max(0, min(80, round(real_white_deg)))
-                st.session_state["angle_green_deg"] = max(0, min(80, round(real_green_deg)))
-                st.session_state["angle_red_deg"] = max(0, min(80, round(real_red_deg)))
+            def _apply_ref_angles(_w=real_white_deg, _g=real_green_deg, _r=real_red_deg):
+                # Setting these inside an on_click callback (not after a plain
+                # `if st.button(...)`) is required — Streamlit forbids writing
+                # to a widget's session_state key once that widget has already
+                # been instantiated in the current script run, and a callback
+                # runs before the rerun re-creates the sliders below.
+                st.session_state["angle_white_deg"] = max(0, min(80, round(_w)))
+                st.session_state["angle_green_deg"] = max(0, min(80, round(_g)))
+                st.session_state["angle_red_deg"] = max(0, min(80, round(_r)))
                 st.session_state["angle_gate_slope_strength"] = True
-                st.rerun()
+
+            st.button("⬇ Use these angles as scan filter values", key="apply_ref_angles_btn",
+                      on_click=_apply_ref_angles)
         else:
             st.info("Load a reference stock's real chart above, then use its actual current angle values to set the scan sliders below.")
 
@@ -863,14 +873,20 @@ with tab_angle:
             "Core bottom-catch = Oversold + Ordering + All Rising (default). "
             "Turn on the others to narrow the list once you're hunting for a stronger, more mature setup."
         )
-        if st.button(
-            "🎯 Apply 'Confirmed Breakout' preset (gaps expanding + accelerating slope + above FRVP VAH)",
-            key="angle_apply_breakout_preset",
-        ):
+        def _apply_breakout_preset():
+            # Must run as an on_click callback, not after a plain
+            # `if st.button(...)` — the checkboxes above are already
+            # instantiated earlier in this same script run, and Streamlit
+            # forbids writing to a widget's session_state key post-creation;
+            # a callback runs before that instantiation on the next rerun.
             st.session_state["angle_gate_gap_expansion"] = True
             st.session_state["angle_gate_accel"] = True
             st.session_state["angle_gate_above_vah"] = True
-            st.rerun()
+
+        st.button(
+            "🎯 Apply 'Confirmed Breakout' preset (gaps expanding + accelerating slope + above FRVP VAH)",
+            key="angle_apply_breakout_preset", on_click=_apply_breakout_preset,
+        )
 
         st.markdown("###### Oversold origin threshold")
         angle_oversold = st.slider(
@@ -937,7 +953,7 @@ with tab_angle:
             yaxis=dict(visible=True, range=[0, 100], showgrid=False, tickfont=dict(size=9)),
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
         )
-        st.plotly_chart(_fig, use_container_width=True, key="angle_preview_chart")
+        st.plotly_chart(_fig, width='stretch', key="angle_preview_chart")
 
     run_angle_scan = st.button("▶ Run H-M Angle Scan", type="primary", key="run_angle_scan_btn")
 
