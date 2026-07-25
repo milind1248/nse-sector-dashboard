@@ -32,6 +32,7 @@ import pytz as _pytz
 from backend.calculations.hm_indicators import add_indicators, generate_signals, attach_htf_regime
 from backend.calculations.hm_backtest import backtest_signals, backtest_top_signals, summarize_backtests
 from backend.calculations.hm_tv_chart import render_tv_chart, tv_chart_url, to_tv_symbol
+from backend.calculations.hm_expansion import compute_expansion, ExpansionParams
 
 _IST = _pytz.timezone("Asia/Kolkata")
 
@@ -46,6 +47,13 @@ INTERVAL_CONFIG = {
 HIGHER_TIMEFRAME = {
     "15m": "1h", "30m": "1h", "1h": "1d",
     "1d": "1wk", "1wk": "1mo", "1mo": "1mo",
+}
+
+# H-M Angle tab — radio labels -> underlying yfinance interval (or "4h" pseudo-interval,
+# resampled from 1h since yfinance/this codebase has no native 4h support).
+ANGLE_TIMEFRAMES = {
+    "15min": "15m", "30min": "30m", "1 hour": "1h", "4 hours": "4h",
+    "Day": "1d", "Week": "1wk", "Month": "1mo",
 }
 
 FALLBACK_NIFTY50 = [
@@ -111,6 +119,87 @@ def _fetch_single(symbol: str, interval: str, period: str) -> pd.DataFrame:
     if isinstance(raw.columns, pd.MultiIndex):
         raw.columns = [c[0] for c in raw.columns]
     return raw.dropna(how="all")
+
+
+def _resample_4h(df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate 1h bars into 4h bars — yfinance has no native 4h interval."""
+    if df.empty:
+        return df
+    agg = {"Open": "first", "High": "max", "Low": "min", "Close": "last"}
+    if "Volume" in df.columns:
+        agg["Volume"] = "sum"
+    out = df.resample("4h").agg(agg).dropna(subset=["Open", "High", "Low", "Close"], how="any")
+    return out
+
+
+def _angle_fetch_batch(symbols: tuple, tf_key: str) -> dict:
+    """Fetch OHLCV for the H-M Angle tab's timeframe radio, routing 4h through resample."""
+    if tf_key == "4h":
+        raw = _fetch_batch(symbols, "1h", INTERVAL_CONFIG["1h"]["period"])
+        return {sym: _resample_4h(df) for sym, df in raw.items() if not df.empty}
+    period = INTERVAL_CONFIG.get(tf_key, INTERVAL_CONFIG["1d"])["period"]
+    return _fetch_batch(symbols, tf_key, period)
+
+
+def _angle_fetch_single(symbol: str, tf_key: str) -> pd.DataFrame:
+    if tf_key == "4h":
+        raw = _fetch_single(symbol, "1h", INTERVAL_CONFIG["1h"]["period"])
+        return _resample_4h(raw)
+    period = INTERVAL_CONFIG.get(tf_key, INTERVAL_CONFIG["1d"])["period"]
+    return _fetch_single(symbol, tf_key, period)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _run_angle_scan(symbols: tuple, tf_key: str, params_key: tuple) -> tuple:
+    """Scan the universe for the H-M Angle bullish-expansion pattern.
+    params_key is a hashable tuple mirroring ExpansionParams' tunable fields
+    (needed since ExpansionParams itself isn't hashable for st.cache_data)."""
+    (oversold_level, min_white_slope, min_green_slope, min_red_slope,
+     min_wg_gap, min_gr_gap, min_total_gap, require_accel) = params_key
+
+    params = ExpansionParams(
+        oversold_level=oversold_level,
+        min_white_slope=min_white_slope,
+        min_green_slope=min_green_slope,
+        min_red_slope=min_red_slope,
+        min_white_green_gap=min_wg_gap,
+        min_green_red_gap=min_gr_gap,
+        min_total_gap=min_total_gap,
+        require_accelerating_slope=require_accel,
+    )
+
+    raw_data = _angle_fetch_batch(symbols, tf_key)
+    rows = []
+    for sym in symbols:
+        df_raw = raw_data.get(sym)
+        if df_raw is None or df_raw.empty or len(df_raw) < 30:
+            continue
+        try:
+            df = add_indicators(df_raw)
+            if df.empty:
+                continue
+            df = compute_expansion(df, params)
+            last = df.iloc[-1]
+            if not bool(last["hm_bullish_expansion"]):
+                continue
+            rows.append({
+                "Symbol": sym.replace(".NS", ""),
+                "White (RSI)": round(float(last["white_line"]), 1),
+                "Green (EMA3)": round(float(last["green_line"]), 1),
+                "Red (WMA21)": round(float(last["red_line"]), 1),
+                "White-Green Gap": round(float(last["white_green_gap"]), 2),
+                "Green-Red Gap": round(float(last["green_red_gap"]), 2),
+                "White Slope": round(float(last["white_slope"]), 2),
+                "Green Slope": round(float(last["green_slope"]), 2),
+                "Red Slope": round(float(last["red_slope"]), 2),
+                "Bars Since Oversold": int(last["bars_since_oversold"]) if not pd.isna(last["bars_since_oversold"]) else None,
+                "Accelerating": bool(last["slopes_accelerating"]),
+            })
+        except Exception:
+            continue
+
+    fetch_ts = pd.Timestamp.now(tz=_IST)
+    return pd.DataFrame(rows), fetch_ts
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -278,7 +367,9 @@ from app.utils.disclaimer import show_sebi_notice
 show_sebi_notice()
 st.caption("Hilega-Milega System — RSI(9)/WMA(21)/EMA(3) signal scanner. Educational use only.")
 
-tab_scan, tab_single, tab_bt = st.tabs(["📡 Live Scan", "🔍 Single Stock", "📈 Backtest"])
+tab_scan, tab_single, tab_bt, tab_angle = st.tabs(
+    ["📡 Live Scan", "🔍 Single Stock", "📈 Backtest", "📐 H-M Angle"]
+)
 
 # ═════════════════════════════════════════════════════════════════════════════
 # TAB 1 — LIVE SCAN
@@ -585,3 +676,115 @@ with tab_bt:
 
     elif run_bt and (bt_summary is None or bt_summary.empty):
         st.warning("No signals found for the selected settings. Try lowering Min Score or switching to Early mode.")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# TAB 4 — H-M ANGLE (pattern scanner: fanning white/green/red lines)
+# ═════════════════════════════════════════════════════════════════════════════
+with tab_angle:
+    st.caption(
+        "📐 Pattern scanner for discovery — finds stocks where the RSI(9)/EMA(3)/WMA(21) "
+        "lines fan apart bullishly from an oversold origin. Not a validated trading signal."
+    )
+
+    with st.expander("⚙️ Angle Scan Settings", expanded=True):
+        ac1, ac2 = st.columns(2)
+        angle_universe = ac1.selectbox("Universe", ["Nifty 50", "Nifty 500"], key="angle_univ")
+        angle_tf_label = ac2.radio(
+            "Timeframe", list(ANGLE_TIMEFRAMES.keys()), index=4, horizontal=True, key="angle_tf",
+        )
+        angle_tf = ANGLE_TIMEFRAMES[angle_tf_label]
+
+        st.markdown("###### Oversold origin & line separation")
+        oc1, oc2, oc3, oc4 = st.columns(4)
+        angle_oversold = oc1.slider("RSI(9) below", 10, 60, 50, key="angle_oversold")
+        angle_wg_gap = oc2.slider("Min White-Green Gap", 0.0, 5.0, 0.5, step=0.1, key="angle_wg_gap")
+        angle_gr_gap = oc3.slider("Min Green-Red Gap", 0.0, 5.0, 0.5, step=0.1, key="angle_gr_gap")
+        angle_total_gap = oc4.slider("Min Total Gap", 0.0, 10.0, 1.25, step=0.25, key="angle_total_gap")
+
+        st.markdown("###### Line slope / angle")
+        sc1, sc2, sc3 = st.columns(3)
+        angle_white_deg = sc1.slider("White Line Angle (°)", 0, 80, 45, key="angle_white_deg")
+        angle_green_deg = sc2.slider("Green Line Angle (°)", 0, 80, 32, key="angle_green_deg")
+        angle_red_deg = sc3.slider("Red Line Angle (°)", 0, 80, 15, key="angle_red_deg")
+        angle_require_accel = st.checkbox(
+            "Require accelerating slope (each line steeper than yesterday)",
+            value=True, key="angle_require_accel",
+        )
+
+        # Convert the illustrative degree sliders into the same slope units
+        # ExpansionParams already uses (RSI points per bar) — tan(angle) scaled
+        # to a comparable magnitude so 45° ≈ this module's existing default of 1.0.
+        import math as _math
+        _ANGLE_SCALE = 1.0 / _math.tan(_math.radians(45))
+        angle_white_slope = round(_math.tan(_math.radians(angle_white_deg)) * _ANGLE_SCALE, 3)
+        angle_green_slope = round(_math.tan(_math.radians(angle_green_deg)) * _ANGLE_SCALE, 3)
+        angle_red_slope = round(_math.tan(_math.radians(angle_red_deg)) * _ANGLE_SCALE, 3)
+
+        # ── Live angle preview ──────────────────────────────────────────
+        st.markdown("###### Live preview — how these angles look")
+        import plotly.graph_objects as go
+        _xs = list(range(0, 11))
+        _origin = 20.0
+        _fig = go.Figure()
+        for _label, _deg, _color in (
+            ("White", angle_white_deg, "#e5e7eb"),
+            ("Green", angle_green_deg, "#4ade80"),
+            ("Red", angle_red_deg, "#f87171"),
+        ):
+            _slope = _math.tan(_math.radians(_deg))
+            _ys = [_origin + _slope * x for x in _xs]
+            _fig.add_trace(go.Scatter(x=_xs, y=_ys, mode="lines", name=_label,
+                                       line=dict(color=_color, width=3)))
+        _fig.update_layout(
+            height=180, margin=dict(l=10, r=10, t=10, b=10),
+            showlegend=True, xaxis=dict(visible=False), yaxis=dict(visible=False),
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(_fig, use_container_width=True, key="angle_preview_chart")
+
+    run_angle_scan = st.button("▶ Run H-M Angle Scan", type="primary", key="run_angle_scan_btn")
+
+    if run_angle_scan:
+        angle_syms = tuple(_load_symbols(angle_universe))
+        params_key = (
+            float(angle_oversold), angle_white_slope, angle_green_slope, angle_red_slope,
+            float(angle_wg_gap), float(angle_gr_gap), float(angle_total_gap), bool(angle_require_accel),
+        )
+        _run_angle_scan.clear()
+        with st.spinner(f"Scanning {len(angle_syms)} symbols for H-M Angle pattern…"):
+            df_angle, angle_fetch_ts = _run_angle_scan(angle_syms, angle_tf, params_key)
+        st.session_state["hm_angle_df"] = df_angle
+        st.session_state["hm_angle_ts"] = angle_fetch_ts
+        st.session_state["hm_angle_tf"] = angle_tf
+
+    df_angle = st.session_state.get("hm_angle_df")
+    angle_fetch_ts = st.session_state.get("hm_angle_ts")
+    saved_angle_tf = st.session_state.get("hm_angle_tf", angle_tf)
+
+    if angle_fetch_ts is not None:
+        now_ist = pd.Timestamp.now(tz=_IST)
+        age_mins = int((now_ist - angle_fetch_ts).total_seconds() // 60)
+        age_str = f"{age_mins} min ago" if age_mins > 0 else "just now"
+        st.caption(f"📡 Data fetched at **{angle_fetch_ts.strftime('%d-%b-%Y %H:%M:%S')} IST** · {age_str}")
+
+    if df_angle is not None and not df_angle.empty:
+        st.metric("Matches Found", len(df_angle))
+        st.dataframe(df_angle, width='stretch', hide_index=True)
+
+        angle_pick = st.selectbox(
+            "Select a matched stock to view its chart",
+            df_angle["Symbol"].tolist(), key="angle_pick_sym",
+        )
+        if angle_pick:
+            pick_symbol = angle_pick + ".NS"
+            with st.spinner(f"Loading chart for {angle_pick}…"):
+                df_pick_raw = _angle_fetch_single(pick_symbol, saved_angle_tf)
+            if not df_pick_raw.empty:
+                df_pick = add_indicators(df_pick_raw)
+                df_pick = generate_signals(df_pick, min_score=70, confirmation_mode="Balanced")
+                render_tv_chart(df_pick, pick_symbol, main_height=460, osc_height=200, max_bars=500)
+            else:
+                st.warning(f"No chart data available for {angle_pick} on this timeframe.")
+    elif run_angle_scan:
+        st.info("No stocks matched this pattern with the current settings. Try loosening the angle or gap thresholds.")

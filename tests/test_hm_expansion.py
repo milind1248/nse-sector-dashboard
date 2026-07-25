@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from backend.calculations.hm_expansion import compute_expansion, is_strictly_rising
+from backend.calculations.hm_expansion import compute_expansion, is_strictly_rising, ExpansionParams
 
 
 def _lines_df(white, green, red):
@@ -99,3 +99,32 @@ def test_negative_weak_slope():
     out = compute_expansion(_lines_df(w, g, r))
     assert out["hm_bullish_expansion"].iloc[-1] == False  # noqa: E712
     assert out["strong_upward_slopes"].iloc[-1] == False  # noqa: E712
+
+
+def test_slopes_accelerating_flag():
+    """slopes_accelerating must be True when each line's per-bar slope is
+    itself increasing (steepening curve, e.g. quadratic growth) and False
+    when the slope is flattening (e.g. sqrt-shaped growth) — this is
+    distinct from strong_upward_slopes, which only checks slope magnitude,
+    not day-over-day slope acceleration."""
+    n_flat, n_rise = 12, 10
+    x = np.arange(1, n_rise + 1)
+
+    # Steepening: quadratic growth -> each bar's slope > previous bar's slope.
+    steep = np.concatenate([np.full(n_flat, 6.0), 6.0 + x ** 2 * 2.0])
+    out_steep = compute_expansion(_lines_df(steep, steep + 10, steep + 20))
+    assert out_steep["white_slope_accelerating"].iloc[-1] == True  # noqa: E712
+    assert out_steep["slopes_accelerating"].iloc[-1] == True  # noqa: E712
+
+    # Flattening: sqrt-shaped growth -> each bar's slope < previous bar's slope.
+    flat = np.concatenate([np.full(n_flat, 6.0), 6.0 + np.sqrt(x) * 20.0])
+    out_flat = compute_expansion(_lines_df(flat, flat + 10, flat + 20))
+    assert out_flat["white_slope_accelerating"].iloc[-1] == False  # noqa: E712
+    assert out_flat["slopes_accelerating"].iloc[-1] == False  # noqa: E712
+
+    # require_accelerating_slope=False (default) must not change existing
+    # hm_bullish_expansion behavior for the standard positive fixture.
+    w, g, r = _base_lines()
+    default_out = compute_expansion(_lines_df(w, g, r), ExpansionParams())
+    accel_off_out = compute_expansion(_lines_df(w, g, r), ExpansionParams(require_accelerating_slope=False))
+    assert (default_out["hm_bullish_expansion"] == accel_off_out["hm_bullish_expansion"]).all()

@@ -55,6 +55,7 @@ class ExpansionParams:
     min_green_slope: float = 0.60
     min_red_slope: float = 0.25
     require_slope_order: bool = False
+    require_accelerating_slope: bool = False
 
 
 def is_strictly_rising(series: pd.Series, bars: int) -> pd.Series:
@@ -193,6 +194,14 @@ def compute_expansion(df: pd.DataFrame, params: ExpansionParams | None = None) -
         strong = strong & (white_slope > green_slope) & (green_slope > red_slope)
     out["strong_upward_slopes"] = strong.fillna(False)
 
+    # ── Slope acceleration (today's slope steeper than yesterday's) ───────
+    out["white_slope_accelerating"] = (white_slope > white_slope.shift(1)).fillna(False)
+    out["green_slope_accelerating"] = (green_slope > green_slope.shift(1)).fillna(False)
+    out["red_slope_accelerating"] = (red_slope > red_slope.shift(1)).fillna(False)
+    out["slopes_accelerating"] = (
+        out["white_slope_accelerating"] & out["green_slope_accelerating"] & out["red_slope_accelerating"]
+    )
+
     # ── Final signal ─────────────────────────────────────────────────────
     out["hm_bullish_expansion"] = (
         out["oversold_origin"]
@@ -203,5 +212,7 @@ def compute_expansion(df: pd.DataFrame, params: ExpansionParams | None = None) -
         & out["gaps_expanding"]
         & out["strong_upward_slopes"]
     )
+    if p.require_accelerating_slope:
+        out["hm_bullish_expansion"] = out["hm_bullish_expansion"] & out["slopes_accelerating"]
 
     return out
