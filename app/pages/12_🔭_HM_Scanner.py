@@ -34,6 +34,7 @@ from backend.calculations.hm_backtest import backtest_signals, backtest_top_sign
 from backend.calculations.hm_tv_chart import render_tv_chart, tv_chart_url, to_tv_symbol
 from backend.calculations.hm_expansion import compute_expansion, ExpansionParams
 from backend.calculations.frvp_adaptive import FRVPParams, latest_confirmed_frvp
+from backend.calculations.universe import FALLBACK_NIFTY50, load_symbols as _load_symbols
 
 _IST = _pytz.timezone("Asia/Kolkata")
 
@@ -56,41 +57,6 @@ ANGLE_TIMEFRAMES = {
     "15min": "15m", "30min": "30m", "1 hour": "1h", "4 hours": "4h",
     "Day": "1d", "Week": "1wk", "Month": "1mo",
 }
-
-FALLBACK_NIFTY50 = [
-    "ADANIENT.NS", "ADANIPORTS.NS", "APOLLOHOSP.NS", "ASIANPAINT.NS", "AXISBANK.NS",
-    "BAJAJ-AUTO.NS", "BAJFINANCE.NS", "BAJAJFINSV.NS", "BEL.NS", "BHARTIARTL.NS",
-    "CIPLA.NS", "COALINDIA.NS", "DRREDDY.NS", "EICHERMOT.NS", "ETERNAL.NS",
-    "GRASIM.NS", "HCLTECH.NS", "HDFCBANK.NS", "HDFCLIFE.NS", "HEROMOTOCO.NS",
-    "HINDALCO.NS", "HINDUNILVR.NS", "ICICIBANK.NS", "ITC.NS", "INDUSINDBK.NS",
-    "INFY.NS", "JSWSTEEL.NS", "JIOFIN.NS", "KOTAKBANK.NS", "LT.NS",
-    "M&M.NS", "MARUTI.NS", "NTPC.NS", "NESTLEIND.NS", "ONGC.NS",
-    "POWERGRID.NS", "RELIANCE.NS", "SBILIFE.NS", "SHRIRAMFIN.NS", "SBIN.NS",
-    "SUNPHARMA.NS", "TCS.NS", "TATACONSUM.NS", "TATAMOTORS.NS", "TATASTEEL.NS",
-    "TECHM.NS", "TITAN.NS", "TRENT.NS", "ULTRACEMCO.NS", "WIPRO.NS",
-]
-
-
-def _load_symbols(universe: str) -> list[str]:
-    if universe == "Nifty 50":
-        return FALLBACK_NIFTY50
-    try:
-        from io import StringIO
-        import requests
-        url = "https://www.niftyindices.com/IndexConstituent/ind_nifty500list.csv"
-        headers = {"User-Agent": "Mozilla/5.0", "Accept": "text/csv,*/*",
-                   "Referer": "https://www.niftyindices.com/"}
-        resp = requests.get(url, headers=headers, timeout=15)
-        resp.raise_for_status()
-        df = pd.read_csv(StringIO(resp.text))
-        col = "Symbol" if "Symbol" in df.columns else df.columns[0]
-        syms = [str(s).strip().upper() + ".NS" for s in df[col].dropna().tolist()]
-        if len(syms) >= 400:
-            return syms
-    except Exception:
-        pass
-    return FALLBACK_NIFTY50
-
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def _fetch_batch(symbols: tuple, interval: str, period: str) -> dict:

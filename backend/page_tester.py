@@ -44,6 +44,7 @@ PAGE_REGISTRY: list[dict] = [
     {"name": "Paper Trading",    "file": "app/pages/20_💹_Paper_Trading.py",   "tabs": 3,  "timeout": 20},
     {"name": "Pricing",          "file": "app/pages/22_💎_Pricing.py",         "tabs": 0,  "timeout": 20},
     {"name": "My Profile",       "file": "app/pages/23_👤_My_Profile.py",      "tabs": 0,  "timeout": 20},
+    {"name": "Swing Scanner",    "file": "app/pages/24_🌊_Swing_Scanner.py",   "tabs": 2,  "timeout": 90},
     # Admin (18_🔐_Admin.py) excluded — it's the test runner itself
     # User Guide (19_📖_User_Guide.py) excluded — static content, no backend calls to test
     # User Management (21_👥_User_Management.py) excluded — same reason as Admin
