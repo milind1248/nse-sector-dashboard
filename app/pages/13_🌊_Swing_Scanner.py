@@ -181,7 +181,7 @@ with tab_scan:
 # TAB 2 — SINGLE STOCK
 # ═════════════════════════════════════════════════════════════════════════════
 with tab_single:
-    symbol_input = st.text_input("Symbol (.NS)", value="RELIANCE.NS", key="swing_single_sym").strip().upper()
+    symbol_input = st.text_input("Symbol (.NS)", value="RELIANCE.NS", key="swing_single_sym_input").strip().upper()
     run_single = st.button("▶ Analyse", type="primary", key="run_swing_single_btn")
 
     if run_single:
