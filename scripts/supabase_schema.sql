@@ -378,6 +378,23 @@ CREATE TABLE IF NOT EXISTS shareholding_refresh_meta (
     value   TEXT NOT NULL   -- schemaless key/value store, kept as TEXT
 );
 
+-- ── PEAD Scanner — quarterly results (Sales/Profit/EBITDA), scraped
+-- on-demand from Screener.in's section#quarters (backend/data_ingestion/
+-- quarterly_results_pipeline.py), used to compute a self-referential
+-- "PEAD Score" (backend/calculations/pead_score.py) since no paid
+-- analyst-consensus/estimates feed is used.
+CREATE TABLE IF NOT EXISTS quarterly_results (
+    symbol            TEXT NOT NULL,
+    quarter           TEXT NOT NULL,   -- fiscal-quarter label (e.g. "Jun 2026"), not an ISO date
+    sales             DOUBLE PRECISION,
+    net_profit        DOUBLE PRECISION,
+    operating_profit  DOUBLE PRECISION,
+    opm_pct           DOUBLE PRECISION,
+    eps               DOUBLE PRECISION,
+    fetched_at        TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (symbol, quarter)
+);
+
 -- ── Bulk / Block Deals — daily NSE archive CSVs (large institutional/promoter
 -- trades). No natural single-column PK (a client can appear multiple times in
 -- one day at different prices/quantities), so the unique index below is the
