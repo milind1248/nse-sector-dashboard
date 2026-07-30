@@ -199,24 +199,28 @@ with tab_deep_dive:
                 "CLEAN": ("#e8f5e9", "#2e7d32", "✓ Clean"),
                 "FLAG": ("#ffebee", "#c62828", "⚠ Flag"),
             }
-            for tool in agent["tools"]:
+            tile_cols = st.columns(5)
+            for col, tool in zip(tile_cols, agent["tools"]):
                 bg, fg, label = _STATUS_STYLE[tool["status"]]
-                st.markdown(
-                    f"""<div style="background:{bg};border-radius:10px;padding:10px 16px;
-                    margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
-                    <div><b>{tool['icon']} {tool['name']}</b><br>
-                    <span style="font-size:0.85em;color:#444;">{tool['summary']}</span></div>
-                    <div style="color:{fg};font-weight:600;white-space:nowrap;">{label}</div>
+                col.markdown(
+                    f"""<div style="background:{bg};border-radius:10px;padding:10px;height:150px;
+                    display:flex;flex-direction:column;justify-content:space-between;">
+                    <div>
+                    <div style="font-size:1.3em;">{tool['icon']}</div>
+                    <div style="font-weight:600;color:#111;font-size:0.82em;line-height:1.2;margin-top:2px;">{tool['name']}</div>
+                    <div style="font-size:0.72em;color:#333;margin-top:4px;line-height:1.25;">{tool['summary']}</div>
+                    </div>
+                    <div style="color:{fg};font-weight:700;font-size:0.8em;">{label}</div>
                     </div>""",
                     unsafe_allow_html=True,
                 )
 
             verdict_bg, verdict_fg = ("#e8f5e9", "#2e7d32") if agent["verdict"] == "ACCEPTED" else ("#ffebee", "#c62828")
             st.markdown(
-                f"""<div style="background:{verdict_bg};border-radius:12px;padding:16px;text-align:center;margin-bottom:10px;">
-                <div style="font-size:1.4em;font-weight:700;color:{verdict_fg};">
+                f"""<div style="background:{verdict_bg};border-radius:12px;padding:14px;text-align:center;margin-top:8px;margin-bottom:10px;">
+                <div style="font-size:1.3em;font-weight:700;color:{verdict_fg};">
                 {'✅ ACCEPTED' if agent['verdict'] == 'ACCEPTED' else '❌ REJECTED'}</div>
-                <div style="font-size:0.85em;color:#444;margin-top:4px;">{agent['confidence']}% confidence — {agent['reason']}</div>
+                <div style="font-size:0.82em;color:#333;margin-top:4px;">{agent['confidence']}% confidence — {agent['reason']}</div>
                 </div>""",
                 unsafe_allow_html=True,
             )
