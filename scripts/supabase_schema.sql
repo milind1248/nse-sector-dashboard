@@ -390,6 +390,8 @@ CREATE TABLE IF NOT EXISTS quarterly_results (
     net_profit        DOUBLE PRECISION,
     operating_profit  DOUBLE PRECISION,
     opm_pct           DOUBLE PRECISION,
+    other_income      DOUBLE PRECISION,  -- feeds the "profit driven by other income" red flag
+    pbt               DOUBLE PRECISION,  -- profit before tax, denominator for other-income contribution %
     eps               DOUBLE PRECISION,
     fetched_at        TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (symbol, quarter)

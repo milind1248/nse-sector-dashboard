@@ -30,6 +30,8 @@ _ROW_KEY_MAP = {
     "Expenses": "expenses",
     "Operating Profit": "operating_profit",
     "OPM %": "opm_pct",
+    "Other Income": "other_income",
+    "Profit before tax": "pbt",
     "Net Profit": "net_profit",
     "EPS in Rs": "eps",
 }
@@ -98,6 +100,11 @@ def _fetch_quarterly_results(symbol: str) -> list[dict]:
             num_q = len(quarters)
             start = max(0, num_q - 8)
             now_ts = datetime.utcnow().isoformat()
+
+            def _get(key: str, i: int):
+                vals = data.get(key)
+                return vals[i] if vals and i < len(vals) else None
+
             result = []
             for i in range(num_q - 1, start - 1, -1):
                 if i >= len(quarters):
@@ -105,11 +112,13 @@ def _fetch_quarterly_results(symbol: str) -> list[dict]:
                 result.append({
                     "symbol": symbol,
                     "quarter": quarters[i],
-                    "sales": data.get("sales", [None] * num_q)[i] if i < len(data.get("sales", [])) else None,
-                    "net_profit": data.get("net_profit", [None] * num_q)[i] if i < len(data.get("net_profit", [])) else None,
-                    "operating_profit": data.get("operating_profit", [None] * num_q)[i] if i < len(data.get("operating_profit", [])) else None,
-                    "opm_pct": data.get("opm_pct", [None] * num_q)[i] if i < len(data.get("opm_pct", [])) else None,
-                    "eps": data.get("eps", [None] * num_q)[i] if i < len(data.get("eps", [])) else None,
+                    "sales": _get("sales", i),
+                    "net_profit": _get("net_profit", i),
+                    "operating_profit": _get("operating_profit", i),
+                    "opm_pct": _get("opm_pct", i),
+                    "other_income": _get("other_income", i),
+                    "pbt": _get("pbt", i),
+                    "eps": _get("eps", i),
                     "fetched_at": now_ts,
                 })
             return result
@@ -125,12 +134,13 @@ def _save(rows: list[dict]) -> None:
     con = _db()
     con.executemany("""
         INSERT INTO quarterly_results
-        (symbol, quarter, sales, net_profit, operating_profit, opm_pct, eps, fetched_at)
+        (symbol, quarter, sales, net_profit, operating_profit, opm_pct, other_income, pbt, eps, fetched_at)
         VALUES (%(symbol)s, %(quarter)s, %(sales)s, %(net_profit)s, %(operating_profit)s,
-                %(opm_pct)s, %(eps)s, %(fetched_at)s)
+                %(opm_pct)s, %(other_income)s, %(pbt)s, %(eps)s, %(fetched_at)s)
         ON CONFLICT (symbol, quarter) DO UPDATE SET
             sales=EXCLUDED.sales, net_profit=EXCLUDED.net_profit,
             operating_profit=EXCLUDED.operating_profit, opm_pct=EXCLUDED.opm_pct,
+            other_income=EXCLUDED.other_income, pbt=EXCLUDED.pbt,
             eps=EXCLUDED.eps, fetched_at=EXCLUDED.fetched_at
     """, rows)
     con.commit()

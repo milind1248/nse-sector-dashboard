@@ -66,6 +66,8 @@ def _run_deep_dive(symbol: str, company_name: str) -> dict:
         "yoy_profit_growth": pead.get("yoy_profit_growth"),
         "qoq_profit_growth": pead.get("qoq_profit_growth"),
         "trailing_avg_profit_growth": pead.get("trailing_avg_profit_growth"),
+        "other_income_contribution_pct": pead.get("other_income_contribution_pct"),
+        "earnings_quality_red_flags": pead.get("red_flags", []),
         "technical": technical,
         "fraud": {"flagged": fraud.flagged, "reason": fraud.reason, "matched_terms": fraud.matched_terms},
         "fair_value": {
@@ -75,7 +77,11 @@ def _run_deep_dive(symbol: str, company_name: str) -> dict:
 
     verdict = get_verdict(company_data)
 
-    return {"pead": pead, "technical": technical, "fraud": fraud, "fair_value": fv, "verdict": verdict}
+    # `company_data` (the exact payload sent to the LLM) is kept on the
+    # result so the page can show a "review verdict" link/expander —
+    # nothing here should be a black box.
+    return {"pead": pead, "technical": technical, "fraud": fraud, "fair_value": fv,
+            "verdict": verdict, "llm_input": company_data}
 
 
 # ─── Page title & disclaimer ─────────────────────────────────────────────────
@@ -120,17 +126,23 @@ with tab_shortlist:
     if df_scan is not None and not df_scan.empty:
         show_df = df_scan[df_scan["pead_score"] >= min_score].copy()
         st.metric("Shortlisted Companies", len(show_df))
+        if "red_flags" in show_df.columns:
+            show_df = show_df.copy()
+            show_df["flag_count"] = show_df["red_flags"].apply(lambda f: len(f) if isinstance(f, list) else 0)
         display_cols = ["symbol", "pead_score", "latest_quarter", "yoy_sales_growth",
-                        "yoy_profit_growth", "qoq_profit_growth", "trailing_avg_profit_growth"]
+                        "yoy_profit_growth", "qoq_profit_growth", "trailing_avg_profit_growth", "flag_count"]
         display_cols = [c for c in display_cols if c in show_df.columns]
         st.dataframe(
             show_df[display_cols].rename(columns={
                 "symbol": "Symbol", "pead_score": "PEAD Score", "latest_quarter": "Latest Qtr",
                 "yoy_sales_growth": "YoY Sales %", "yoy_profit_growth": "YoY Profit %",
                 "qoq_profit_growth": "QoQ Profit %", "trailing_avg_profit_growth": "Trailing Avg Profit %",
+                "flag_count": "⚠️ Quality Flags",
             }),
             width='stretch', hide_index=True,
         )
+        st.caption("⚠️ Quality Flags = earnings-quality red flags (other-income-driven profit, profit growth "
+                   "far exceeding sales growth). Open a symbol in the Deep Dive tab to see the specific flags.")
     elif run_scan:
         st.info("No companies matched this PEAD score threshold. Try refreshing results first, "
                 "or lower the minimum score.")
@@ -185,6 +197,13 @@ with tab_deep_dive:
         if verdict.get("reasoning") and verdict["verdict"] in ("ACCEPT", "REJECT"):
             st.markdown(f"*{verdict['reasoning']}*")
 
+        # "Add a link for verdict so it can be reviewed" — nothing about
+        # the verdict should be a black box. Shows the EXACT structured
+        # payload the LLM was given, so you can audit precisely what
+        # informed the ACCEPT/REJECT call rather than trusting it blind.
+        with st.expander("🔍 Review verdict data (exactly what was sent to the AI)"):
+            st.json(dd_result.get("llm_input", {}))
+
         st.markdown("---")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("PEAD Score", pead.get("pead_score", "—"))
@@ -194,6 +213,14 @@ with tab_deep_dive:
 
         st.markdown("##### 📊 Result Details")
         st.write(pead.get("reason", "—"))
+
+        red_flags = pead.get("red_flags") or []
+        if red_flags:
+            st.markdown("##### ⚠️ Earnings Quality Flags")
+            for flag in red_flags:
+                st.warning(flag)
+            if pead.get("other_income_contribution_pct") is not None:
+                st.caption(f"Other income = {pead['other_income_contribution_pct']}% of profit before tax.")
 
         st.markdown("##### 📈 Technical Confirmation")
         tc1, tc2, tc3 = st.columns(3)
