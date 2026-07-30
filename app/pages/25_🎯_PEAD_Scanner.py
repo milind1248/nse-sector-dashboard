@@ -268,7 +268,19 @@ with tab_deep_dive:
         m4.metric("Breakout Confirmed", "✅ Yes" if technical.get("technically_confirmed") else "❌ No")
 
         st.markdown("##### 📊 Result Details")
-        st.write(pead.get("reason", "—"))
+        _pct = lambda v: f"{v:+.2f}%" if v is not None else "—"
+        result_rows = [
+            {"Metric": "Latest Quarter", "Value": pead.get("latest_quarter") or "—"},
+            {"Metric": "PEAD Score", "Value": pead.get("pead_score") if pead.get("pead_score") is not None else "—"},
+            {"Metric": "YoY Sales Growth", "Value": _pct(pead.get("yoy_sales_growth"))},
+            {"Metric": "YoY Profit Growth", "Value": _pct(pead.get("yoy_profit_growth"))},
+            {"Metric": "QoQ Sales Growth", "Value": _pct(pead.get("qoq_sales_growth"))},
+            {"Metric": "QoQ Profit Growth", "Value": _pct(pead.get("qoq_profit_growth"))},
+            {"Metric": "Trailing Avg Profit Growth", "Value": _pct(pead.get("trailing_avg_profit_growth"))},
+            {"Metric": "Acceleration (QoQ vs Trailing Avg)", "Value": _pct(pead.get("acceleration"))},
+            {"Metric": "Other Income % of PBT", "Value": _pct(pead.get("other_income_contribution_pct"))},
+        ]
+        st.dataframe(pd.DataFrame(result_rows), width='stretch', hide_index=True)
 
         red_flags = pead.get("red_flags") or []
         if red_flags:
