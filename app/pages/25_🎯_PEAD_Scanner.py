@@ -232,7 +232,10 @@ with tab_deep_dive:
         if fraud.flagged:
             st.error(fraud.reason)
             for h in fraud.headlines[:5]:
-                st.caption(f"- {h['headline']} ({h.get('source', '—')})")
+                date_str = h.get("published", "")[:10] if h.get("published") else "—"
+                link = h.get("link")
+                headline_md = f"[{h['headline']}]({link})" if link else h["headline"]
+                st.caption(f"- {headline_md} — {h.get('source', '—')}, {date_str}")
         else:
             st.success(fraud.reason)
 
