@@ -78,7 +78,16 @@ def _run_deep_dive(symbol: str, company_name: str) -> dict:
 
     verdict = get_verdict(company_data)
 
-    agent = run_agent_analysis(symbol, company_name, pead, price_df)
+    # Defense in depth: run_agent_analysis() already isolates each of its 5
+    # tools internally (_safe_tool), but this outer guard means even a
+    # failure in the combination/confidence logic itself can't take down
+    # the whole Deep Dive tab (verdict/technical/fraud/fair-value above are
+    # already computed and shouldn't be lost to an unrelated failure here).
+    try:
+        agent = run_agent_analysis(symbol, company_name, pead, price_df)
+    except Exception as e:
+        agent = {"symbol": symbol, "tools": [], "verdict": "UNAVAILABLE", "confidence": 0,
+                 "reason": f"Agent analysis failed ({type(e).__name__}).", "flag_count": 0}
 
     # `company_data` (the exact payload sent to the LLM) is kept on the
     # result so the page can show a "review verdict" link/expander —
@@ -275,11 +284,16 @@ with tab_deep_dive:
                     unsafe_allow_html=True,
                 )
 
-            verdict_bg, verdict_fg = ("#e8f5e9", "#2e7d32") if agent["verdict"] == "ACCEPTED" else ("#ffebee", "#c62828")
+            _VERDICT_STYLE = {
+                "ACCEPTED": ("#e8f5e9", "#2e7d32", "✅ ACCEPTED"),
+                "REJECTED": ("#ffebee", "#c62828", "❌ REJECTED"),
+                "UNAVAILABLE": ("#fff3e0", "#e65100", "⚠️ ANALYSIS UNAVAILABLE"),
+            }
+            verdict_bg, verdict_fg, verdict_label = _VERDICT_STYLE.get(
+                agent["verdict"], _VERDICT_STYLE["UNAVAILABLE"])
             st.markdown(
                 f"""<div style="background:{verdict_bg};border-radius:12px;padding:14px;text-align:center;margin-top:8px;margin-bottom:10px;">
-                <div style="font-size:1.3em;font-weight:700;color:{verdict_fg};">
-                {'✅ ACCEPTED' if agent['verdict'] == 'ACCEPTED' else '❌ REJECTED'}</div>
+                <div style="font-size:1.3em;font-weight:700;color:{verdict_fg};">{verdict_label}</div>
                 <div style="font-size:0.82em;color:#333;margin-top:4px;">{agent['confidence']}% confidence — {agent['reason']}</div>
                 </div>""",
                 unsafe_allow_html=True,
