@@ -84,7 +84,7 @@ def _run_deep_dive(symbol: str, company_name: str) -> dict:
     # result so the page can show a "review verdict" link/expander —
     # nothing here should be a black box.
     return {"pead": pead, "technical": technical, "fraud": fraud, "fair_value": fv,
-            "verdict": verdict, "llm_input": company_data, "agent": agent}
+            "verdict": verdict, "llm_input": company_data, "agent": agent, "history": hist}
 
 
 # ─── Page title & disclaimer ─────────────────────────────────────────────────
@@ -267,20 +267,52 @@ with tab_deep_dive:
         m3.metric("Above 200 EMA", "✅ Yes" if technical.get("above_200ema") else ("❌ No" if technical.get("above_200ema") is False else "—"))
         m4.metric("Breakout Confirmed", "✅ Yes" if technical.get("technically_confirmed") else "❌ No")
 
-        st.markdown("##### 📊 Result Details")
-        _pct = lambda v: f"{v:+.2f}%" if v is not None else "—"
-        result_rows = [
-            {"Metric": "Latest Quarter", "Value": pead.get("latest_quarter") or "—"},
-            {"Metric": "PEAD Score", "Value": pead.get("pead_score") if pead.get("pead_score") is not None else "—"},
-            {"Metric": "YoY Sales Growth", "Value": _pct(pead.get("yoy_sales_growth"))},
-            {"Metric": "YoY Profit Growth", "Value": _pct(pead.get("yoy_profit_growth"))},
-            {"Metric": "QoQ Sales Growth", "Value": _pct(pead.get("qoq_sales_growth"))},
-            {"Metric": "QoQ Profit Growth", "Value": _pct(pead.get("qoq_profit_growth"))},
-            {"Metric": "Trailing Avg Profit Growth", "Value": _pct(pead.get("trailing_avg_profit_growth"))},
-            {"Metric": "Acceleration (QoQ vs Trailing Avg)", "Value": _pct(pead.get("acceleration"))},
-            {"Metric": "Other Income % of PBT", "Value": _pct(pead.get("other_income_contribution_pct"))},
-        ]
-        st.dataframe(pd.DataFrame(result_rows), width='stretch', hide_index=True)
+        st.markdown("##### 📊 Result Details — Quarter-over-Quarter History")
+        hist = dd_result.get("history")
+        if hist is not None and not hist.empty:
+            _COL_MAP = {
+                "quarter": "Quarter", "sales": "Sales", "net_profit": "Net Profit",
+                "operating_profit": "Operating Profit", "opm_pct": "OPM %",
+                "other_income": "Other Income", "pbt": "PBT", "eps": "EPS",
+            }
+            keep = [c for c in _COL_MAP if c in hist.columns]
+            disp = hist[keep].rename(columns=_COL_MAP).copy()  # chronological (oldest→newest)
+            numeric_cols = [c for c in disp.columns if c != "Quarter"]
+
+            # Color each cell vs. the SAME column's PRIOR quarter — computed
+            # while still in chronological order (a "previous quarter" only
+            # exists looking backward in time), then the whole table
+            # (data + colors, same index) is reversed together so the
+            # newest quarter displays first without breaking the alignment.
+            style_df = pd.DataFrame("", index=disp.index, columns=disp.columns)
+            for col in numeric_cols:
+                prev = None
+                for idx in disp.index:
+                    v = disp.at[idx, col]
+                    if prev is not None and pd.notna(v) and pd.notna(prev):
+                        if v > prev:
+                            style_df.at[idx, col] = "color:#2e7d32;font-weight:600"
+                        elif v < prev:
+                            style_df.at[idx, col] = "color:#c62828;font-weight:600"
+                    if pd.notna(v):
+                        prev = v
+
+            disp = disp.iloc[::-1]          # newest quarter first
+            style_df = style_df.loc[disp.index]
+
+            fmt = {
+                "Sales": "{:,.0f}", "Net Profit": "{:,.0f}", "Operating Profit": "{:,.0f}",
+                "Other Income": "{:,.0f}", "PBT": "{:,.0f}", "OPM %": "{:.1f}%", "EPS": "{:.2f}",
+            }
+            styled = (
+                disp.style
+                .apply(lambda col: style_df[col.name].tolist(), axis=0, subset=numeric_cols)
+                .format({k: v for k, v in fmt.items() if k in disp.columns}, na_rep="—")
+            )
+            st.dataframe(styled, width='stretch', hide_index=True)
+            st.caption("🟢 Green = up vs. the prior quarter · 🔴 Red = down vs. the prior quarter.")
+        else:
+            st.write(pead.get("reason", "—"))
 
         red_flags = pead.get("red_flags") or []
         if red_flags:
