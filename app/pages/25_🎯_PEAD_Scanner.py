@@ -34,6 +34,7 @@ from backend.calculations.breakout_detector import technical_confirmation
 from backend.calculations.fraud_checker import check_fraud_flags
 from backend.calculations.fair_value import compute_fair_value
 from backend.calculations.pead_llm_verdict import get_verdict
+from backend.calculations.agent_analysis import run_agent_analysis
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -77,11 +78,13 @@ def _run_deep_dive(symbol: str, company_name: str) -> dict:
 
     verdict = get_verdict(company_data)
 
+    agent = run_agent_analysis(symbol, company_name, pead, price_df)
+
     # `company_data` (the exact payload sent to the LLM) is kept on the
     # result so the page can show a "review verdict" link/expander —
     # nothing here should be a black box.
     return {"pead": pead, "technical": technical, "fraud": fraud, "fair_value": fv,
-            "verdict": verdict, "llm_input": company_data}
+            "verdict": verdict, "llm_input": company_data, "agent": agent}
 
 
 # ─── Page title & disclaimer ─────────────────────────────────────────────────
@@ -187,6 +190,55 @@ with tab_deep_dive:
         technical = dd_result["technical"]
         fraud = dd_result["fraud"]
         fv = dd_result["fair_value"]
+        agent = dd_result.get("agent")
+
+        if agent:
+            st.markdown(f"##### 🔍 Agent Analysis: {dd_sym.replace('.NS', '')}")
+            st.caption("5 independent tools cross-validating this candidate — each one auditable below.")
+            _STATUS_STYLE = {
+                "CLEAN": ("#e8f5e9", "#2e7d32", "✓ Clean"),
+                "FLAG": ("#ffebee", "#c62828", "⚠ Flag"),
+            }
+            for tool in agent["tools"]:
+                bg, fg, label = _STATUS_STYLE[tool["status"]]
+                st.markdown(
+                    f"""<div style="background:{bg};border-radius:10px;padding:10px 16px;
+                    margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+                    <div><b>{tool['icon']} {tool['name']}</b><br>
+                    <span style="font-size:0.85em;color:#444;">{tool['summary']}</span></div>
+                    <div style="color:{fg};font-weight:600;white-space:nowrap;">{label}</div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+
+            verdict_bg, verdict_fg = ("#e8f5e9", "#2e7d32") if agent["verdict"] == "ACCEPTED" else ("#ffebee", "#c62828")
+            st.markdown(
+                f"""<div style="background:{verdict_bg};border-radius:12px;padding:16px;text-align:center;margin-bottom:10px;">
+                <div style="font-size:1.4em;font-weight:700;color:{verdict_fg};">
+                {'✅ ACCEPTED' if agent['verdict'] == 'ACCEPTED' else '❌ REJECTED'}</div>
+                <div style="font-size:0.85em;color:#444;margin-top:4px;">{agent['confidence']}% confidence — {agent['reason']}</div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+            last_close = technical.get("last_close")
+            target = fv.get("average") if fv and not fv.get("error") else None
+            if target is None and last_close:
+                target = last_close * 1.15
+            stop_loss = technical.get("resistance_level") if technical.get("resistance_level") else (
+                last_close * 0.95 if last_close else None)
+            upside = (target - last_close) / last_close * 100 if target and last_close else None
+
+            mc1, mc2, mc3 = st.columns(3)
+            mc1.metric("Target", f"₹{target:,.0f}" if target else "—")
+            mc2.metric("Stop Loss", f"₹{stop_loss:,.0f}" if stop_loss else "—")
+            mc3.metric("Upside", f"{upside:+.0f}%" if upside is not None else "—")
+            st.caption(
+                "Target/Stop Loss are reference levels derived from fair-value and technical resistance — "
+                "not a trade instruction. Confidence is a deterministic score based on how many of the "
+                "5 tools above flagged a concern, not a probability estimate."
+            )
+            st.markdown("---")
 
         if verdict["verdict"] == "ACCEPT":
             st.success(f"✅ **ACCEPT** — {dd_sym}")
