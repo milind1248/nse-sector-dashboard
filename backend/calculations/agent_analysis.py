@@ -158,7 +158,7 @@ def _safe_tool(fn, fallback_name: str, fallback_icon: str, *args) -> dict:
         return fn(*args)
     except Exception as e:
         return {"name": fallback_name, "icon": fallback_icon, "status": "FLAG", "gate": False,
-                "summary": f"Tool error — data unavailable ({type(e).__name__}).", "detail": {}}
+                "summary": f"Tool error — data unavailable ({type(e).__name__}: {e}).", "detail": {}}
 
 
 def run_agent_analysis(symbol: str, company_name: str, pead: dict, price_df: pd.DataFrame) -> dict:

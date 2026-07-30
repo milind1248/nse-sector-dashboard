@@ -86,8 +86,10 @@ def _run_deep_dive(symbol: str, company_name: str) -> dict:
     try:
         agent = run_agent_analysis(symbol, company_name, pead, price_df)
     except Exception as e:
+        import traceback
         agent = {"symbol": symbol, "tools": [], "verdict": "UNAVAILABLE", "confidence": 0,
-                 "reason": f"Agent analysis failed ({type(e).__name__}).", "flag_count": 0}
+                 "reason": f"Agent analysis failed ({type(e).__name__}: {e}).", "flag_count": 0,
+                 "traceback": traceback.format_exc()}
 
     # `company_data` (the exact payload sent to the LLM) is kept on the
     # result so the page can show a "review verdict" link/expander —
@@ -298,6 +300,9 @@ with tab_deep_dive:
                 </div>""",
                 unsafe_allow_html=True,
             )
+            if agent.get("traceback"):
+                with st.expander("🐞 Why did agent analysis fail? (full traceback)"):
+                    st.code(agent["traceback"], language="python")
 
             last_close = technical.get("last_close")
             target = fv.get("average") if fv and not fv.get("error") else None
