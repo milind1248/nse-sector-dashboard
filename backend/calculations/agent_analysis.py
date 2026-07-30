@@ -146,17 +146,32 @@ def _peer_tool(symbol: str) -> dict:
             "summary": summary, "detail": {"sector": sector, "peer_pe": peer_pe, "own_pe": own_pe}}
 
 
+def _safe_tool(fn, fallback_name: str, fallback_icon: str, *args) -> dict:
+    """Every other batch operation in this codebase (shareholding_pipeline,
+    quarterly_results_pipeline) isolates each item with try/except so one
+    bad symbol can't take down the whole run — this tool panel had no such
+    isolation, and a live scan across hundreds of real, messy stocks (data
+    gaps, corporate actions, delisted tickers) surfaced exactly that gap.
+    Any unexpected exception here degrades to an honest "data unavailable"
+    FLAG instead of crashing the whole scan/page."""
+    try:
+        return fn(*args)
+    except Exception as e:
+        return {"name": fallback_name, "icon": fallback_icon, "status": "FLAG", "gate": False,
+                "summary": f"Tool error — data unavailable ({type(e).__name__}).", "detail": {}}
+
+
 def run_agent_analysis(symbol: str, company_name: str, pead: dict, price_df: pd.DataFrame) -> dict:
     """Runs all 5 tools and derives a combined verdict + confidence — a
     pure, deterministic function of the 5 tools' own outputs (not a 6th
     LLM call), matching the "cross-validating findings" framing while
     staying fully auditable."""
     tools = [
-        _forensic_tool(company_name),
-        _fundamental_tool(pead),
-        _technical_tool(price_df),
-        _news_tool(company_name),
-        _peer_tool(symbol),
+        _safe_tool(_forensic_tool, "Forensic & Governance Checker", "🛡️", company_name),
+        _safe_tool(_fundamental_tool, "Fundamental Analyzer", "📊", pead),
+        _safe_tool(_technical_tool, "Technical Analyzer", "📈", price_df),
+        _safe_tool(_news_tool, "News & Sentiment Agent", "📰", company_name),
+        _safe_tool(_peer_tool, "Peer Comparison", "⚖️", symbol),
     ]
 
     forensic_flag = tools[0]["status"] == "FLAG"       # hard gate

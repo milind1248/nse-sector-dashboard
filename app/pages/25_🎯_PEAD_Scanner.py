@@ -188,10 +188,17 @@ with tab_shortlist:
             accepted_rows = []
             with st.spinner("Running forensic / fundamental / news / peer checks…"):
                 for sym, df in technically_confirmed:
-                    company_name = sym.replace(".NS", "")
-                    hist = load_quarterly_history(sym)
-                    pead = compute_pead_score(hist)
-                    agent = run_agent_analysis(sym, company_name, pead, df)
+                    # Per-symbol isolation — matches the pattern already used by
+                    # every other batch job in this codebase (shareholding_pipeline,
+                    # quarterly_results_pipeline): one bad/delisted symbol must not
+                    # take down the whole scan for everyone else.
+                    try:
+                        company_name = sym.replace(".NS", "")
+                        hist = load_quarterly_history(sym)
+                        pead = compute_pead_score(hist)
+                        agent = run_agent_analysis(sym, company_name, pead, df)
+                    except Exception:
+                        continue
                     if agent["verdict"] == "ACCEPTED":
                         accepted_rows.append({
                             "Symbol": company_name, "Confidence": f"{agent['confidence']}%",
