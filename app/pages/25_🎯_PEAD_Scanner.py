@@ -106,9 +106,27 @@ st.caption(
     "Post-Earnings-Announcement-Drift screener: quarterly results scored for self-referential growth "
     "surprise (how much a company accelerates above its own historical growth pace, since no paid "
     "analyst-consensus feed is used), then narrowed by technical confirmation, a fraud/regulatory "
-    "check, and fair-value context — finishing with a single AI-synthesized ACCEPT/REJECT read per "
-    "candidate. Educational research tool, not a recommendation to buy or sell."
+    "check, and fair-value context — finishing with a rule-based cross-check read per candidate. "
+    "A discovery/research tool for surfacing candidates worth a closer look — not a validated "
+    "trading signal and not a recommendation to buy or sell."
 )
+with st.expander("📉 Does a higher PEAD score actually predict stronger price moves? (backtest result)"):
+    st.markdown(
+        "A walk-forward backtest was run across the full Nifty 500 (413 stocks, 2,288 historical "
+        "quarter-events, no lookahead — each quarter's score used only data available at that time) "
+        "measuring forward returns at 20/40/60 trading days, both raw and as **excess return vs. the "
+        "NIFTY 500 benchmark** (to remove general market drift).\n\n"
+        "**Result: no statistically meaningful link was found.** Correlation between PEAD score and "
+        "forward excess return was ~0 at every horizon (r = -0.01 to +0.03), and the highest-scoring "
+        "stocks did not outperform the lowest-scoring ones. Earnings-quality red flags also didn't "
+        "predict underperformance.\n\n"
+        "This is why the page is framed as a **discovery tool** — a structured way to surface and "
+        "cross-check candidates worth a closer look (forensics, technicals, valuation, news) — rather "
+        "than a signal to trade on. The biggest open question is the approximated results-announcement "
+        "date used in that backtest (quarter-end + 45 days, since no real corporate-announcements "
+        "calendar is wired in yet); a real announcement-date feed could still reveal a signal this "
+        "test couldn't see."
+    )
 
 tab_shortlist, tab_deep_dive = st.tabs(["📋 PEAD Shortlist", "🔍 Deep Dive"])
 
@@ -265,7 +283,13 @@ with tab_deep_dive:
 
         if agent:
             st.markdown(f"##### 🔍 Agent Analysis: {dd_sym.replace('.NS', '')}")
-            st.caption("5 independent tools cross-validating this candidate — each one auditable below.")
+            st.caption(
+                "5 independent tools cross-validating this candidate — each one auditable below. "
+                "This is a rule-based research cross-check, not a validated trading signal — "
+                "backtesting (see the Shortlist tab) found no statistically significant link between "
+                "PEAD score and forward returns, so treat ACCEPTED/REJECTED as 'worth a closer look' "
+                "vs. 'a red flag exists', not a buy/sell call."
+            )
             _STATUS_STYLE = {
                 "CLEAN": ("#e8f5e9", "#2e7d32", "✓ Clean"),
                 "FLAG": ("#ffebee", "#c62828", "⚠ Flag"),
