@@ -153,6 +153,59 @@ with tab_shortlist:
         st.info("Click 'Refresh Results' first (if you haven't fetched quarterly data yet), "
                 "then 'Run PEAD Shortlist'.")
 
+    st.markdown("---")
+    st.markdown("##### ✅ Currently Accepted Candidates")
+    st.caption(
+        "The Technical Analyzer gate is intentionally strict — a stock only passes when it's above its "
+        "200-day EMA AND breaking a 50-day high AND on 1.5x+ average volume, all on the same day, so most "
+        "stocks fail it on most days ('no breakout = no play'). This scans the technical gate cheaply first, "
+        "then runs the full 5-agent check only on stocks that clear it, to find real current ACCEPTED examples."
+    )
+    accept_scan_universe = st.selectbox("Scan universe", ["Nifty 50", "Nifty 500"], key="pead_accept_univ")
+    if st.button("🔎 Find Currently Accepted Stocks", key="pead_accept_scan_btn"):
+        syms = load_symbols(accept_scan_universe)
+        with st.spinner(f"Checking technical confirmation across {len(syms)} stocks…"):
+            batch = yf.download(syms, period="1y", interval="1d", auto_adjust=True,
+                                 progress=False, group_by="ticker", threads=True)
+            technically_confirmed = []
+            for sym in syms:
+                try:
+                    df = batch[sym].dropna(how="all") if len(syms) > 1 else batch.dropna(how="all")
+                    if len(df) < 200:
+                        continue
+                    if technical_confirmation(df).get("technically_confirmed"):
+                        technically_confirmed.append((sym, df))
+                except Exception:
+                    continue
+
+        if not technically_confirmed:
+            st.warning("No stock in this universe currently clears the technical breakout gate — "
+                       "this is expected on most trading days, not a bug. Try again another day, "
+                       "or switch to Nifty 500 for a larger pool.")
+        else:
+            st.caption(f"{len(technically_confirmed)} stock(s) cleared the technical gate — "
+                       f"running the remaining 4 tools on just these now.")
+            accepted_rows = []
+            with st.spinner("Running forensic / fundamental / news / peer checks…"):
+                for sym, df in technically_confirmed:
+                    company_name = sym.replace(".NS", "")
+                    hist = load_quarterly_history(sym)
+                    pead = compute_pead_score(hist)
+                    agent = run_agent_analysis(sym, company_name, pead, df)
+                    if agent["verdict"] == "ACCEPTED":
+                        accepted_rows.append({
+                            "Symbol": company_name, "Confidence": f"{agent['confidence']}%",
+                            "PEAD Score": pead.get("pead_score", "—"),
+                            "Last Close": round(float(df["Close"].iloc[-1]), 2),
+                        })
+            if accepted_rows:
+                st.dataframe(pd.DataFrame(accepted_rows), width='stretch', hide_index=True)
+                st.caption("Open any of these symbols in the Deep Dive tab for the full 5-tool breakdown.")
+            else:
+                st.info(f"{len(technically_confirmed)} stock(s) cleared the technical gate, but none also "
+                        "cleared all 4 remaining tools this time — open one in Deep Dive to see exactly "
+                        "which tool flagged it.")
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # TAB 2 — DEEP DIVE

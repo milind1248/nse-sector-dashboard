@@ -80,14 +80,21 @@ def _technical_tool(price_df: pd.DataFrame) -> dict:
                 "summary": "No price history available.", "detail": {}}
     ind = compute_all_indicators(price_df)
     tech = technical_confirmation(price_df)
-    rsi = ind.get("rsi")
+    # BUGFIX: compute_all_indicators() keys its RSI as "rsi_14", not "rsi" —
+    # the old `ind.get("rsi")` silently returned None every time, masked
+    # because the FLAG branch below had a safe `if rsi else` fallback; it
+    # only surfaced as a crash once a real breakout hit the CLEAN branch's
+    # unguarded f"{rsi:.0f}" (confirmed directly against MANAPPURAM.NS,
+    # the first real technically-confirmed stock this tool encountered).
+    rsi = ind.get("rsi_14")
     macd, macd_signal = ind.get("macd"), ind.get("macd_signal")
     macd_bull = macd is not None and macd_signal is not None and macd > macd_signal
     breakout_ok = bool(tech.get("technically_confirmed"))
     detail = {**ind, **tech}
+    rsi_str = f"{rsi:.0f}" if rsi is not None else "—"
     if breakout_ok:
         summary = (
-            f"RSI {rsi:.0f}{' (neutral)' if rsi and 40 <= rsi <= 60 else ''}, "
+            f"RSI {rsi_str}{' (neutral)' if rsi is not None and 40 <= rsi <= 60 else ''}, "
             f"MACD {'bullish crossover' if macd_bull else 'no crossover'}, "
             f"price broke {tech.get('resistance_level', '—')} with "
             f"{tech.get('volume_ratio', '—')}x volume."
@@ -96,7 +103,7 @@ def _technical_tool(price_df: pd.DataFrame) -> dict:
                 "summary": summary, "detail": detail}
     # "No breakout = no play" — matches the video's own framing directly.
     return {"name": "Technical Analyzer", "icon": "📈", "status": "FLAG", "gate": False,
-            "summary": f"No confirmed breakout yet (RSI {rsi:.0f})." if rsi else "No confirmed breakout yet.",
+            "summary": f"No confirmed breakout yet (RSI {rsi_str})." if rsi is not None else "No confirmed breakout yet.",
             "detail": detail}
 
 
