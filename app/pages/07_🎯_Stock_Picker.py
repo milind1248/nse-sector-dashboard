@@ -423,10 +423,10 @@ if chosen:
 st.markdown("---")
 c1, c2, c3 = st.columns(3)
 if c1.button("← Sector Analysis",  width='stretch'):
-    st.switch_page("pages/2_📈_Sector_Analysis.py")
+    st.switch_page("pages/02_📈_Sector_Analysis.py")
 if c2.button("← FII Sector Watch", width='stretch'):
     st.switch_page("Home.py")
 if c3.button("\U0001f4ca Market Pulse →", width='stretch'):
-    st.switch_page("pages/1_📡_Market_Pulse.py")
+    st.switch_page("pages/01_📡_Market_Pulse.py")
 from app.utils.disclaimer import show_footer
 show_footer()

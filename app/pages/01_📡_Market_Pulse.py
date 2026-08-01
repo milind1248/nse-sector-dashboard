@@ -310,7 +310,7 @@ if rrg_data:
             for s in sectors:
                 if col.button(s[:18], key=f"rrg_{quad}_{s}", width='stretch'):
                     st.session_state["selected_sector"] = s
-                    st.switch_page("pages/2_📈_Sector_Analysis.py")
+                    st.switch_page("pages/02_📈_Sector_Analysis.py")
         else:
             col.caption("None")
 else:

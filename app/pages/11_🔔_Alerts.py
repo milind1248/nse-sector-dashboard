@@ -265,7 +265,7 @@ with tab_breakout:
         sel = st.selectbox("Jump to sector analysis:", alert_sectors, key="al_jump_sector")
         if st.button(f"Analyse {sel} →", type="primary"):
             st.session_state["selected_sector"] = sel
-            st.switch_page("pages/2_📈_Sector_Analysis.py")
+            st.switch_page("pages/02_📈_Sector_Analysis.py")
 
     st.markdown("---")
     if st.button("← FII Sector Watch"):

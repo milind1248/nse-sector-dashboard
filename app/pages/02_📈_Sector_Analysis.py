@@ -368,7 +368,7 @@ if close and any(v for v in [ema20, ema50, ema200]):
 st.markdown("---")
 c1, c2 = st.columns(2)
 if c1.button("🔍 Screen Stocks in This Sector →", width='stretch', type="primary"):
-    st.switch_page("pages/7_🎯_Stock_Picker.py")
+    st.switch_page("pages/07_🎯_Stock_Picker.py")
 if c2.button("← Back to FII Sector Watch", width='stretch'):
     st.switch_page("Home.py")
 from app.utils.disclaimer import show_footer

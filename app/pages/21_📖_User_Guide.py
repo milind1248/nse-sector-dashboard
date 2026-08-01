@@ -123,6 +123,13 @@ GUIDE = [
         "tabs": [],
     },
     {
+        "emoji": "📑",
+        "name": "Bulk Deals",
+        "business": "See large institutional and promoter trades (bulk and block deals) published daily by NSE.",
+        "how": "Filter by date range, symbol, or buy/sell to see who moved size in a stock. A cluster of buy-side bulk deals in the same stock over a few days often precedes a broader institutional accumulation phase — cross-check against the Smart Money page for confirmation.",
+        "tabs": [],
+    },
+    {
         "emoji": "🔔",
         "name": "Alerts & Scanners",
         "business": "Find stocks hitting key technical levels — breakouts, pullbacks, and momentum reversals — across all 185 NSE stocks.",
@@ -143,6 +150,26 @@ GUIDE = [
             ("📡 Live Scan", "Current Top/Bottom signals across the whole universe, ranked by score, with a direct TradingView chart link per symbol."),
             ("🔍 Single Stock", "Full indicator breakdown — RSI, WMA, EMA, range position, volume ratio — for one symbol at a time."),
             ("📈 Backtest", "Historical win rate and trade log for the current settings — validate a signal type before acting on it live."),
+        ],
+    },
+    {
+        "emoji": "🌊",
+        "name": "Swing Scanner",
+        "business": "Backtest-validated trend-pullback swing strategy — buy stocks in a confirmed uptrend that have pulled back to a healthy level on above-average volume.",
+        "how": "Run a Live Scan on Nifty 50 or 500 for stocks currently passing all conditions: uptrend (Close > SMA50 > SMA200), RSI pulled back from overbought into the 40-55 band near the 20 EMA, and a volume-confirmed bullish candle. Suggested Stop Loss/Target are ATR-based reference levels, not instructions. Use Single Stock to see the full chart and a pass/fail breakdown of each of the 6 conditions for any symbol. Backtested 2020-2025 on the real Nifty 500 — 25.5% CAGR, 1.27 Sharpe, -18.5% max drawdown for the shipped variant (see the page's own caption for the exact numbers).",
+        "tabs": [
+            ("📡 Live Scan", "Current matches across the whole universe, ranked by score, with a TradingView chart link per symbol."),
+            ("🔍 Single Stock", "Full price chart with SMA20/50/200 overlay, plus a plain pass/fail breakdown of all 6 entry conditions."),
+        ],
+    },
+    {
+        "emoji": "🎯",
+        "name": "PEAD Scanner",
+        "business": "Screens quarterly results for earnings-surprise candidates, then cross-checks each one through 5 independent research tools — forensic/governance, fundamentals, technicals, news sentiment, and peer valuation.",
+        "how": "In the Shortlist tab, click Refresh Results to scrape the latest quarterly numbers, then Run PEAD Shortlist to rank candidates by surprise score; 'Find Currently Accepted Stocks' runs the full 5-tool check on whatever currently clears the technical gate. In Deep Dive, enter any symbol to see the 5-tool panel, the exact data sent to the AI verdict (via the review-data expander), and the full quarter-by-quarter results history color-coded for QoQ change. Important: this is a discovery/research tool, not a trading signal — a full walk-forward backtest across the Nifty 500 found no statistically significant link between the PEAD score and forward returns (see the backtest-result expander at the top of the page for the numbers). Treat ACCEPTED/REJECTED as 'worth a closer look' vs. 'a flag exists', not a buy/sell call.",
+        "tabs": [
+            ("📋 PEAD Shortlist", "Universe-wide ranking by PEAD score, with earnings-quality red-flag counts and a scan for currently-accepted candidates."),
+            ("🔍 Deep Dive", "Full 5-tool cross-check for one symbol — forensic, fundamental, technical, news, and peer comparison — plus quarterly history and the AI verdict's exact input data."),
         ],
     },
     {

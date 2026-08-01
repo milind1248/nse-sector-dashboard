@@ -704,12 +704,12 @@ if selected:
         st.session_state["selected_sector"]          = internal
         st.session_state["selected_sector_nsdl"]     = selected
         st.session_state["selected_sector_net_curr"] = net_curr
-        st.switch_page("pages/2_📈_Sector_Analysis.py")
+        st.switch_page("pages/02_📈_Sector_Analysis.py")
     if c2.button("🔍 Analyse stocks in this sector", width='stretch'):
         st.session_state["selected_sector"]          = internal
         st.session_state["selected_sector_nsdl"]     = selected
         st.session_state["selected_sector_net_curr"] = net_curr
-        st.switch_page("pages/7_🎯_Stock_Picker.py")
+        st.switch_page("pages/07_🎯_Stock_Picker.py")
 
 from app.utils.disclaimer import show_footer
 show_footer()

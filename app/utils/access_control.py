@@ -108,7 +108,7 @@ def require_page_access(page_key: str) -> None:
         preview = _PAGE_PREVIEWS.get(page_key)
         if preview:
             def _go_pricing():
-                st.switch_page("pages/23_💎_Pricing.py")
+                st.switch_page("pages/24_💎_Pricing.py")
             render_gated_overlay(
                 preview,
                 f"Upgrade to unlock {page_key}",
