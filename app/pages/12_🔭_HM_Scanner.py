@@ -30,7 +30,9 @@ import yfinance as yf
 import pytz as _pytz
 
 from backend.calculations.hm_indicators import add_indicators, generate_signals, attach_htf_regime
-from backend.calculations.hm_backtest import backtest_signals, backtest_top_signals, summarize_backtests
+from backend.calculations.hm_backtest import (
+    backtest_signals, backtest_top_signals, summarize_backtests, add_benchmark_excess_return,
+)
 from backend.calculations.hm_tv_chart import render_tv_chart, tv_chart_url, to_tv_symbol
 from backend.calculations.hm_expansion import compute_expansion, ExpansionParams
 from backend.calculations.frvp_adaptive import FRVPParams, latest_confirmed_frvp
@@ -348,6 +350,17 @@ def _run_backtest(symbols: tuple, interval: str, min_score: int, mode: str,
 
     trades = pd.concat(all_trades, ignore_index=True) if all_trades else pd.DataFrame()
     top_trades = pd.concat(all_top_trades, ignore_index=True) if all_top_trades else pd.DataFrame()
+
+    # Excess return vs NIFTY 50 — isolates stock-specific edge from general
+    # market drift, same rigor established for the PEAD/H-M weekly backtests.
+    try:
+        bench_raw = _fetch_batch(("^NSEI",), interval, period).get("^NSEI")
+    except Exception:
+        bench_raw = None
+    if bench_raw is not None and not bench_raw.empty:
+        trades = add_benchmark_excess_return(trades, bench_raw, is_short=False)
+        top_trades = add_benchmark_excess_return(top_trades, bench_raw, is_short=True)
+
     summary = summarize_backtests(trades) if not trades.empty else pd.DataFrame()
     top_summary = summarize_backtests(top_trades) if not top_trades.empty else pd.DataFrame()
     fetch_ts = pd.Timestamp.now(tz=_IST)
@@ -556,10 +569,22 @@ with tab_single:
 # TAB 3 — BACKTEST
 # ═════════════════════════════════════════════════════════════════════════════
 with tab_bt:
+    st.caption(
+        "📊 **Validated finding** (weekly, Nifty 50, 5 years, 342 real signals — see "
+        "scripts/hm_weekly_topbottom_backtest.py): BOTTOM signals show a real edge — "
+        "64-71% win rate across 4-12 week horizons, holding up even after removing "
+        "general market drift (excess-vs-NIFTY win rate 54-61%). TOP signals have NOT "
+        "been validated as reliable — win rate was below 50% in that test window (a "
+        "broadly rising market gives short-side signals little to actually catch). "
+        "The Excess Return% columns below apply the same market-drift-adjusted logic "
+        "to whatever universe/timeframe/settings you run here."
+    )
     with st.expander("⚙️ Backtest Settings", expanded=True):
         c1, c2, c3, c4 = st.columns(4)
         bt_universe = c1.selectbox("Universe", ["Nifty 50", "Nifty 500"], key="bt_univ")
-        bt_interval = c2.selectbox("Timeframe", list(INTERVAL_CONFIG.keys()), index=3, key="bt_tf")
+        bt_interval = c2.selectbox("Timeframe", list(INTERVAL_CONFIG.keys()), index=4, key="bt_tf",
+                                    help="Weekly is pre-selected — it's the only timeframe with a "
+                                         "published validation backtest so far (see caption above).")
         bt_score = c3.slider("Min Score", 50, 95, 70, key="bt_score")
         bt_mode = c4.selectbox("Mode", ["Early", "Balanced", "Strict"], index=1, key="bt_mode")
 
@@ -606,12 +631,22 @@ with tab_bt:
         win_rate = (bt_trades["return_pct"] > 0).mean() * 100 if total_trades > 0 else 0
         avg_ret = bt_trades["return_pct"].mean() if total_trades > 0 else 0
         best_sym = bt_summary.iloc[0]["symbol"] if not bt_summary.empty else "—"
+        has_excess = "excess_return_pct" in bt_trades.columns
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Total Trades", total_trades)
         m2.metric("Overall Win Rate", f"{win_rate:.1f}%")
         m3.metric("Avg Return", f"{avg_ret:.2f}%")
         m4.metric("Best Stock (Response Score)", best_sym)
+
+        if has_excess:
+            excess_vals = bt_trades["excess_return_pct"].dropna()
+            if not excess_vals.empty:
+                e1, e2 = st.columns(2)
+                e1.metric("Excess Win Rate (vs NIFTY 50)", f"{(excess_vals > 0).mean() * 100:.1f}%",
+                           help="% of trades where the stock beat what a long position in NIFTY 50 "
+                                "would have returned over the same entry-to-exit window.")
+                e2.metric("Avg Excess Return (vs NIFTY 50)", f"{excess_vals.mean():+.2f}%")
 
         # Summary table
         disp_cols = ["symbol", "signals", "win_rate_%", "target_rate_%",
@@ -621,7 +656,10 @@ with tab_bt:
             "win_rate_%": "Win Rate%", "target_rate_%": "Target Rate%",
             "avg_return_%": "Avg Return%", "median_mfe_%": "Median MFE%",
             "avg_score": "Avg Score", "response_score": "Response Score",
+            "excess_win_rate_%": "Excess Win Rate%", "avg_excess_return_%": "Avg Excess Return%",
         }
+        if "excess_win_rate_%" in bt_summary.columns:
+            disp_cols += ["excess_win_rate_%", "avg_excess_return_%"]
         show_summary = bt_summary[disp_cols].rename(columns=cols_rename)
         _fmt_sum = {c: ("{:.0f}" if c == "Signals" else "{:.1f}") for c in show_summary.columns if show_summary[c].dtype.kind in ("f", "i") and c != "Symbol"}
         st.dataframe(show_summary.style.format(_fmt_sum, na_rep="—"), width='stretch', hide_index=True)
@@ -633,7 +671,7 @@ with tab_bt:
                 tl["signal_time"] = pd.to_datetime(tl["signal_time"]).dt.strftime("%d-%b-%y")
                 tl["entry_time"] = pd.to_datetime(tl["entry_time"]).dt.strftime("%d-%b-%y")
                 tl["exit_time"] = pd.to_datetime(tl["exit_time"]).dt.strftime("%d-%b-%y")
-                for col in ["entry", "exit", "return_pct", "mfe_pct", "mae_pct", "score", "rsi"]:
+                for col in ["entry", "exit", "return_pct", "mfe_pct", "mae_pct", "score", "rsi", "excess_return_pct"]:
                     if col in tl.columns:
                         tl[col] = tl[col].round(1)
                 tl = tl.rename(columns={
@@ -642,7 +680,9 @@ with tab_bt:
                     "entry": "Entry", "exit": "Exit",
                     "return_pct": "Return%", "mfe_pct": "MFE%", "mae_pct": "MAE%",
                     "outcome": "Outcome", "score": "Score", "rsi": "RSI", "reason": "Reason",
+                    "excess_return_pct": "Excess Return% (vs NIFTY)", "benchmark_return_pct": "NIFTY Return%",
                 })
+                tl = tl.drop(columns=["NIFTY Return%"], errors="ignore")
                 _fmt_tl = {c: "{:.1f}" for c in tl.columns if tl[c].dtype.kind == "f"}
                 styled_tl = tl.style.map(_color_outcome, subset=["Outcome"]).format(_fmt_tl, na_rep="—")
                 st.dataframe(styled_tl, width='stretch', hide_index=True)
@@ -656,6 +696,7 @@ with tab_bt:
         win_rate_top = (bt_top_trades["return_pct"] > 0).mean() * 100 if total_top > 0 else 0
         avg_ret_top = bt_top_trades["return_pct"].mean() if total_top > 0 else 0
         best_top = bt_top_summary.iloc[0]["symbol"] if not bt_top_summary.empty else "—"
+        has_excess_top = "excess_return_pct" in bt_top_trades.columns
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Total Trades", total_top)
@@ -663,14 +704,28 @@ with tab_bt:
         m3.metric("Avg Return", f"{avg_ret_top:.2f}%")
         m4.metric("Best Stock (Response Score)", best_top)
 
+        if has_excess_top:
+            excess_vals_top = bt_top_trades["excess_return_pct"].dropna()
+            if not excess_vals_top.empty:
+                e1, e2 = st.columns(2)
+                e1.metric("Excess Win Rate (vs shorting NIFTY 50)", f"{(excess_vals_top > 0).mean() * 100:.1f}%",
+                           help="% of trades where shorting the stock beat what shorting NIFTY 50 "
+                                "would have returned over the same window — i.e. did this catch a "
+                                "real stock-specific top, or just ride a general market decline.")
+                e2.metric("Avg Excess Return (vs shorting NIFTY 50)", f"{excess_vals_top.mean():+.2f}%")
+
         disp_cols = ["symbol", "signals", "win_rate_%", "target_rate_%",
                      "avg_return_%", "median_mfe_%", "avg_score", "response_score"]
-        show_top_summary = bt_top_summary[disp_cols].rename(columns={
+        cols_rename_top = {
             "symbol": "Symbol", "signals": "Signals",
             "win_rate_%": "Win Rate%", "target_rate_%": "Target Rate%",
             "avg_return_%": "Avg Return%", "median_mfe_%": "Median MFE%",
             "avg_score": "Avg Score", "response_score": "Response Score",
-        })
+            "excess_win_rate_%": "Excess Win Rate%", "avg_excess_return_%": "Avg Excess Return%",
+        }
+        if "excess_win_rate_%" in bt_top_summary.columns:
+            disp_cols += ["excess_win_rate_%", "avg_excess_return_%"]
+        show_top_summary = bt_top_summary[disp_cols].rename(columns=cols_rename_top)
         st.dataframe(show_top_summary, width='stretch', hide_index=True)
 
         with st.expander("📋 Trade Log (Top Signals)", expanded=False):
@@ -680,13 +735,17 @@ with tab_bt:
                 tl["entry_time"] = pd.to_datetime(tl["entry_time"]).dt.strftime("%d-%b-%y")
                 tl["exit_time"] = pd.to_datetime(tl["exit_time"]).dt.strftime("%d-%b-%y")
                 tl["return_pct"] = tl["return_pct"].round(2)
+                if "excess_return_pct" in tl.columns:
+                    tl["excess_return_pct"] = tl["excess_return_pct"].round(2)
                 tl = tl.rename(columns={
                     "symbol": "Symbol", "signal_time": "Signal Date",
                     "entry_time": "Entry Date", "exit_time": "Exit Date",
                     "entry": "Entry", "exit": "Exit",
                     "return_pct": "Return%", "mfe_pct": "MFE%", "mae_pct": "MAE%",
                     "outcome": "Outcome", "score": "Score", "rsi": "RSI", "reason": "Reason",
+                    "excess_return_pct": "Excess Return% (vs shorting NIFTY)", "benchmark_return_pct": "NIFTY Return%",
                 })
+                tl = tl.drop(columns=["NIFTY Return%"], errors="ignore")
                 _fmt_tl = {c: "{:.1f}" for c in tl.columns if tl[c].dtype.kind == "f"}
                 styled_tl = tl.style.map(_color_outcome, subset=["Outcome"]).format(_fmt_tl, na_rep="—")
                 st.dataframe(styled_tl, width='stretch', hide_index=True)
