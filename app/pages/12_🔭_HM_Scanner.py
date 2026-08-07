@@ -1037,11 +1037,11 @@ with tab_angle:
 # ═════════════════════════════════════════════════════════════════════════════
 @st.cache_data(ttl=1800, show_spinner=False)
 def _run_positional_scan(symbols: tuple) -> tuple:
-    """Exact reproduction of the Chartink "Daily Chart Positional Hilega
-    Toh Milega Indicator by NK Sir" screener (backend.calculations.
-    hm_positional_setup — confirmed 10/13 exact stock overlap against
-    Chartink's own live result, and separately backtested standalone:
-    win rate 40-45%, negative excess return vs NIFTY at every horizon,
+    """H-M Scanner positional setup (backend.calculations.
+    hm_positional_setup): RSI(9) was <=50 for 5 straight days, then RSI
+    and EMA(3) both cross above WMA(21) on the same day, with RSI still
+    leading and Close < ₹3500. Separately backtested standalone: win
+    rate 40-45%, negative excess return vs NIFTY at every horizon,
     n=8,811 over 3 years — no validated edge, shown as a discovery
     scanner only, matching this session's honest-disclosure pattern for
     every other unvalidated setup)."""
@@ -1067,8 +1067,7 @@ def _run_positional_scan(symbols: tuple) -> tuple:
 
 with tab_positional:
     st.caption(
-        "Exact reproduction of the Chartink screener \"Daily Chart Positional Hilega Toh "
-        "Milega Indicator by NK Sir\" — RSI(9) was <=50 for 5 straight days, then RSI and "
+        "H-M Scanner positional setup — RSI(9) was <=50 for 5 straight days, then RSI and "
         "EMA(3) both cross above WMA(21) on the same day, with RSI still leading and Close "
         "< ₹3500. **Backtested standalone (3y, NSE cash universe, 8,811 signals): win rate "
         "40-45% and negative excess return vs NIFTY at every horizon — no validated edge "
