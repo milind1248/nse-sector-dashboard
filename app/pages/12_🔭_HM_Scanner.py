@@ -37,6 +37,7 @@ from backend.calculations.hm_tv_chart import render_tv_chart, tv_chart_url, to_t
 from backend.calculations.hm_expansion import compute_expansion, ExpansionParams
 from backend.calculations.frvp_adaptive import FRVPParams, latest_confirmed_frvp
 from backend.calculations.universe import FALLBACK_NIFTY50, load_symbols as _load_symbols
+from backend.calculations.hm_positional_setup import add_positional_hm_signal, check_positional_hm_signal_latest
 
 _IST = _pytz.timezone("Asia/Kolkata")
 
@@ -399,8 +400,8 @@ from app.utils.disclaimer import show_sebi_notice
 show_sebi_notice()
 st.caption("Hilega-Milega System — RSI(9)/WMA(21)/EMA(3) signal scanner. Educational use only.")
 
-tab_scan, tab_single, tab_bt, tab_angle = st.tabs(
-    ["📡 Live Scan", "🔍 Single Stock", "📈 Backtest", "📐 H-M Angle"]
+tab_scan, tab_single, tab_bt, tab_angle, tab_positional = st.tabs(
+    ["📡 Live Scan", "🔍 Single Stock", "📈 Backtest", "📐 H-M Angle", "🎯 Positional Setup"]
 )
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1029,3 +1030,95 @@ with tab_angle:
                 st.warning(f"No chart data available for {angle_pick} on this timeframe.")
     elif run_angle_scan:
         st.info("No stocks matched this pattern with the current settings. Try loosening the angle or gap thresholds.")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# TAB 5 — POSITIONAL SETUP
+# ═════════════════════════════════════════════════════════════════════════════
+@st.cache_data(ttl=1800, show_spinner=False)
+def _run_positional_scan(symbols: tuple) -> tuple:
+    """Exact reproduction of the Chartink "Daily Chart Positional Hilega
+    Toh Milega Indicator by NK Sir" screener (backend.calculations.
+    hm_positional_setup — confirmed 10/13 exact stock overlap against
+    Chartink's own live result, and separately backtested standalone:
+    win rate 40-45%, negative excess return vs NIFTY at every horizon,
+    n=8,811 over 3 years — no validated edge, shown as a discovery
+    scanner only, matching this session's honest-disclosure pattern for
+    every other unvalidated setup)."""
+    raw_data = _fetch_batch(symbols, "1d", "6mo")
+    rows = []
+    for sym in symbols:
+        df = raw_data.get(sym)
+        if df is None or df.empty or len(df) < 30:
+            continue
+        try:
+            if check_positional_hm_signal_latest(df):
+                rows.append({
+                    "Symbol": sym.replace(".NS", ""),
+                    "Close": round(float(df["Close"].iloc[-1]), 2),
+                    "Volume": int(df["Volume"].iloc[-1]),
+                })
+        except Exception:
+            continue
+    df_out = pd.DataFrame(rows)
+    fetch_ts = pd.Timestamp.now(tz=_IST)
+    return df_out, fetch_ts
+
+
+with tab_positional:
+    st.caption(
+        "Exact reproduction of the Chartink screener \"Daily Chart Positional Hilega Toh "
+        "Milega Indicator by NK Sir\" — RSI(9) was <=50 for 5 straight days, then RSI and "
+        "EMA(3) both cross above WMA(21) on the same day, with RSI still leading and Close "
+        "< ₹3500. **Backtested standalone (3y, NSE cash universe, 8,811 signals): win rate "
+        "40-45% and negative excess return vs NIFTY at every horizon — no validated edge "
+        "found.** Shown here as a discovery/comparison tool, not a signal to trade on."
+    )
+
+    pos_universe = st.selectbox("Universe", ["Nifty 50", "Nifty 500"], key="pos_univ")
+    run_pos_scan = st.button("▶ Run Scan", type="primary", key="run_pos_scan_btn")
+
+    if run_pos_scan:
+        pos_syms = tuple(_load_symbols(pos_universe))
+        _run_positional_scan.clear()
+        with st.spinner(f"Scanning {len(pos_syms)} symbols…"):
+            df_pos, pos_fetch_ts = _run_positional_scan(pos_syms)
+        st.session_state["hm_pos_df"] = df_pos
+        st.session_state["hm_pos_ts"] = pos_fetch_ts
+
+    df_pos = st.session_state.get("hm_pos_df")
+    pos_fetch_ts = st.session_state.get("hm_pos_ts")
+
+    if pos_fetch_ts is not None:
+        now_ist = pd.Timestamp.now(tz=_IST)
+        age_mins = int((now_ist - pos_fetch_ts).total_seconds() // 60)
+        age_str = f"{age_mins} min ago" if age_mins > 0 else "just now"
+        st.caption(f"📡 Data fetched at **{pos_fetch_ts.strftime('%d-%b-%Y %H:%M:%S')} IST** · {age_str}")
+
+    if df_pos is not None and not df_pos.empty:
+        st.metric("Matches Found", len(df_pos))
+        st.dataframe(df_pos, width='stretch', hide_index=True)
+
+        pos_pick = st.selectbox(
+            "Select a matched stock to view its chart",
+            df_pos["Symbol"].tolist(), key="pos_pick_sym",
+        )
+        if pos_pick:
+            pick_symbol = pos_pick + ".NS"
+            with st.spinner(f"Loading chart for {pos_pick}…"):
+                df_pick_raw = _fetch_single(pick_symbol, "1d", "1y")
+            if not df_pick_raw.empty:
+                df_pick = add_positional_hm_signal(df_pick_raw)
+                # render_tv_chart() expects BOTTOM_SIGNAL/TOP_SIGNAL columns
+                # (from generate_signals()) — this scanner's own SIGNAL
+                # column means something different (the 13-condition
+                # positional setup, not the site's general H-M signal), so
+                # it's mapped onto BOTTOM_SIGNAL for chart markers rather
+                # than silently KeyError-ing on a missing column.
+                df_pick["BOTTOM_SIGNAL"] = df_pick["SIGNAL"]
+                df_pick["TOP_SIGNAL"] = False
+                render_tv_chart(df_pick, pick_symbol, main_height=460, osc_height=200, max_bars=500)
+            else:
+                st.warning(f"No chart data available for {pos_pick}.")
+    elif run_pos_scan:
+        st.info("No stocks currently match this exact setup.")
