@@ -1130,6 +1130,20 @@ with tab_positional:
         age_str = f"{age_mins} min ago" if age_mins > 0 else "just now"
         st.caption(f"📡 Data fetched at **{pos_fetch_ts.strftime('%d-%b-%Y %H:%M:%S')} IST** · {age_str}")
 
+    if df_pos is not None and not df_pos.empty and "% Change" not in df_pos.columns:
+        # Streamlit reruns every tab's code on any interaction anywhere on
+        # the page (tabs aren't lazy) — so a scan result saved to
+        # session_state under an OLDER version of this tab's column schema
+        # (e.g. before "% Change" was added) can otherwise crash the WHOLE
+        # PAGE, not just this tab, the moment .style.map(subset=[...])
+        # references a column that stale cached result doesn't have.
+        # Confirmed directly from a live crash report. Clear it and ask
+        # for a fresh run instead of failing the page.
+        st.session_state.pop("hm_pos_df", None)
+        st.session_state.pop("hm_pos_ts", None)
+        df_pos = None
+        st.info("Scan results format was updated — please click 'Run Scan' again.")
+
     if df_pos is not None and not df_pos.empty:
         st.metric("Matches Found", len(df_pos))
         _pos_fmt = {"Close": "{:.2f}", "% Change": "{:+.2f}%", "Volume": "{:,}"}
