@@ -1116,6 +1116,7 @@ def _run_positional_scan(symbols: tuple, nifty50_syms: tuple) -> tuple:
                     "Sector": _find_sector(sym) or "—",
                     "Index": "Nifty 50" if sym in nifty50_set else "Nifty 500",
                     "F&O": "Yes" if bare_sym in fno_set else "No",
+                    "Market Cap (Cr.)": _smpos_fetch_market_cap(bare_sym),
                 })
         except Exception:
             continue
@@ -1541,6 +1542,237 @@ def _render_positional_smart_money(symbol: str, is_fno: bool) -> None:
 
     st.dataframe(styler, width='stretch', hide_index=True, height=400)
 
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SHAREHOLDING PATTERN + MARKET CAP — for Positional Setup
+#
+# Copied and adapted from app/pages/08_💰_Smart_Money.py (that file is NOT
+# modified — same _smpos_ namespacing as the Smart Money Detail panel
+# above). Reuses the SAME `shareholding_pattern` table Smart Money already
+# populates (keyed by bare symbol, matching Smart Money's own convention
+# and this page's own `pos_pick` — a symbol fetched from either page
+# benefits both), so this is not a duplicate data store.
+#
+# Market Cap is new: nothing in this codebase currently scrapes Screener.in's
+# top-ratios block, confirmed directly before writing this.
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _smpos_fetch_shareholding_screener(symbol: str) -> list:
+    import requests
+    from bs4 import BeautifulSoup
+    from datetime import datetime as _dt
+
+    for suffix in ["/consolidated/", "/"]:
+        url = f"https://www.screener.in/company/{symbol}{suffix}"
+        try:
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+            if r.status_code != 200:
+                continue
+            soup = BeautifulSoup(r.text, "html.parser")
+            sh_section = soup.find("section", {"id": "shareholding"})
+            if not sh_section:
+                continue
+            table = sh_section.find("table")
+            if not table:
+                continue
+
+            rows = table.find_all("tr")
+            if len(rows) < 2:
+                continue
+
+            headers = [th.get_text(strip=True) for th in rows[0].find_all(["th", "td"])]
+            quarters = headers[1:]
+
+            data: dict = {}
+            cat_map = {
+                "Promoters": "promoter", "FIIs": "fii", "DIIs": "dii",
+                "Government": "government", "Public": "public_retail",
+            }
+            for row in rows[1:]:
+                cells = row.find_all(["th", "td"])
+                if not cells:
+                    continue
+                label = cells[0].get_text(strip=True).replace("+", "").strip()
+                key = cat_map.get(label)
+                if not key:
+                    continue
+                vals = []
+                for c in cells[1:]:
+                    txt = c.get_text(strip=True).replace("%", "").replace(",", "").strip()
+                    try:
+                        vals.append(float(txt))
+                    except ValueError:
+                        vals.append(None)
+                data[key] = vals
+
+            if not data:
+                continue
+
+            num_q = len(quarters)
+            start = max(0, num_q - 12)
+            now_ts = _dt.utcnow().isoformat()
+            result = []
+            for i in range(num_q - 1, start - 1, -1):
+                if i >= len(quarters):
+                    continue
+                q = quarters[i]
+                result.append({
+                    "symbol": symbol, "quarter": q,
+                    "promoter": data.get("promoter", [None] * num_q)[i],
+                    "fii": data.get("fii", [None] * num_q)[i],
+                    "dii": data.get("dii", [None] * num_q)[i],
+                    "government": data.get("government", [None] * num_q)[i],
+                    "public_retail": data.get("public_retail", [None] * num_q)[i],
+                    "fetched_at": now_ts,
+                })
+            return result
+        except Exception:
+            continue
+    return []
+
+
+def _smpos_save_shareholding(rows: list):
+    if not rows:
+        return
+    con = get_conn()
+    con.executemany("""
+        INSERT INTO shareholding_pattern
+        (symbol, quarter, promoter, fii, dii, government, public_retail, fetched_at)
+        VALUES (%(symbol)s, %(quarter)s, %(promoter)s, %(fii)s, %(dii)s,
+                %(government)s, %(public_retail)s, %(fetched_at)s)
+        ON CONFLICT (symbol, quarter) DO UPDATE SET
+            promoter=EXCLUDED.promoter, fii=EXCLUDED.fii, dii=EXCLUDED.dii,
+            government=EXCLUDED.government, public_retail=EXCLUDED.public_retail,
+            fetched_at=EXCLUDED.fetched_at
+    """, rows)
+    con.commit()
+    con.close()
+
+
+def _smpos_load_shareholding(symbol: str) -> pd.DataFrame:
+    con = get_conn()
+    df = pd.read_sql_query(
+        """SELECT quarter, promoter, fii, dii, government, public_retail, fetched_at
+           FROM shareholding_pattern WHERE symbol=%s""",
+        con, params=(symbol,),
+    )
+    con.close()
+    if df.empty:
+        return df
+    df["_sort"] = pd.to_datetime(df["quarter"], format="%b %Y", errors="coerce")
+    df = df.sort_values("_sort", ascending=False).drop(columns=["_sort"]).reset_index(drop=True)
+    return df
+
+
+def _smpos_get_shareholding(symbol: str) -> pd.DataFrame:
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    df = _smpos_load_shareholding(symbol)
+    needs_refresh = df.empty
+    if not needs_refresh:
+        try:
+            fetched_raw = df["fetched_at"].iloc[0]
+            fetched = fetched_raw if isinstance(fetched_raw, _dt) else _dt.fromisoformat(str(fetched_raw))
+            if fetched.tzinfo is None:
+                fetched = fetched.replace(tzinfo=_tz.utc)
+            needs_refresh = (_dt.now(_tz.utc) - fetched) > _td(days=7)
+        except Exception:
+            needs_refresh = True
+    if needs_refresh:
+        rows = _smpos_fetch_shareholding_screener(symbol)
+        _smpos_save_shareholding(rows)
+        df = _smpos_load_shareholding(symbol)
+    return df.drop(columns=["fetched_at"], errors="ignore")
+
+
+def _render_positional_shareholding(symbol: str) -> None:
+    sh_df = _smpos_get_shareholding(symbol)
+    if sh_df.empty:
+        st.info("Shareholding data not available for this symbol in regulatory filings.")
+        return
+
+    sh_chart = sh_df.head(12).reset_index(drop=True)
+    quarters = sh_chart["quarter"].tolist()
+
+    CAT_COLORS = {
+        "Promoter": "#2979FF", "FII": "#00C853", "DII": "#FFD600",
+        "Government": "#FF6D00", "Public": "#AA00FF",
+    }
+    fig_sh = go.Figure()
+    for label, col in [("Promoter", "promoter"), ("FII", "fii"), ("DII", "dii"),
+                        ("Government", "government"), ("Public", "public_retail")]:
+        vals = sh_chart[col].tolist()
+        fig_sh.add_trace(go.Bar(
+            name=label, x=quarters, y=vals, marker_color=CAT_COLORS[label],
+            text=[f"{v:.1f}%" if v is not None else "" for v in vals], textposition="inside",
+        ))
+    fig_sh.update_layout(
+        barmode="stack", template="plotly_dark", height=340,
+        title=f"{symbol} — Shareholding Pattern (%) — Last 12 Quarters",
+        yaxis=dict(title="%", range=[0, 100]), legend=dict(orientation="h", y=-0.2),
+        margin=dict(t=50, b=60),
+    )
+    st.plotly_chart(fig_sh, width='stretch')
+
+    sh_display = sh_chart[["quarter", "promoter", "fii", "dii", "government", "public_retail"]].copy()
+    sh_display.columns = ["Quarter", "Promoter %", "FII %", "DII %", "Govt %", "Public %"]
+    sh_display["Total %"] = sh_chart[["promoter", "fii", "dii", "government", "public_retail"]].sum(axis=1)
+
+    def _sh_color(lo, hi, rgb):
+        def _fn(v):
+            if not isinstance(v, (int, float)):
+                return ""
+            intensity = max(0.0, min(1.0, (v - lo) / max(hi - lo, 1)))
+            r, g, b = [int(c + (255 - c) * (1 - intensity)) for c in rgb]
+            fg = "#fff" if intensity > 0.5 else "#ccc"
+            return f"background-color:rgb({r},{g},{b});color:{fg}"
+        return _fn
+
+    st.dataframe(
+        sh_display.style
+            .format({c: "{:.2f}%" for c in sh_display.columns if "%" in c}, na_rep="–")
+            .map(_sh_color(0, 80, (25, 118, 210)), subset=["Promoter %"])
+            .map(_sh_color(0, 30, (27, 94, 32)), subset=["FII %"])
+            .map(_sh_color(0, 30, (230, 81, 0)), subset=["DII %"]),
+        width='stretch', hide_index=True,
+    )
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _smpos_fetch_market_cap(symbol: str) -> float | None:
+    """Screener.in's top-ratios block (id="top-ratios") — a <ul> of <li>
+    metric items (Market Cap, Current Price, Stock P/E, ...). Nothing in
+    this codebase parses this block yet (confirmed before writing this) —
+    Market Cap elsewhere on the site comes from yfinance, not Screener."""
+    import requests
+    from bs4 import BeautifulSoup
+
+    for suffix in ["/consolidated/", "/"]:
+        url = f"https://www.screener.in/company/{symbol}{suffix}"
+        try:
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+            if r.status_code != 200:
+                continue
+            soup = BeautifulSoup(r.text, "html.parser")
+            ratios = soup.find("ul", {"id": "top-ratios"})
+            if not ratios:
+                continue
+            for li in ratios.find_all("li"):
+                name_el = li.find("span", {"class": "name"})
+                if not name_el or "Market Cap" not in name_el.get_text(strip=True):
+                    continue
+                num_el = li.find("span", {"class": "number"})
+                if not num_el:
+                    continue
+                txt = num_el.get_text(strip=True).replace(",", "")
+                try:
+                    return float(txt)
+                except ValueError:
+                    continue
+        except Exception:
+            continue
+    return None
+
+
 with tab_positional:
     st.caption(
         "H-M Scanner positional setup — RSI(9) was <=50 for 5 straight days, then RSI and "
@@ -1571,7 +1803,7 @@ with tab_positional:
         age_str = f"{age_mins} min ago" if age_mins > 0 else "just now"
         st.caption(f"📡 Data fetched at **{pos_fetch_ts.strftime('%d-%b-%Y %H:%M:%S')} IST** · {age_str}")
 
-    if df_pos is not None and not df_pos.empty and not {"% Change", "F&O"}.issubset(df_pos.columns):
+    if df_pos is not None and not df_pos.empty and not {"% Change", "F&O", "Market Cap (Cr.)"}.issubset(df_pos.columns):
         # Streamlit reruns every tab's code on any interaction anywhere on
         # the page (tabs aren't lazy) — so a scan result saved to
         # session_state under an OLDER version of this tab's column schema
@@ -1587,7 +1819,7 @@ with tab_positional:
 
     if df_pos is not None and not df_pos.empty:
         st.metric("Matches Found", len(df_pos))
-        _pos_fmt = {"Close": "{:.2f}", "% Change": "{:+.2f}%", "Volume": "{:,}"}
+        _pos_fmt = {"Close": "{:.2f}", "% Change": "{:+.2f}%", "Volume": "{:,}", "Market Cap (Cr.)": "{:,.0f}"}
         styled_pos = df_pos.style.map(
             lambda v: "color:#4ade80" if isinstance(v, (int, float)) and v > 0
             else ("color:#f87171" if isinstance(v, (int, float)) and v < 0 else ""),
@@ -1626,6 +1858,10 @@ with tab_positional:
                 st.markdown("---")
                 st.markdown(f"##### 💰 Smart Money Detail — {pos_pick}")
                 _render_positional_smart_money(pos_pick, pos_pick in _positional_fno_set())
+
+                st.markdown("---")
+                st.markdown(f"##### 🏦 Shareholding Pattern — {pos_pick}")
+                _render_positional_shareholding(pos_pick)
             else:
                 st.warning(f"No chart data available for {pos_pick}.")
     elif run_pos_scan:
