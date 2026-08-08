@@ -28,6 +28,8 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 import pytz as _pytz
+import plotly.graph_objects as go
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from backend.calculations.hm_indicators import add_indicators, generate_signals, attach_htf_regime
 from backend.calculations.hm_backtest import (
@@ -1195,7 +1197,429 @@ with tab_positional:
                 df_pick["BOTTOM_SIGNAL"] = df_pick["SIGNAL"]
                 df_pick["TOP_SIGNAL"] = False
                 render_tv_chart(df_pick, pick_symbol, main_height=460, osc_height=200, max_bars=500)
+
+                st.markdown("---")
+                st.markdown(f"##### 💰 Smart Money Detail — {pos_pick}")
+                _render_positional_smart_money(pos_pick, pos_pick in _positional_fno_set())
             else:
                 st.warning(f"No chart data available for {pos_pick}.")
     elif run_pos_scan:
         st.info("No stocks currently match this exact setup.")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SMART MONEY DETAIL — for Positional Setup's picked stock
+#
+# Copied and adapted from app/pages/08_💰_Smart_Money.py (that file is NOT
+# modified — every function below is a deliberate copy, prefixed _smpos_ to
+# stay clearly namespaced from this page's own _fetch_batch/_fetch_single
+# etc.). Both pages read/write the SAME smart_money_history table, so this
+# is not a duplicate data store — fetching a symbol here also benefits the
+# Smart Money page and vice versa.
+#
+# One real modification vs. the original: _smpos_fetch_one_day() takes an
+# is_fno flag and SKIPS the FO Bhav Copy request entirely when False,
+# instead of fetching it and discarding the result — saves an HTTP call
+# per missing day for non-F&O symbols and never implies OI data exists
+# where it structurally can't.
+# ═════════════════════════════════════════════════════════════════════════════
+_SMPOS_HDR = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+
+def _smpos_db():
+    return get_conn()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _smpos_build_sector_map() -> dict:
+    try:
+        con = _smpos_db()
+        rows = con.execute(
+            "SELECT DISTINCT symbol, sector FROM sector_intelligence WHERE symbol IS NOT NULL"
+        ).fetchall()
+        con.close()
+        return {r[0].replace(".NS", "").upper(): r[1] for r in rows if r[0]}
+    except Exception:
+        return {}
+
+
+def _smpos_get_symbol_sector(symbol: str) -> str:
+    m = _smpos_build_sector_map()
+    return m.get(symbol.replace(".NS", "").upper(), "–")
+
+
+def _smpos_last_trading_date():
+    from datetime import datetime, timedelta as _td
+    import pytz
+    ist = pytz.timezone("Asia/Kolkata")
+    now_ist = datetime.now(ist)
+    today = now_ist.date()
+    wd = today.weekday()
+    if wd == 5:
+        return today - _td(days=1)
+    if wd == 6:
+        return today - _td(days=2)
+    if now_ist.hour < 18:
+        prev = today - _td(days=1)
+        if prev.weekday() == 5:
+            prev -= _td(days=1)
+        if prev.weekday() == 6:
+            prev -= _td(days=2)
+        return prev
+    return today
+
+
+def _smpos_trading_dates_for_90d() -> list:
+    from datetime import timedelta as _td
+    end = _smpos_last_trading_date()
+    result = []
+    for i in range(200):
+        d = end - _td(days=i)
+        if d.weekday() < 5:
+            result.append(d)
+        if len(result) == 90:
+            break
+    return result
+
+
+def _smpos_stored_dates(symbol: str) -> set:
+    con = _smpos_db()
+    rows = con.execute(
+        "SELECT trade_date FROM smart_money_history WHERE symbol=%s", (symbol,)
+    ).fetchall()
+    con.close()
+    return {str(r[0]) for r in rows}
+
+
+def _smpos_purge_old(symbol: str):
+    cutoff = _smpos_trading_dates_for_90d()[-1].isoformat()
+    con = _smpos_db()
+    con.execute(
+        "DELETE FROM smart_money_history WHERE symbol=%s AND trade_date < %s",
+        (symbol, cutoff),
+    )
+    con.commit()
+    con.close()
+
+
+def _smpos_save_rows(rows: list):
+    if not rows:
+        return
+    con = _smpos_db()
+    con.executemany("""
+        INSERT INTO smart_money_history
+        (symbol,trade_date,close_price,pct_price_chg,trade_qty,tot_trade,
+         action,dlv_pct,futures_oi,oi_change,pct_oi_chg)
+        VALUES (%(symbol)s,%(trade_date)s,%(close_price)s,%(pct_price_chg)s,%(trade_qty)s,%(tot_trade)s,
+                %(action)s,%(dlv_pct)s,%(futures_oi)s,%(oi_change)s,%(pct_oi_chg)s)
+        ON CONFLICT (symbol, trade_date) DO UPDATE SET
+            close_price=EXCLUDED.close_price, pct_price_chg=EXCLUDED.pct_price_chg,
+            trade_qty=EXCLUDED.trade_qty, tot_trade=EXCLUDED.tot_trade, action=EXCLUDED.action,
+            dlv_pct=EXCLUDED.dlv_pct, futures_oi=EXCLUDED.futures_oi,
+            oi_change=EXCLUDED.oi_change, pct_oi_chg=EXCLUDED.pct_oi_chg
+    """, rows)
+    con.commit()
+    con.close()
+
+
+def _smpos_load_from_db(symbol: str) -> pd.DataFrame:
+    con = _smpos_db()
+    df = pd.read_sql_query(
+        "SELECT * FROM smart_money_history WHERE symbol=%s ORDER BY trade_date DESC",
+        con, params=(symbol,),
+    )
+    con.close()
+    return df
+
+
+def _smpos_fetch_one_day(symbol: str, dt, is_fno: bool) -> dict | None:
+    """Download CM + MTO (+ FO, only if is_fno) for a single date and
+    extract this symbol's metrics."""
+    import requests, zipfile, io as _io
+
+    row = {"symbol": symbol, "trade_date": dt.isoformat(),
+           "close_price": None, "pct_price_chg": None,
+           "trade_qty": None, "tot_trade": None, "action": None,
+           "dlv_pct": None, "futures_oi": None, "oi_change": None, "pct_oi_chg": None}
+
+    ds = dt.strftime("%Y%m%d")
+    got_any = False
+
+    try:
+        url = f"https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_{ds}_F_0000.csv.zip"
+        r = requests.get(url, headers=_SMPOS_HDR, timeout=20)
+        if r.status_code == 200:
+            z = zipfile.ZipFile(_io.BytesIO(r.content))
+            df = pd.read_csv(z.open(z.namelist()[0]))
+            s = df[(df["TckrSymb"] == symbol) & (df["SctySrs"].isin({"EQ", "BE", "BZ", "SM", "ST"}))]
+            if not s.empty:
+                close = pd.to_numeric(s["ClsPric"].iloc[0], errors="coerce")
+                prev = pd.to_numeric(s["PrvsClsgPric"].iloc[0], errors="coerce")
+                tqty = pd.to_numeric(s["TtlTradgVol"].iloc[0], errors="coerce")
+                ttrd = pd.to_numeric(s["TtlNbOfTxsExctd"].iloc[0], errors="coerce")
+                row["close_price"] = float(close) if pd.notna(close) else None
+                row["trade_qty"] = float(tqty) if pd.notna(tqty) else None
+                row["tot_trade"] = float(ttrd) if pd.notna(ttrd) else None
+                if pd.notna(close) and pd.notna(prev) and prev > 0:
+                    row["pct_price_chg"] = round(float((close - prev) / prev * 100), 2)
+                if pd.notna(tqty) and pd.notna(ttrd) and ttrd > 0:
+                    row["action"] = round(float(tqty / ttrd), 1)
+                got_any = True
+    except Exception:
+        pass
+
+    try:
+        url = f"https://nsearchives.nseindia.com/archives/equities/mto/MTO_{dt.strftime('%d%m%Y')}.DAT"
+        r = requests.get(url, headers=_SMPOS_HDR, timeout=15)
+        if r.status_code == 200:
+            lines = [l for l in r.text.splitlines() if l.startswith("20,")]
+            mdf = pd.read_csv(_io.StringIO("\n".join(lines)), header=None,
+                              names=["rec", "sr", "sym", "series", "qty_traded", "dlv_qty", "dlv_pct"])
+            m = mdf[(mdf["sym"] == symbol) & (mdf["series"] == "EQ")]
+            if not m.empty:
+                qty = pd.to_numeric(m["qty_traded"].iloc[0], errors="coerce")
+                dlv = pd.to_numeric(m["dlv_qty"].iloc[0], errors="coerce")
+                if pd.notna(qty) and pd.notna(dlv) and qty > 0:
+                    row["dlv_pct"] = round(float(dlv / qty * 100), 2)
+                got_any = True
+    except Exception:
+        pass
+
+    if is_fno:
+        try:
+            url = f"https://nsearchives.nseindia.com/content/fo/BhavCopy_NSE_FO_0_0_0_{ds}_F_0000.csv.zip"
+            r = requests.get(url, headers=_SMPOS_HDR, timeout=20)
+            if r.status_code == 200:
+                z = zipfile.ZipFile(_io.BytesIO(r.content))
+                df = pd.read_csv(z.open(z.namelist()[0]))
+                stf = df[(df["FinInstrmTp"] == "STF") & (df["TckrSymb"] == symbol)].copy()
+                if not stf.empty:
+                    stf["XpryDt"] = pd.to_datetime(stf["XpryDt"], errors="coerce")
+                    nearest = stf.loc[stf["XpryDt"].idxmin()]
+                    oi = pd.to_numeric(nearest["OpnIntrst"], errors="coerce")
+                    oichg = pd.to_numeric(nearest["ChngInOpnIntrst"], errors="coerce")
+                    if pd.notna(oi):
+                        row["futures_oi"] = float(oi)
+                        row["oi_change"] = float(oichg) if pd.notna(oichg) else None
+                        prev_oi = oi - (oichg if pd.notna(oichg) else 0)
+                        if prev_oi != 0:
+                            row["pct_oi_chg"] = round(float((oichg / prev_oi) * 100), 2)
+                    got_any = True
+        except Exception:
+            pass
+
+    return row if got_any else None
+
+
+def _smpos_fetch_missing_days(symbol: str, missing_dates: list, is_fno: bool) -> list:
+    results = []
+    with ThreadPoolExecutor(max_workers=15) as ex:
+        futures = {ex.submit(_smpos_fetch_one_day, symbol, d, is_fno): d for d in missing_dates}
+        for f in as_completed(futures):
+            try:
+                row = f.result()
+                if row:
+                    results.append(row)
+            except Exception:
+                pass
+    return results
+
+
+def _smpos_sm_label(row, avg_dlv, avg_act) -> str:
+    d, a = row["dlv_pct"], row["action"]
+    if pd.notna(d) and pd.notna(a) and pd.notna(avg_dlv) and pd.notna(avg_act):
+        if d > avg_dlv and a > avg_act:
+            return "Buying"
+    return "–"
+
+
+def _smpos_oi_sig(row) -> str:
+    p, o = row["pct_price_chg"], row["pct_oi_chg"]
+    if pd.isna(p) or pd.isna(o):
+        return "Neutral"
+    if p > 0 and o > 0:
+        return "Long Buildup"
+    if p > 0 and o < 0:
+        return "Short Covering"
+    if p < 0 and o < 0:
+        return "Long Unwinding"
+    if p < 0 and o > 0:
+        return "Short Buildup"
+    return "Neutral"
+
+
+def _render_positional_smart_money(symbol: str, is_fno: bool) -> None:
+    all_90d = _smpos_trading_dates_for_90d()
+    stored = _smpos_stored_dates(symbol)
+    missing = [d for d in all_90d if d.isoformat() not in stored]
+
+    if missing:
+        with st.spinner(f"Fetching Smart Money history for {symbol} ({len(missing)} day(s))…"):
+            new_rows = _smpos_fetch_missing_days(symbol, missing, is_fno)
+            _smpos_save_rows(new_rows)
+            fetched_dates = {r["trade_date"] for r in new_rows}
+            null_rows = [
+                {"symbol": symbol, "trade_date": d.isoformat(),
+                 "close_price": None, "pct_price_chg": None,
+                 "trade_qty": None, "tot_trade": None, "action": None,
+                 "dlv_pct": None, "futures_oi": None, "oi_change": None,
+                 "pct_oi_chg": None}
+                for d in missing if d.isoformat() not in fetched_dates
+            ]
+            if null_rows:
+                _smpos_save_rows(null_rows)
+            _smpos_purge_old(symbol)
+
+    hist = _smpos_load_from_db(symbol)
+    hist = hist.dropna(subset=["close_price"])
+
+    if hist.empty:
+        st.info("No Smart Money data available for this symbol yet.")
+        return
+
+    hist["trade_date"] = pd.to_datetime(hist["trade_date"]).dt.date
+    hist = hist.sort_values("trade_date", ascending=False).reset_index(drop=True)
+
+    avg_dlv = hist["dlv_pct"].mean()
+    avg_act = hist["action"].mean()
+    hist["smart_money"] = hist.apply(lambda r: _smpos_sm_label(r, avg_dlv, avg_act), axis=1)
+    if is_fno:
+        hist["oi_signal"] = hist.apply(_smpos_oi_sig, axis=1)
+
+    buying_days = (hist["smart_money"] == "Buying").sum()
+    latest = hist.iloc[0]
+
+    if is_fno:
+        oi_color = ("#00C853" if latest["oi_signal"] in ("Long Buildup", "Short Covering")
+                    else "#FF5252" if latest["oi_signal"] != "Neutral" else "#888")
+        oi_tile = (
+            f"<div><div style='color:#aaa;font-size:11px'>Latest OI Signal</div>"
+            f"<div style='font-size:18px;font-weight:700;color:{oi_color}'>{latest['oi_signal']}</div></div>"
+        )
+    else:
+        oi_tile = (
+            "<div><div style='color:#aaa;font-size:11px'>Latest OI Signal</div>"
+            "<div style='font-size:14px;color:#666'>No F&amp;O contract</div></div>"
+        )
+
+    st.markdown(
+        f"<div style='background:#1a1f2e;border-radius:8px;padding:14px 20px;"
+        f"display:flex;gap:32px;flex-wrap:wrap;margin-bottom:12px'>"
+        f"<div><div style='color:#aaa;font-size:11px'>90-Day Avg Delivery %</div>"
+        f"<div style='color:#FFD600;font-size:22px;font-weight:700'>{avg_dlv:.1f}%</div></div>"
+        f"<div><div style='color:#aaa;font-size:11px'>90-Day Avg Action</div>"
+        f"<div style='color:#FFD600;font-size:22px;font-weight:700'>{avg_act:.1f}</div></div>"
+        f"<div><div style='color:#aaa;font-size:11px'>Smart Money Buying Days</div>"
+        f"<div style='color:#00C853;font-size:22px;font-weight:700'>{buying_days} / {len(hist)}</div></div>"
+        f"<div><div style='color:#aaa;font-size:11px'>Latest Close</div>"
+        f"<div style='color:#fff;font-size:22px;font-weight:700'>₹{latest['close_price']:,.2f}</div></div>"
+        f"{oi_tile}"
+        f"<div><div style='color:#aaa;font-size:11px'>Sector</div>"
+        f"<div style='font-size:16px;font-weight:600;color:#64B5F6'>{_smpos_get_symbol_sector(symbol)}</div></div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    col_ch1, col_ch2 = st.columns(2)
+    with col_ch1:
+        ch = hist.sort_values("trade_date")
+        sm_dates = hist[hist["smart_money"] == "Buying"]["trade_date"].tolist()
+        buy_df = ch[ch["smart_money"] == "Buying"]
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=ch["trade_date"].astype(str), y=ch["close_price"],
+            name="Close", mode="lines", line=dict(color="#2979FF", width=2),
+        ))
+        fig.add_trace(go.Scatter(
+            x=buy_df["trade_date"].astype(str), y=buy_df["close_price"],
+            mode="markers", name="Smart Money Buying",
+            marker=dict(color="#00C853", size=10, symbol="circle", line=dict(color="#fff", width=1.5)),
+            hovertemplate="<b>%{x}</b><br>Close: ₹%{y:,.2f}<br>Smart Money: Buying<extra></extra>",
+        ))
+        for sd in sm_dates:
+            fig.add_vline(x=str(sd), line_width=1, line_color="#00C853", opacity=0.2)
+        fig.update_layout(
+            template="plotly_dark", height=280,
+            title=f"{symbol} — Close Price (🟢 = Smart Money Buying)",
+            margin=dict(t=40, b=20),
+        )
+        st.plotly_chart(fig, width='stretch')
+
+    with col_ch2:
+        ch2 = hist.sort_values("trade_date")
+        buy_df2 = ch2[ch2["smart_money"] == "Buying"]
+        fig2 = go.Figure()
+        fig2.add_trace(go.Bar(
+            x=ch2["trade_date"].astype(str), y=ch2["dlv_pct"],
+            marker_color=["#00C853" if v and v > avg_dlv else "#555" for v in ch2["dlv_pct"]],
+            name="Delivery %",
+        ))
+        fig2.add_trace(go.Scatter(
+            x=buy_df2["trade_date"].astype(str), y=buy_df2["dlv_pct"],
+            mode="markers", name="Smart Money Buying",
+            marker=dict(color="#00C853", size=10, symbol="circle", line=dict(color="#fff", width=1.5)),
+            hovertemplate="<b>%{x}</b><br>Delivery: %{y:.1f}%<br>Smart Money: Buying<extra></extra>",
+        ))
+        if pd.notna(avg_dlv):
+            fig2.add_hline(y=avg_dlv, line_dash="dash", line_color="#FFD600",
+                           annotation_text=f"Avg {avg_dlv:.1f}%")
+        fig2.update_layout(
+            template="plotly_dark", height=280,
+            title=f"{symbol} — Delivery % (yellow = 90d avg, 🟢 = Buying)",
+            margin=dict(t=40, b=20),
+        )
+        st.plotly_chart(fig2, width='stretch')
+
+    st.markdown(f"###### 📅 {len(hist)} Trading Days — {symbol}")
+
+    display_cols = {
+        "Date": hist["trade_date"].astype(str),
+        "Close (₹)": hist["close_price"],
+        "% Price CHG": hist["pct_price_chg"],
+        "Delivery %": hist["dlv_pct"],
+        "Action": hist["action"],
+    }
+    if is_fno:
+        display_cols["Futures OI"] = hist["futures_oi"].apply(lambda x: int(x) if pd.notna(x) else None)
+        display_cols["OI Change"] = hist["oi_change"].apply(lambda x: int(x) if pd.notna(x) else None)
+        display_cols["% OI Change"] = hist["pct_oi_chg"]
+        display_cols["OI Signal"] = hist["oi_signal"]
+    display_cols["Smart Money"] = hist["smart_money"]
+    display = pd.DataFrame(display_cols)
+
+    OI_COLORS = {
+        "Long Buildup": "color:#00C853;font-weight:600",
+        "Short Covering": "color:#64DD17;font-weight:600",
+        "Long Unwinding": "color:#FF5252;font-weight:600",
+        "Short Buildup": "color:#D50000;font-weight:600",
+        "Neutral": "color:#666",
+    }
+
+    def _cn(v):
+        if not isinstance(v, (int, float)):
+            return ""
+        return "color:#00C853" if v > 0 else "color:#D50000" if v < 0 else ""
+
+    def _csm(v):
+        return "color:#00C853;font-weight:700" if v == "Buying" else "color:#555"
+
+    def _coi(v):
+        return OI_COLORS.get(v, "")
+
+    _cdlv = lambda v: ("color:#00C853;font-weight:600"
+                       if isinstance(v, (int, float)) and pd.notna(v) and v > avg_dlv else "")
+    _cact = lambda v: ("color:#00C853;font-weight:600"
+                       if isinstance(v, (int, float)) and pd.notna(v) and v > avg_act else "")
+
+    styler = display.style.map(_cn, subset=["% Price CHG"]).map(_csm, subset=["Smart Money"]) \
+        .map(_cdlv, subset=["Delivery %"]).map(_cact, subset=["Action"])
+    fmt = {
+        "Close (₹)": "₹{:,.2f}", "% Price CHG": "{:+.2f}%",
+        "Delivery %": "{:.1f}%", "Action": "{:.1f}",
+    }
+    if is_fno:
+        styler = styler.map(_cn, subset=["OI Change", "% OI Change"]).map(_coi, subset=["OI Signal"])
+        fmt.update({"% OI Change": "{:+.2f}%", "OI Change": "{:+,}", "Futures OI": "{:,}"})
+    styler = styler.format(fmt, na_rep="–")
+
+    st.dataframe(styler, width='stretch', hide_index=True, height=400)
