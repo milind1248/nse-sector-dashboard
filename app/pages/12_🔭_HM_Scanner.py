@@ -1595,10 +1595,18 @@ with tab_positional:
         ).format(_pos_fmt, na_rep="—")
         st.dataframe(styled_pos, width='stretch', hide_index=True)
 
-        pos_pick = st.selectbox(
-            "Select a matched stock to view its chart",
-            df_pos["Symbol"].tolist(), key="pos_pick_sym",
-        )
+        c_dd, c_search = st.columns([1, 2])
+        with c_dd:
+            dd_pick = st.selectbox(
+                "Matched stock", df_pos["Symbol"].tolist(), key="pos_pick_sym",
+            )
+        with c_search:
+            search_pick = st.text_input(
+                "Or search any stock symbol", value="", key="pos_search_sym",
+                placeholder="e.g. RELIANCE",
+            ).strip().upper().replace(".NS", "")
+        pos_pick = search_pick if search_pick else dd_pick
+
         if pos_pick:
             pick_symbol = pos_pick + ".NS"
             with st.spinner(f"Loading chart for {pos_pick}…"):
