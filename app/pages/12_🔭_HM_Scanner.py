@@ -1124,89 +1124,6 @@ def _run_positional_scan(symbols: tuple, nifty50_syms: tuple) -> tuple:
     return df_out, fetch_ts
 
 
-with tab_positional:
-    st.caption(
-        "H-M Scanner positional setup — RSI(9) was <=50 for 5 straight days, then RSI and "
-        "EMA(3) both cross above WMA(21) on the same day, with RSI still leading and Close "
-        "< ₹3500. **Backtested standalone (3y, NSE cash universe, 8,811 signals): win rate "
-        "40-45% and negative excess return vs NIFTY at every horizon — no validated edge "
-        "found.** Shown here as a discovery/comparison tool, not a signal to trade on."
-    )
-
-    pos_universe = st.selectbox("Universe", ["Nifty 50", "Nifty 500"], key="pos_univ")
-    run_pos_scan = st.button("▶ Run Scan", type="primary", key="run_pos_scan_btn")
-
-    if run_pos_scan:
-        pos_syms = tuple(_load_symbols(pos_universe))
-        nifty50_syms = tuple(_load_symbols("Nifty 50"))
-        _run_positional_scan.clear()
-        with st.spinner(f"Scanning {len(pos_syms)} symbols…"):
-            df_pos, pos_fetch_ts = _run_positional_scan(pos_syms, nifty50_syms)
-        st.session_state["hm_pos_df"] = df_pos
-        st.session_state["hm_pos_ts"] = pos_fetch_ts
-
-    df_pos = st.session_state.get("hm_pos_df")
-    pos_fetch_ts = st.session_state.get("hm_pos_ts")
-
-    if pos_fetch_ts is not None:
-        now_ist = pd.Timestamp.now(tz=_IST)
-        age_mins = int((now_ist - pos_fetch_ts).total_seconds() // 60)
-        age_str = f"{age_mins} min ago" if age_mins > 0 else "just now"
-        st.caption(f"📡 Data fetched at **{pos_fetch_ts.strftime('%d-%b-%Y %H:%M:%S')} IST** · {age_str}")
-
-    if df_pos is not None and not df_pos.empty and not {"% Change", "F&O"}.issubset(df_pos.columns):
-        # Streamlit reruns every tab's code on any interaction anywhere on
-        # the page (tabs aren't lazy) — so a scan result saved to
-        # session_state under an OLDER version of this tab's column schema
-        # (e.g. before "% Change" was added) can otherwise crash the WHOLE
-        # PAGE, not just this tab, the moment .style.map(subset=[...])
-        # references a column that stale cached result doesn't have.
-        # Confirmed directly from a live crash report. Clear it and ask
-        # for a fresh run instead of failing the page.
-        st.session_state.pop("hm_pos_df", None)
-        st.session_state.pop("hm_pos_ts", None)
-        df_pos = None
-        st.info("Scan results format was updated — please click 'Run Scan' again.")
-
-    if df_pos is not None and not df_pos.empty:
-        st.metric("Matches Found", len(df_pos))
-        _pos_fmt = {"Close": "{:.2f}", "% Change": "{:+.2f}%", "Volume": "{:,}"}
-        styled_pos = df_pos.style.map(
-            lambda v: "color:#4ade80" if isinstance(v, (int, float)) and v > 0
-            else ("color:#f87171" if isinstance(v, (int, float)) and v < 0 else ""),
-            subset=["% Change"],
-        ).format(_pos_fmt, na_rep="—")
-        st.dataframe(styled_pos, width='stretch', hide_index=True)
-
-        pos_pick = st.selectbox(
-            "Select a matched stock to view its chart",
-            df_pos["Symbol"].tolist(), key="pos_pick_sym",
-        )
-        if pos_pick:
-            pick_symbol = pos_pick + ".NS"
-            with st.spinner(f"Loading chart for {pos_pick}…"):
-                df_pick_raw = _fetch_single(pick_symbol, "1d", "1y")
-            if not df_pick_raw.empty:
-                df_pick = add_positional_hm_signal(df_pick_raw)
-                # render_tv_chart() expects BOTTOM_SIGNAL/TOP_SIGNAL columns
-                # (from generate_signals()) — this scanner's own SIGNAL
-                # column means something different (the 13-condition
-                # positional setup, not the site's general H-M signal), so
-                # it's mapped onto BOTTOM_SIGNAL for chart markers rather
-                # than silently KeyError-ing on a missing column.
-                df_pick["BOTTOM_SIGNAL"] = df_pick["SIGNAL"]
-                df_pick["TOP_SIGNAL"] = False
-                render_tv_chart(df_pick, pick_symbol, main_height=460, osc_height=200, max_bars=500)
-
-                st.markdown("---")
-                st.markdown(f"##### 💰 Smart Money Detail — {pos_pick}")
-                _render_positional_smart_money(pos_pick, pos_pick in _positional_fno_set())
-            else:
-                st.warning(f"No chart data available for {pos_pick}.")
-    elif run_pos_scan:
-        st.info("No stocks currently match this exact setup.")
-
-
 # ═════════════════════════════════════════════════════════════════════════════
 # SMART MONEY DETAIL — for Positional Setup's picked stock
 #
@@ -1623,3 +1540,87 @@ def _render_positional_smart_money(symbol: str, is_fno: bool) -> None:
     styler = styler.format(fmt, na_rep="–")
 
     st.dataframe(styler, width='stretch', hide_index=True, height=400)
+
+with tab_positional:
+    st.caption(
+        "H-M Scanner positional setup — RSI(9) was <=50 for 5 straight days, then RSI and "
+        "EMA(3) both cross above WMA(21) on the same day, with RSI still leading and Close "
+        "< ₹3500. **Backtested standalone (3y, NSE cash universe, 8,811 signals): win rate "
+        "40-45% and negative excess return vs NIFTY at every horizon — no validated edge "
+        "found.** Shown here as a discovery/comparison tool, not a signal to trade on."
+    )
+
+    pos_universe = st.selectbox("Universe", ["Nifty 50", "Nifty 500"], key="pos_univ")
+    run_pos_scan = st.button("▶ Run Scan", type="primary", key="run_pos_scan_btn")
+
+    if run_pos_scan:
+        pos_syms = tuple(_load_symbols(pos_universe))
+        nifty50_syms = tuple(_load_symbols("Nifty 50"))
+        _run_positional_scan.clear()
+        with st.spinner(f"Scanning {len(pos_syms)} symbols…"):
+            df_pos, pos_fetch_ts = _run_positional_scan(pos_syms, nifty50_syms)
+        st.session_state["hm_pos_df"] = df_pos
+        st.session_state["hm_pos_ts"] = pos_fetch_ts
+
+    df_pos = st.session_state.get("hm_pos_df")
+    pos_fetch_ts = st.session_state.get("hm_pos_ts")
+
+    if pos_fetch_ts is not None:
+        now_ist = pd.Timestamp.now(tz=_IST)
+        age_mins = int((now_ist - pos_fetch_ts).total_seconds() // 60)
+        age_str = f"{age_mins} min ago" if age_mins > 0 else "just now"
+        st.caption(f"📡 Data fetched at **{pos_fetch_ts.strftime('%d-%b-%Y %H:%M:%S')} IST** · {age_str}")
+
+    if df_pos is not None and not df_pos.empty and not {"% Change", "F&O"}.issubset(df_pos.columns):
+        # Streamlit reruns every tab's code on any interaction anywhere on
+        # the page (tabs aren't lazy) — so a scan result saved to
+        # session_state under an OLDER version of this tab's column schema
+        # (e.g. before "% Change" was added) can otherwise crash the WHOLE
+        # PAGE, not just this tab, the moment .style.map(subset=[...])
+        # references a column that stale cached result doesn't have.
+        # Confirmed directly from a live crash report. Clear it and ask
+        # for a fresh run instead of failing the page.
+        st.session_state.pop("hm_pos_df", None)
+        st.session_state.pop("hm_pos_ts", None)
+        df_pos = None
+        st.info("Scan results format was updated — please click 'Run Scan' again.")
+
+    if df_pos is not None and not df_pos.empty:
+        st.metric("Matches Found", len(df_pos))
+        _pos_fmt = {"Close": "{:.2f}", "% Change": "{:+.2f}%", "Volume": "{:,}"}
+        styled_pos = df_pos.style.map(
+            lambda v: "color:#4ade80" if isinstance(v, (int, float)) and v > 0
+            else ("color:#f87171" if isinstance(v, (int, float)) and v < 0 else ""),
+            subset=["% Change"],
+        ).format(_pos_fmt, na_rep="—")
+        st.dataframe(styled_pos, width='stretch', hide_index=True)
+
+        pos_pick = st.selectbox(
+            "Select a matched stock to view its chart",
+            df_pos["Symbol"].tolist(), key="pos_pick_sym",
+        )
+        if pos_pick:
+            pick_symbol = pos_pick + ".NS"
+            with st.spinner(f"Loading chart for {pos_pick}…"):
+                df_pick_raw = _fetch_single(pick_symbol, "1d", "1y")
+            if not df_pick_raw.empty:
+                df_pick = add_positional_hm_signal(df_pick_raw)
+                # render_tv_chart() expects BOTTOM_SIGNAL/TOP_SIGNAL columns
+                # (from generate_signals()) — this scanner's own SIGNAL
+                # column means something different (the 13-condition
+                # positional setup, not the site's general H-M signal), so
+                # it's mapped onto BOTTOM_SIGNAL for chart markers rather
+                # than silently KeyError-ing on a missing column.
+                df_pick["BOTTOM_SIGNAL"] = df_pick["SIGNAL"]
+                df_pick["TOP_SIGNAL"] = False
+                render_tv_chart(df_pick, pick_symbol, main_height=460, osc_height=200, max_bars=500)
+
+                st.markdown("---")
+                st.markdown(f"##### 💰 Smart Money Detail — {pos_pick}")
+                _render_positional_smart_money(pos_pick, pos_pick in _positional_fno_set())
+            else:
+                st.warning(f"No chart data available for {pos_pick}.")
+    elif run_pos_scan:
+        st.info("No stocks currently match this exact setup.")
+
+
