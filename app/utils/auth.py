@@ -16,7 +16,7 @@ import time
 import bcrypt
 import streamlit as st
 
-_SESSION_EXPIRY = 7200  # 2 hours
+_SESSION_EXPIRY = 28800  # 8 hours (2h + 6h extension)
 
 
 def _secret_key() -> bytes:
