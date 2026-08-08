@@ -38,6 +38,8 @@ from backend.calculations.hm_expansion import compute_expansion, ExpansionParams
 from backend.calculations.frvp_adaptive import FRVPParams, latest_confirmed_frvp
 from backend.calculations.universe import FALLBACK_NIFTY50, load_symbols as _load_symbols
 from backend.calculations.hm_positional_setup import add_positional_hm_signal, check_positional_hm_signal_latest
+from backend.calculations.agent_analysis import _find_sector
+from backend.data_ingestion.sector_sync import _get_nse_master
 
 _IST = _pytz.timezone("Asia/Kolkata")
 
@@ -1036,7 +1038,19 @@ with tab_angle:
 # TAB 5 — POSITIONAL SETUP
 # ═════════════════════════════════════════════════════════════════════════════
 @st.cache_data(ttl=1800, show_spinner=False)
-def _run_positional_scan(symbols: tuple) -> tuple:
+def _positional_nse_master() -> dict:
+    """symbol -> company name, for the "Stock Name" column — same NSE
+    EQUITY_L.csv master already used by sector_sync.py, cached separately
+    here so this tab doesn't depend on that pipeline having run."""
+    try:
+        master = _get_nse_master()
+        return dict(zip(master["symbol"], master["company_name"]))
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _run_positional_scan(symbols: tuple, nifty50_syms: tuple) -> tuple:
     """H-M Scanner positional setup (backend.calculations.
     hm_positional_setup): RSI(9) was <=50 for 5 straight days, then RSI
     and EMA(3) both cross above WMA(21) on the same day, with RSI still
@@ -1046,17 +1060,38 @@ def _run_positional_scan(symbols: tuple) -> tuple:
     scanner only, matching this session's honest-disclosure pattern for
     every other unvalidated setup)."""
     raw_data = _fetch_batch(symbols, "1d", "6mo")
+    name_lookup = _positional_nse_master()
+    nifty50_set = set(nifty50_syms)
     rows = []
     for sym in symbols:
         df = raw_data.get(sym)
         if df is None or df.empty or len(df) < 30:
             continue
+        # BUGFIX: a symbol's latest bar can have a NaN Close (a real
+        # yfinance data gap — confirmed directly on EMAMILTD.NS, which
+        # showed a match with "Close: None" because the signal check
+        # internally drops NaN rows before evaluating (so it silently
+        # judged an EARLIER day), while this display code was still
+        # reading the raw, NaN last row. Dropping NaN Close rows up
+        # front means both the check and the display now agree on
+        # which bar is actually "latest".
+        df = df.dropna(subset=["Close"])
+        if len(df) < 30:
+            continue
         try:
             if check_positional_hm_signal_latest(df):
+                bare_sym = sym.replace(".NS", "")
+                close = float(df["Close"].iloc[-1])
+                prev_close = float(df["Close"].iloc[-2]) if len(df) > 1 else None
+                pct_change = (close / prev_close - 1) * 100 if prev_close else None
                 rows.append({
-                    "Symbol": sym.replace(".NS", ""),
-                    "Close": round(float(df["Close"].iloc[-1]), 2),
+                    "Stock Name": name_lookup.get(bare_sym, "—"),
+                    "Symbol": bare_sym,
+                    "Close": round(close, 2),
+                    "% Change": round(pct_change, 2) if pct_change is not None else None,
                     "Volume": int(df["Volume"].iloc[-1]),
+                    "Sector": _find_sector(sym) or "—",
+                    "Index": "Nifty 50" if sym in nifty50_set else "Nifty 500",
                 })
         except Exception:
             continue
@@ -1079,9 +1114,10 @@ with tab_positional:
 
     if run_pos_scan:
         pos_syms = tuple(_load_symbols(pos_universe))
+        nifty50_syms = tuple(_load_symbols("Nifty 50"))
         _run_positional_scan.clear()
         with st.spinner(f"Scanning {len(pos_syms)} symbols…"):
-            df_pos, pos_fetch_ts = _run_positional_scan(pos_syms)
+            df_pos, pos_fetch_ts = _run_positional_scan(pos_syms, nifty50_syms)
         st.session_state["hm_pos_df"] = df_pos
         st.session_state["hm_pos_ts"] = pos_fetch_ts
 
@@ -1096,7 +1132,13 @@ with tab_positional:
 
     if df_pos is not None and not df_pos.empty:
         st.metric("Matches Found", len(df_pos))
-        st.dataframe(df_pos, width='stretch', hide_index=True)
+        _pos_fmt = {"Close": "{:.2f}", "% Change": "{:+.2f}%", "Volume": "{:,}"}
+        styled_pos = df_pos.style.map(
+            lambda v: "color:#4ade80" if isinstance(v, (int, float)) and v > 0
+            else ("color:#f87171" if isinstance(v, (int, float)) and v < 0 else ""),
+            subset=["% Change"],
+        ).format(_pos_fmt, na_rep="—")
+        st.dataframe(styled_pos, width='stretch', hide_index=True)
 
         pos_pick = st.selectbox(
             "Select a matched stock to view its chart",
