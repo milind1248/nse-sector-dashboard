@@ -40,6 +40,7 @@ from backend.calculations.universe import FALLBACK_NIFTY50, load_symbols as _loa
 from backend.calculations.hm_positional_setup import add_positional_hm_signal, check_positional_hm_signal_latest
 from backend.calculations.agent_analysis import _find_sector
 from backend.data_ingestion.sector_sync import _get_nse_master
+from backend.storage.db import get_conn
 
 _IST = _pytz.timezone("Asia/Kolkata")
 
@@ -1050,6 +1051,25 @@ def _positional_nse_master() -> dict:
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
+def _positional_fno_set() -> set:
+    """Bare NSE symbols with F&O contracts — reuses the same `fno_symbols`
+    DB table the Smart Money page already populates from NSE's FO Bhav
+    Copy (backend.data_ingestion.smart_money_pipeline / Smart Money's own
+    Refresh button), rather than re-fetching NSE data a second time. If
+    that table hasn't been populated yet, this degrades to an empty set
+    (every stock shows "No") instead of failing the scan."""
+    try:
+        con = get_conn()
+        try:
+            rows = con.execute("SELECT symbol FROM fno_symbols").fetchall()
+        finally:
+            con.close()
+        return {r[0] for r in rows}
+    except Exception:
+        return set()
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
 def _run_positional_scan(symbols: tuple, nifty50_syms: tuple) -> tuple:
     """H-M Scanner positional setup (backend.calculations.
     hm_positional_setup): RSI(9) was <=50 for 5 straight days, then RSI
@@ -1062,6 +1082,7 @@ def _run_positional_scan(symbols: tuple, nifty50_syms: tuple) -> tuple:
     raw_data = _fetch_batch(symbols, "1d", "6mo")
     name_lookup = _positional_nse_master()
     nifty50_set = set(nifty50_syms)
+    fno_set = _positional_fno_set()
     rows = []
     for sym in symbols:
         df = raw_data.get(sym)
@@ -1092,6 +1113,7 @@ def _run_positional_scan(symbols: tuple, nifty50_syms: tuple) -> tuple:
                     "Volume": int(df["Volume"].iloc[-1]),
                     "Sector": _find_sector(sym) or "—",
                     "Index": "Nifty 50" if sym in nifty50_set else "Nifty 500",
+                    "F&O": "Yes" if bare_sym in fno_set else "No",
                 })
         except Exception:
             continue
@@ -1130,7 +1152,7 @@ with tab_positional:
         age_str = f"{age_mins} min ago" if age_mins > 0 else "just now"
         st.caption(f"📡 Data fetched at **{pos_fetch_ts.strftime('%d-%b-%Y %H:%M:%S')} IST** · {age_str}")
 
-    if df_pos is not None and not df_pos.empty and "% Change" not in df_pos.columns:
+    if df_pos is not None and not df_pos.empty and not {"% Change", "F&O"}.issubset(df_pos.columns):
         # Streamlit reruns every tab's code on any interaction anywhere on
         # the page (tabs aren't lazy) — so a scan result saved to
         # session_state under an OLDER version of this tab's column schema
