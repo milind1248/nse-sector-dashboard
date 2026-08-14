@@ -43,6 +43,7 @@ _PAGE_PREVIEWS: dict[str, str] = {
     "Gann Analysis": "app/assets/page_previews/gann_analysis.png",
     "Export": "app/assets/page_previews/export.png",
     "Paper Trading": "app/assets/page_previews/paper_trading.png",
+    "Momentum Scanner": "app/assets/page_previews/momentum_scanner.png",
 }
 
 # Pages using the CSS Ken-Burns pan/zoom + shimmer overlay (see
