@@ -65,7 +65,7 @@ st.title("🚀 Momentum Scanner")
 from app.utils.disclaimer import show_sebi_notice
 show_sebi_notice()
 st.caption(
-    "Rohan Mehta's 3-criteria 'buy at all-time-high' momentum framework: (1) price at/near all-time "
+    "A 3-criteria 'buy at all-time-high' momentum framework: (1) price at/near all-time "
     "high, (2) trailing 12-month profit at its own all-time high, (3) 52-week return beats both "
     "Nifty 500 and the stock's own sector index. Score 3/3 = BUY, 2/3 = HOLD, ≤1/3 = AVOID. "
     "**Honest backtest disclosure (2016-2026, sector-mapped universe):** +6.6pt gross alpha vs "
