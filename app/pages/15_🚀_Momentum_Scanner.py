@@ -76,7 +76,7 @@ st.caption(
 
 with st.expander("📈 Factor Performance Reference (Momentum vs Quality vs Value vs Low Volatility)"):
     st.caption(
-        "As reported in the source video (TurtleWealth Research, data as of 30-Jun-2026) — "
+        "As reported in the source video (data as of 30-Jun-2026) — "
         "**not independently computed or backtested by this page**. These factor indices "
         "(Nifty500 Momentum 50, Quality 50, Value 50, Low Volatility 50) aren't reliably "
         "available via this app's data source (yfinance), so this is cited as reference context "
