@@ -173,6 +173,17 @@ GUIDE = [
         ],
     },
     {
+        "emoji": "🚀",
+        "name": "Momentum Scanner",
+        "business": "A 3-criteria 'buy at all-time-high' momentum framework: price at/near its own all-time high, trailing 12-month profit at its own all-time high, and a 52-week return that beats both Nifty 500 and the stock's own sector index.",
+        "how": "Run a scan on the Momentum Scan tab — adjust the ATH-tolerance slider and Top-N holdings if you want to test looser/tighter variants. Score 3/3 = BUY, 2/3 = HOLD, ≤1/3 = AVOID, with an EM Rank (52-week return rank across the scanned universe) attached to every row. All-Time-High Stocks reuses that same scan to show a simpler, criterion-1-only browsable list. Sector Rotation Map shows which sector led each of the last N months — no sector held the top spot for long historically. Important: backtested 2016-2026 on a sector-mapped universe, this showed +6.6pt gross alpha vs Nifty 500, but only +1.4pt net of estimated transaction costs — the framework rebalances ~76% of holdings every month, and that churn erodes most of the gross edge. Educational discovery tool, not a recommendation.",
+        "tabs": [
+            ("🎯 Momentum Scan", "Full 3-criteria scan with adjustable ATH tolerance and Top-N holdings, ranked by EM Rank."),
+            ("🚀 All-Time-High Stocks", "Criterion-1-only view (price at/near all-time high) — reuses the Momentum Scan tab's result, no separate fetch."),
+            ("📅 Sector Rotation Map", "Monthly sector-leadership heatmap plus a table of each month's #1 sector."),
+        ],
+    },
+    {
         "emoji": "🤖",
         "name": "AI Forecast",
         "business": "AI models predict the 5-day directional probability and 30-day price trend for any NSE stock.",

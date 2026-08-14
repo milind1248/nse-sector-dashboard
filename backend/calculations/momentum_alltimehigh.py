@@ -1,6 +1,6 @@
 """
 All-Time-High momentum framework — Rohan Mehta interview (Hindi transcript,
-"Conversation with Kushal" podcast). Powers app/pages/26_🚀_Momentum_Scanner.py.
+"Conversation with Kushal" podcast). Powers app/pages/15_🚀_Momentum_Scanner.py.
 
 Three-criteria stock-selection rule:
   1. Price at/near all-time high (max available yfinance history).
