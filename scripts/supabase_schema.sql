@@ -655,4 +655,33 @@ CREATE TABLE IF NOT EXISTS plan_change_requests (
     reviewed_at      TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_plan_change_status ON plan_change_requests(status);
+
+-- ── Momentum Scanner: virtual portfolio tracker ("Performance Breakdown" tab) ─
+-- Daily snapshot of a systematic virtual PMS book run on the 3-criteria
+-- all-time-high momentum framework (backend/calculations/momentum_alltimehigh.py).
+-- Written once/day by the momentum_portfolio_snapshot scheduler job
+-- (backend/data_ingestion/momentum_portfolio_pipeline.py) — full rebalance
+-- (rescan + reclassify) on the first trading day of each month, cheap
+-- mark-to-market on every other trading day.
+CREATE TABLE IF NOT EXISTS momentum_portfolio_nav (
+    id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    snapshot_date     DATE NOT NULL,
+    fund_nav          DOUBLE PRECISION NOT NULL,
+    benchmark_nav     DOUBLE PRECISION NOT NULL,
+    is_rebalance_day  BOOLEAN NOT NULL DEFAULT FALSE,
+    UNIQUE(snapshot_date)
+);
+CREATE TABLE IF NOT EXISTS momentum_portfolio_holdings (
+    id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    snapshot_date  DATE NOT NULL,
+    symbol         TEXT NOT NULL,
+    category       TEXT NOT NULL,   -- 'Crown & Add' | 'Hold' | 'Replace' | 'Exit'
+    weight_pct     DOUBLE PRECISION NOT NULL,
+    return_pct     DOUBLE PRECISION,   -- since this holding's entry into the book
+    alpha_pct      DOUBLE PRECISION,   -- return_pct - benchmark return over same window
+    em_rank        INTEGER,
+    UNIQUE(snapshot_date, symbol)
+);
+CREATE INDEX IF NOT EXISTS idx_momentum_nav_date ON momentum_portfolio_nav(snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_momentum_holdings_date ON momentum_portfolio_holdings(snapshot_date);
 CREATE INDEX IF NOT EXISTS idx_plan_change_user   ON plan_change_requests(user_id);

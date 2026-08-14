@@ -1007,6 +1007,7 @@ _SCH_JOBS = [
     ("nsdl_sync",             "NSDL FPI Sector Sync (Fortnightly Data)",        "5:30 PM"),
     ("sector_factsheet_sync", "Sector Factsheet Sync (NiftyIndices PDFs)",      "5:45 PM"),
     ("bulk_deals_daily",      "Bulk & Block Deals Sync (NSE Archive CSVs)",     "6:45 PM"),
+    ("momentum_portfolio_snapshot", "Momentum Portfolio Snapshot (NAV + Holdings)", "10:00 PM"),
 ]
 
 _hour_options   = list(range(0, 24))

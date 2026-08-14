@@ -74,7 +74,21 @@ st.caption(
     "discovery tool, not a recommendation to buy or sell."
 )
 
-tab_scan, tab_ath, tab_sector = st.tabs(["🎯 Momentum Scan", "🚀 All-Time-High Stocks", "📅 Sector Rotation Map"])
+with st.expander("📈 Factor Performance Reference (Momentum vs Quality vs Value vs Low Volatility)"):
+    st.caption(
+        "As reported in the source video (TurtleWealth Research, data as of 30-Jun-2026) — "
+        "**not independently computed or backtested by this page**. These factor indices "
+        "(Nifty500 Momentum 50, Quality 50, Value 50, Low Volatility 50) aren't reliably "
+        "available via this app's data source (yfinance), so this is cited as reference context "
+        "only, not a live chart. Reported long-run CAGR: Nifty 500 ≈ 11%, Momentum ≈ 18%, "
+        "with Quality/Value/Low-Vol also outperforming Nifty 500 but by a smaller margin than "
+        "Momentum — matching the video's own stated conclusion that momentum has been the "
+        "strongest-performing factor in Indian markets over 2010-2026."
+    )
+
+tab_scan, tab_ath, tab_sector, tab_perf = st.tabs(
+    ["🎯 Momentum Scan", "🚀 All-Time-High Stocks", "📅 Sector Rotation Map", "📊 Performance Breakdown"]
+)
 
 # ═════════════════════════════════════════════════════════════════════════════
 # TAB 1 — MOMENTUM SCAN (3-criteria)
@@ -205,3 +219,88 @@ with tab_sector:
     elif run_sector:
         st.info("No sector index data available — some SECTOR_INDICES tickers are known to be "
                 "unavailable on yfinance (see config.py comments).")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# TAB 4 — PERFORMANCE BREAKDOWN (cook-once read — no live yfinance calls here)
+# ═════════════════════════════════════════════════════════════════════════════
+with tab_perf:
+    from backend.storage import momentum_portfolio_db as perf_db
+
+    age = perf_db.snapshot_age_days()
+    if age is None:
+        st.info("No portfolio snapshot yet — the daily scheduler job "
+                "(Momentum Portfolio Snapshot) runs at 10:00 PM IST Mon-Fri and will populate "
+                "this tab after its first run.")
+    else:
+        if age == 0:
+            st.caption("✅ Snapshot computed **today**.")
+        elif age <= 2:
+            st.caption(f"✅ Last snapshot **{age} day(s) ago**.")
+        else:
+            st.caption(f"⚠️ Last snapshot **{age} day(s) ago** — scheduler may be offline.")
+
+        holdings_raw, snap_date = perf_db.load_latest_holdings()
+        last_rebal = perf_db.last_rebalance_date()
+        nav_history = perf_db.load_nav_history(since_date=last_rebal)
+
+        if not holdings_raw:
+            st.info("No holdings snapshot available yet.")
+        else:
+            holdings_df = pd.DataFrame(holdings_raw)
+            st.caption(
+                f"Book as of **{snap_date}** — {len(holdings_df)} holdings, last full rebalance "
+                f"**{last_rebal or 'n/a'}**. This portfolio started tracking on its first snapshot "
+                f"date — it is **not retroactively backtested**; see the Momentum Scan tab's own "
+                f"backtest disclosure above for historical validation of the underlying framework."
+            )
+
+            cat_order = ["Crown & Add", "Hold", "Replace", "Exit"]
+            cat_icons = {"Crown & Add": "👑", "Hold": "✅", "Replace": "🔄", "Exit": "🚪"}
+            col_a, col_b = st.columns(2)
+            targets = {cat: (col_a if i % 2 == 0 else col_b) for i, cat in enumerate(cat_order)}
+
+            fmt_cols = {"weight_pct": "{:.1f}%", "return_pct": "{:+.2f}%", "alpha_pct": "{:+.2f}%"}
+            for cat in cat_order:
+                sub = holdings_df[holdings_df["category"] == cat].sort_values("em_rank")
+                with targets[cat]:
+                    st.markdown(f"**{cat_icons.get(cat, '')} {cat}** &nbsp;({len(sub)})")
+                    if sub.empty:
+                        st.caption("None currently.")
+                    else:
+                        show = sub[["symbol", "weight_pct", "return_pct", "alpha_pct", "em_rank"]].rename(
+                            columns={"symbol": "Symbol", "weight_pct": "Alloc.", "return_pct": "Return",
+                                     "alpha_pct": "Alpha", "em_rank": "EM Rank"}
+                        )
+                        st.dataframe(
+                            show.style.format(
+                                {"Alloc.": "{:.1f}%", "Return": "{:+.2f}%", "Alpha": "{:+.2f}%"}, na_rep="—"
+                            ),
+                            width='stretch', hide_index=True,
+                        )
+
+            live_weight = holdings_df.loc[holdings_df["category"] != "Exit", "weight_pct"].sum()
+            cash_pct = max(0.0, 100.0 - live_weight)
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Invested", f"{live_weight:.1f}%")
+            m2.metric("Cash", f"{cash_pct:.1f}%")
+            if nav_history:
+                overall_alpha = nav_history[-1]["fund_nav"] - nav_history[-1]["benchmark_nav"]
+                m3.metric("Fund vs Benchmark NAV (since last rebalance)", f"{overall_alpha:+.2f} pts")
+
+            if nav_history and len(nav_history) > 1:
+                nav_df = pd.DataFrame(nav_history)
+                fig_nav = go.Figure()
+                fig_nav.add_trace(go.Scatter(x=nav_df["snapshot_date"], y=nav_df["fund_nav"],
+                                              mode="lines+markers", name="Fund", line=dict(color="#C2185B", width=2)))
+                fig_nav.add_trace(go.Scatter(x=nav_df["snapshot_date"], y=nav_df["benchmark_nav"],
+                                              mode="lines", name="Benchmark", line=dict(color="#888", dash="dot")))
+                fig_nav.update_layout(
+                    title="Fund vs Benchmark NAV (since last rebalance)",
+                    height=380, margin=dict(l=10, r=10, t=40, b=10), template="plotly_dark",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02),
+                )
+                st.plotly_chart(fig_nav, width='stretch', key="mom_perf_nav_chart")
+            else:
+                st.caption("NAV chart needs at least 2 daily snapshots since the last rebalance — "
+                           "check back after tomorrow's scheduler run.")

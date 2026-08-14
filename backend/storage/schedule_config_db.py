@@ -23,6 +23,7 @@ _DEFAULTS = {
     "nsdl_sync":             {"hour": 17, "minute": 30},
     "sector_factsheet_sync": {"hour": 17, "minute": 45},
     "bulk_deals_daily":      {"hour": 18, "minute": 45},
+    "momentum_portfolio_snapshot": {"hour": 22, "minute": 0},
 }
 
 
