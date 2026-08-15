@@ -101,9 +101,15 @@ with tab_signal:
     rank_df = st.session_state.get("etf_shop_rank")
     if rank_df is not None and not rank_df.empty:
         st.markdown("##### Top 10 by proximity to 52-week low")
+        show_cols = ["rank", "symbol", "underlying_asset", "close", "low_52w",
+                     "pct_above_52w_low", "volume", "day_change_pct"]
         st.dataframe(
-            rank_df.head(10)[["rank", "symbol", "close", "pct_above_52w_low"]].style
-                .format({"close": "₹{:,.2f}", "pct_above_52w_low": "{:.2f}%"}),
+            rank_df.head(10)[show_cols].rename(columns={
+                "underlying_asset": "Underlying Asset", "close": "Close", "low_52w": "52W Low",
+                "pct_above_52w_low": "% Above 52W Low", "volume": "Volume", "day_change_pct": "% Change",
+                "rank": "Rank", "symbol": "Symbol",
+            }).style.format({"Close": "₹{:,.2f}", "52W Low": "₹{:,.2f}", "% Above 52W Low": "{:.2f}%",
+                              "Volume": "{:,.0f}", "% Change": "{:+.2f}%"}, na_rep="—"),
             width='stretch', hide_index=True,
         )
     elif run_scan:

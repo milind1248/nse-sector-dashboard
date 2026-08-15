@@ -43,6 +43,78 @@ ETF_UNIVERSE = [
     "MASPTOP50", "ICICIB22", "MIDSELIETF", "SILVERBEES", "SENSEXIETF", "SHARIABEES",
 ]
 
+# Underlying asset / index each ETF tracks — verbatim from the user's curated
+# Google Sheet export (column C), used for display only (not part of the
+# ranking/entry/exit logic itself).
+ETF_UNDERLYING_ASSET = {
+    "MOM30IETF": "ICICI Prudential Nifty 200 Momentum 30 ETF",
+    "NIFTYQLITY": "Aditya Birla Sun Life Nifty 200 Quality 30 ETF",
+    "VAL30IETF": "Nifty200 Value 30 Index",
+    "ABSLPSE": "Aditya Birla Sun Life Nifty PSE ETF",
+    "UTISXN50": "BSE Sensex Next 50",
+    "CPSEETF": "CPSE ETF",
+    "GOLDBEES": "Gold",
+    "HNGSNGBEES": "Hang Seng Index",
+    "MAHKTECH": "Hang Seng TECH Total Return Index",
+    "HDFCGROWTH": "HDFC NIFTY Growth Sectors 15 ETF",
+    "LOWVOLIETF": "Nifty 100 Low Volatility 30 Index",
+    "HDFCQUAL": "HDFC NIFTY100 Quality 30 ETF",
+    "BSE500IETF": "S&P BSE 500 index",
+    "COMMOIETF": "ICICI Prudential Nifty Commodities ETF",
+    "FINIETF": "ICICI Prudential Nifty Financial Services Ex-Bank ETF",
+    "INFRAIETF": "ICICI Prudential Nifty Infrastructure ETF",
+    "MNC": "Kotak Nifty MNC ETF",
+    "ALPHAETF": "Mirae Asset Nifty 200 Alpha 30 ETF",
+    "MIDSMALL": "Mirae Asset Nifty MidSmallcap400 Momentum Quality 100 ETF",
+    "SMALLCAP": "Mirae Asset Nifty Smallcap 250 Momentum Quality 100 ETF",
+    "MONIFTY500": "Motilal Oswal Nifty 500 ETF",
+    "MOREALTY": "Motilal Oswal Nifty Realty ETF",
+    "MOSMALL250": "Motilal Oswal Nifty Smallcap 250 ETF",
+    "MOVALUE": "Motilal Oswal S&P BSE Enhanced Value ETF",
+    "MONQ50": "Nasdaq Q-50 Total Return Index",
+    "MON100": "Nasdaq100",
+    "TOP100CASE": "Zerodha Nifty 100 ETF",
+    "NIFTYBEES": "Nifty 50",
+    "MOMENTUM50": "Nifty 500 Momentum 50 Total Return Index",
+    "ALPHA": "NIFTY Alpha 50 Index",
+    "ALPL30IETF": "Nifty Alpha Low-Volatility 30 Index",
+    "AUTOIETF": "Nifty Auto Index",
+    "BANKBEES": "Nifty Bank",
+    "DIVOPPBEES": "Nifty Dividend Opportunities 50 TRI",
+    "EVINDIA": "Nifty EV and New Age Automotive Total Return Index",
+    "BFSI": "Nifty Financial Services Index",
+    "FMCGIETF": "Nifty FMCG Index",
+    "HEALTHY": "Nifty Healthcare TRI",
+    "MOHEALTH": "Motilal Oswal S&P BSE Healthcare ETF",
+    "CONSUMBEES": "Nifty India Consumption TRI",
+    "MODEFENCE": "Nifty India Defence Total Return Index",
+    "TNIDETF": "Nifty India Digital Index",
+    "MAKEINDIA": "Nifty India Manufacturing Total Return Index",
+    "ITBEES": "Nifty IT TRI",
+    "METALIETF": "Nifty Metal Index",
+    "MOM100": "Nifty Midcap 100",
+    "MIDCAPETF": "Mirae Asset Nifty Midcap 150 ETF",
+    "MIDQ50ADD": "Nifty Midcap 150 Quality 50 Index",
+    "MIDCAP": "Nifty Midcap 50 Index",
+    "NEXT50IETF": "Nifty Next 50",
+    "OILIETF": "Nifty Oil & Gas Index",
+    "PHARMABEES": "Nifty Pharma TRI",
+    "PVTBANIETF": "Nifty Private Bank Index",
+    "PSUBNKBEES": "Nifty PSU Bank",
+    "TOP10ADD": "Nifty Top 10 Equal Weight Index",
+    "ESG": "NIFTY100 ESG SECTOR LEADERS",
+    "NV20IETF": "Nifty50 Value 20",
+    "MULTICAP": "Nifty500 Multicap 50:25:25 Index",
+    "EMULTIMQ": "Nifty500 Multicap Momentum Quality 50 Total Return Index",
+    "MAFANG": "NYSE FANG+ Total Return Index",
+    "MASPTOP50": "S&P 500 Top 50 Total Return Index",
+    "ICICIB22": "S&P BSE BHARAT 22 index",
+    "MIDSELIETF": "S&P BSE Midcap Select Index",
+    "SILVERBEES": "Silver (LBMA daily spot fixing price)",
+    "SENSEXIETF": "SENSEX",
+    "SHARIABEES": "Shariah",
+}
+
 
 def fetch_symbol(symbol: str, period: str) -> pd.DataFrame:
     df = yf.download(symbol + ".NS", period=period, interval="1d", auto_adjust=True, progress=False)
@@ -80,14 +152,22 @@ def rank_today(data: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """Today's live rank table — closest to 52-week low = rank 1."""
     rows = []
     for code, df in data.items():
-        if df.empty:
+        if df.empty or len(df) < 2:
             continue
         last = df.iloc[-1]
+        prev = df.iloc[-2]
         pct = last["PCT_ABOVE_52W_LOW"]
         if pd.isna(pct) or pct < 0:
             continue
-        rows.append({"symbol": code, "close": round(float(last["Close"]), 2),
-                     "pct_above_52w_low": round(float(pct), 2)})
+        low_52w = float(df["Low"].tail(LOOKBACK_52W).min())
+        day_chg_pct = (float(last["Close"]) / float(prev["Close"]) - 1) * 100 if float(prev["Close"]) else None
+        rows.append({
+            "symbol": code, "underlying_asset": ETF_UNDERLYING_ASSET.get(code, code),
+            "close": round(float(last["Close"]), 2), "low_52w": round(low_52w, 2),
+            "pct_above_52w_low": round(float(pct), 2),
+            "volume": int(last["Volume"]) if pd.notna(last["Volume"]) else None,
+            "day_change_pct": round(day_chg_pct, 2) if day_chg_pct is not None else None,
+        })
     out = pd.DataFrame(rows).sort_values("pct_above_52w_low").reset_index(drop=True)
     out["rank"] = out.index + 1
     return out
