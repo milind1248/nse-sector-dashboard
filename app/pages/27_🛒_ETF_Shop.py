@@ -99,6 +99,18 @@ with tab_signal:
         st.caption(decision["reason"])
 
     rank_df = st.session_state.get("etf_shop_rank")
+    _rank_required_cols = {"rank", "symbol", "underlying_asset", "close", "low_52w",
+                            "pct_above_52w_low", "volume", "day_change_pct"}
+    if rank_df is not None and not rank_df.empty and not _rank_required_cols.issubset(rank_df.columns):
+        # Stale session-state from before the Underlying Asset/52W Low/Volume/
+        # % Change columns were added — clear and prompt a fresh scan instead
+        # of crashing (same guard pattern used on HM Scanner's Positional Setup tab).
+        st.session_state.pop("etf_shop_rank", None)
+        st.session_state.pop("etf_shop_decision", None)
+        st.session_state.pop("etf_shop_data_ts", None)
+        rank_df = None
+        st.info("Rank data format was updated — click **Refresh Today's Rank & Signal** above to reload.")
+
     if rank_df is not None and not rank_df.empty:
         st.markdown("##### Top 10 by proximity to 52-week low")
         show_cols = ["rank", "symbol", "underlying_asset", "close", "low_52w",
