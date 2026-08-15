@@ -1008,6 +1008,7 @@ _SCH_JOBS = [
     ("sector_factsheet_sync", "Sector Factsheet Sync (NiftyIndices PDFs)",      "5:45 PM"),
     ("bulk_deals_daily",      "Bulk & Block Deals Sync (NSE Archive CSVs)",     "6:45 PM"),
     ("momentum_portfolio_snapshot", "Momentum Portfolio Snapshot (NAV + Holdings)", "10:00 PM"),
+    ("etf_shop_daily_update", "ETF Shop Daily Update (Signal + Trade Log)", "8:15 PM"),
 ]
 
 _hour_options   = list(range(0, 24))

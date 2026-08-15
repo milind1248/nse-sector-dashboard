@@ -685,3 +685,36 @@ CREATE TABLE IF NOT EXISTS momentum_portfolio_holdings (
 CREATE INDEX IF NOT EXISTS idx_momentum_nav_date ON momentum_portfolio_nav(snapshot_date);
 CREATE INDEX IF NOT EXISTS idx_momentum_holdings_date ON momentum_portfolio_holdings(snapshot_date);
 CREATE INDEX IF NOT EXISTS idx_plan_change_user   ON plan_change_requests(user_id);
+
+-- ── ETF Shop: live scanner + signal + open/closed trade log ──────────────────
+-- Daily snapshot of a systematic virtual book run on the "ETF Shop 2025"
+-- strategy (backend/calculations/etf_shop.py, validated in
+-- scripts/etf_shop_backtest.py — rank-by-52-week-low entry, one buy/day +
+-- averaging on a 3.14% drop, 6.28% (2xPi) profit target for the live book).
+-- Written daily by the etf_shop_daily_update scheduler job
+-- (backend/data_ingestion/etf_shop_pipeline.py).
+CREATE TABLE IF NOT EXISTS etf_shop_open_positions (
+    id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    symbol          TEXT NOT NULL UNIQUE,
+    units           DOUBLE PRECISION NOT NULL,
+    avg_price       DOUBLE PRECISION NOT NULL,
+    last_buy_price  DOUBLE PRECISION NOT NULL,
+    first_buy_date  DATE NOT NULL,
+    n_buys          INT NOT NULL DEFAULT 1,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS etf_shop_closed_trades (
+    id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    symbol           TEXT NOT NULL,
+    entry_date       DATE NOT NULL,
+    exit_date        DATE NOT NULL,
+    units            DOUBLE PRECISION NOT NULL,
+    avg_entry_price  DOUBLE PRECISION NOT NULL,
+    exit_price       DOUBLE PRECISION NOT NULL,
+    pnl_pct          DOUBLE PRECISION NOT NULL,
+    pnl_rs           DOUBLE PRECISION NOT NULL,
+    hold_days        INT NOT NULL,
+    n_buys           INT NOT NULL,
+    closed_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_etf_shop_closed_exit_date ON etf_shop_closed_trades(exit_date);

@@ -26,6 +26,7 @@ def _load_schedule_config() -> dict:
         "gann_daily":            {"hour": 21, "minute": 30},
         "sentiment_daily":       {"hour": 21, "minute": 45},
         "momentum_portfolio_snapshot": {"hour": 22, "minute": 0},
+        "etf_shop_daily_update": {"hour": 20, "minute": 15},
         "nsdl_sync":             {"hour": 17, "minute": 30},
         "sector_factsheet_sync": {"hour": 17, "minute": 45},
         "bulk_deals_daily":      {"hour": 18, "minute": 45},
@@ -49,6 +50,7 @@ from backend.data_ingestion.sector_sync import sync_all as sync_sector_factsheet
 from backend.data_ingestion.bulk_deals_pipeline import run_bulk_deals_pipeline
 from backend.data_ingestion.sentiment_pipeline import run_sentiment_scan_pipeline
 from backend.data_ingestion.momentum_portfolio_pipeline import run_momentum_portfolio_snapshot
+from backend.data_ingestion.etf_shop_pipeline import run_etf_shop_daily_update
 from backend.data_ingestion.job_logger import log_start, log_finish
 from backend.storage.cache import invalidate_all
 from backend.storage.db import get_conn, get_session_conn
@@ -202,6 +204,18 @@ def _register_jobs(scheduler):
         CronTrigger(hour=h, minute=m, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
         id="momentum_portfolio_snapshot",
         name=f"Momentum portfolio snapshot @ {h:02d}:{m:02d}",
+    )
+
+    h, m = _t("etf_shop_daily_update")
+    scheduler.add_job(
+        _logged(
+            "etf_shop_daily_update",
+            "ETF Shop Daily Update (Signal + Trade Log)",
+            run_etf_shop_daily_update,
+        ),
+        CronTrigger(hour=h, minute=m, day_of_week="mon-fri", timezone=SCHEDULE_TZ),
+        id="etf_shop_daily_update",
+        name=f"ETF Shop daily update @ {h:02d}:{m:02d}",
     )
 
     h, m = _t("nsdl_sync")
