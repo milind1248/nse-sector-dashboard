@@ -116,7 +116,7 @@ with tab_signal:
         show_cols = ["rank", "symbol", "underlying_asset", "close", "low_52w",
                      "pct_above_52w_low", "volume", "day_change_pct"]
         st.dataframe(
-            rank_df.head(10)[show_cols].rename(columns={
+            rank_df.head(10).reindex(columns=show_cols).rename(columns={
                 "underlying_asset": "Underlying Asset", "close": "Close", "low_52w": "52W Low",
                 "pct_above_52w_low": "% Above 52W Low", "volume": "Volume", "day_change_pct": "% Change",
                 "rank": "Rank", "symbol": "Symbol",
