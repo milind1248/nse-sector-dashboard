@@ -127,6 +127,24 @@ with tab_signal:
     elif run_scan:
         st.info("No usable rank data — try again.")
 
+    if rank_df is not None and not rank_df.empty and "day_change_pct" in rank_df.columns:
+        st.markdown("##### 📉 Top 10 Biggest Fallers Today")
+        st.caption("Matches the sheet's 'Details on which is more down' table — sorted by today's "
+                   "% change (most negative first), useful for spotting averaging-down candidates "
+                   "among ETFs that have fallen 3.14%+ since your last buy.")
+        fallers_df = rank_df.dropna(subset=["day_change_pct"]).sort_values("day_change_pct").head(10).copy()
+        fallers_df["faller_rank"] = range(1, len(fallers_df) + 1)
+        faller_cols = ["faller_rank", "symbol", "underlying_asset", "day_change_pct",
+                       "pct_above_52w_low", "close"]
+        st.dataframe(
+            fallers_df.reindex(columns=faller_cols).rename(columns={
+                "faller_rank": "Rank", "symbol": "Symbol", "underlying_asset": "Underlying Asset",
+                "day_change_pct": "% Change", "pct_above_52w_low": "% Above 52W Low", "close": "Close",
+            }).style.format({"% Change": "{:+.2f}%", "% Above 52W Low": "{:.2f}%", "Close": "₹{:,.2f}"},
+                             na_rep="—"),
+            width='stretch', hide_index=True,
+        )
+
     st.markdown("---")
     st.markdown("##### Current Open Positions (live, from the tracked book)")
     open_positions = db.list_open_positions()
