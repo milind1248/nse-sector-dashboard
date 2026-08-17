@@ -134,14 +134,15 @@ with tab_signal:
                    "among ETFs that have fallen 3.14%+ since your last buy.")
         fallers_df = rank_df.dropna(subset=["day_change_pct"]).sort_values("day_change_pct").head(10).copy()
         fallers_df["faller_rank"] = range(1, len(fallers_df) + 1)
-        faller_cols = ["faller_rank", "symbol", "underlying_asset", "day_change_pct",
-                       "pct_above_52w_low", "close"]
+        faller_cols = ["faller_rank", "symbol", "underlying_asset", "close", "low_52w",
+                       "pct_above_52w_low", "volume", "day_change_pct"]
         st.dataframe(
             fallers_df.reindex(columns=faller_cols).rename(columns={
                 "faller_rank": "Rank", "symbol": "Symbol", "underlying_asset": "Underlying Asset",
-                "day_change_pct": "% Change", "pct_above_52w_low": "% Above 52W Low", "close": "Close",
-            }).style.format({"% Change": "{:+.2f}%", "% Above 52W Low": "{:.2f}%", "Close": "₹{:,.2f}"},
-                             na_rep="—"),
+                "close": "Close", "low_52w": "52W Low", "pct_above_52w_low": "% Above 52W Low",
+                "volume": "Volume", "day_change_pct": "% Change",
+            }).style.format({"Close": "₹{:,.2f}", "52W Low": "₹{:,.2f}", "% Above 52W Low": "{:.2f}%",
+                              "Volume": "{:,.0f}", "% Change": "{:+.2f}%"}, na_rep="—"),
             width='stretch', hide_index=True,
         )
 
