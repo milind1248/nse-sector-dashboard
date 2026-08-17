@@ -43,6 +43,14 @@ def _run_universe_fetch(years: float) -> tuple:
     return data, fetch_ts
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def _get_liquidity_snapshot() -> pd.DataFrame:
+    """Lightweight liquidity table (1y fetch is enough for a 60-day window)
+    for merging into the Trade Log's open/closed tables."""
+    data = fetch_universe(years=1.0)
+    return report_liquidity(data)
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def _run_backtest_all(years: float, capital: float) -> tuple:
     data, _ = _run_universe_fetch(years)
@@ -202,25 +210,32 @@ with tab_log:
         else:
             st.caption(f"⚠️ Last updated **{age} day(s) ago** — scheduler may be offline.")
 
+    try:
+        liq_snap = _get_liquidity_snapshot()[["symbol", "liquidity_rank", "avg_traded_value_cr_60d"]]
+    except Exception:
+        liq_snap = pd.DataFrame(columns=["symbol", "liquidity_rank", "avg_traded_value_cr_60d"])
+
     st.markdown("##### 🚪 Closed Trades")
     closed = db.list_closed_trades()
     if not closed:
         st.info("No closed trades yet.")
     else:
-        closed_df = pd.DataFrame(closed)
+        closed_df = pd.DataFrame(closed).merge(liq_snap, on="symbol", how="left")
         m1, m2, m3 = st.columns(3)
         m1.metric("Closed Trades", len(closed_df))
         m2.metric("Total Realized P&L", f"₹{closed_df['pnl_rs'].sum():,.0f}")
         m3.metric("Win Rate", f"{(closed_df['pnl_pct'] > 0).mean() * 100:.0f}%")
         show_cols = ["symbol", "entry_date", "exit_date", "hold_days", "avg_entry_price",
-                     "exit_price", "pnl_pct", "pnl_rs", "n_buys"]
+                     "exit_price", "pnl_pct", "pnl_rs", "n_buys", "liquidity_rank", "avg_traded_value_cr_60d"]
         st.dataframe(
             closed_df[show_cols].rename(columns={
                 "symbol": "Symbol", "entry_date": "Entry Date", "exit_date": "Exit Date",
                 "hold_days": "Hold Days", "avg_entry_price": "Avg Entry", "exit_price": "Exit Price",
                 "pnl_pct": "P&L %", "pnl_rs": "P&L ₹", "n_buys": "N Buys",
+                "liquidity_rank": "Liquidity Rank", "avg_traded_value_cr_60d": "Avg Traded Value (₹Cr/day)",
             }).style.format({"Avg Entry": "₹{:,.2f}", "Exit Price": "₹{:,.2f}",
-                              "P&L %": "{:+.2f}%", "P&L ₹": "₹{:,.0f}"}),
+                              "P&L %": "{:+.2f}%", "P&L ₹": "₹{:,.0f}", "Liquidity Rank": "{:.0f}",
+                              "Avg Traded Value (₹Cr/day)": "₹{:.2f} Cr"}, na_rep="—"),
             width='stretch', hide_index=True,
         )
 
@@ -230,15 +245,20 @@ with tab_log:
     if not open_positions:
         st.info("No open positions.")
     else:
-        open_df = pd.DataFrame(open_positions)
+        open_df = pd.DataFrame(open_positions).merge(liq_snap, on="symbol", how="left")
         open_df["target_price"] = open_df["avg_price"] * (1 + LIVE_TARGET_PCT / 100)
         st.metric("Open Positions", len(open_df))
         st.dataframe(
-            open_df[["symbol", "units", "avg_price", "target_price", "first_buy_date", "n_buys"]]
+            open_df[["symbol", "units", "avg_price", "target_price", "first_buy_date", "n_buys",
+                     "liquidity_rank", "avg_traded_value_cr_60d"]]
                 .rename(columns={"symbol": "Symbol", "units": "Units", "avg_price": "Avg Price",
                                   "target_price": "Target (6.28%)", "first_buy_date": "First Buy",
+                                  "liquidity_rank": "Liquidity Rank",
+                                  "avg_traded_value_cr_60d": "Avg Traded Value (₹Cr/day)",
                                   "n_buys": "N Buys"})
-                .style.format({"Avg Price": "₹{:,.2f}", "Target (6.28%)": "₹{:,.2f}", "Units": "{:.2f}"}),
+                .style.format({"Avg Price": "₹{:,.2f}", "Target (6.28%)": "₹{:,.2f}", "Units": "{:.2f}",
+                                "Liquidity Rank": "{:.0f}", "Avg Traded Value (₹Cr/day)": "₹{:.2f} Cr"},
+                               na_rep="—"),
             width='stretch', hide_index=True,
         )
 
