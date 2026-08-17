@@ -379,18 +379,23 @@ with tab_backtest:
                 slowest_days=("hold_days", "max"), total_pnl_rs=("pnl_rs", "sum"),
             ).reset_index()
             speed_agg["underlying_asset"] = speed_agg["symbol"].map(ETF_UNDERLYING_ASSET).fillna(speed_agg["symbol"])
+            speed_agg = speed_agg.merge(
+                liq[["symbol", "liquidity_rank", "avg_traded_value_cr_60d"]], on="symbol", how="left")
             speed_agg = speed_agg.sort_values("avg_days").reset_index(drop=True)
             speed_agg["rank"] = speed_agg.index + 1
             show_speed_cols = ["rank", "symbol", "underlying_asset", "trades", "avg_days",
-                               "median_days", "fastest_days", "slowest_days", "total_pnl_rs"]
+                               "median_days", "fastest_days", "slowest_days", "total_pnl_rs",
+                               "liquidity_rank", "avg_traded_value_cr_60d"]
             st.dataframe(
                 speed_agg[show_speed_cols].rename(columns={
                     "rank": "Rank", "symbol": "Symbol", "underlying_asset": "Underlying Asset",
                     "trades": "Trades", "avg_days": "Avg Days to Target", "median_days": "Median Days",
                     "fastest_days": "Fastest (days)", "slowest_days": "Slowest (days)",
-                    "total_pnl_rs": "Total P&L ₹",
+                    "total_pnl_rs": "Total P&L ₹", "liquidity_rank": "Liquidity Rank",
+                    "avg_traded_value_cr_60d": "Avg Traded Value (₹Cr/day)",
                 }).style.format({"Avg Days to Target": "{:.0f}", "Median Days": "{:.0f}",
-                                  "Total P&L ₹": "₹{:,.0f}"}),
+                                  "Total P&L ₹": "₹{:,.0f}", "Liquidity Rank": "{:.0f}",
+                                  "Avg Traded Value (₹Cr/day)": "₹{:.2f} Cr"}, na_rep="—"),
                 width='stretch', hide_index=True, height=450,
             )
     elif run_bt:
