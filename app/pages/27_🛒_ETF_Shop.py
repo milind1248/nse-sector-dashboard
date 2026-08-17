@@ -30,6 +30,7 @@ import pytz as _pytz
 from backend.calculations.etf_shop import (
     fetch_universe, rank_today, decide_todays_action, report_liquidity, run_backtest,
     PI_TARGETS, LIVE_TARGET_PCT, ETF_UNDERLYING_ASSET,
+    LIQUIDITY_RANK_MAX, CAPITAL_DEPLOY_CAP_PCT, LIVE_TOTAL_CAPITAL_RS,
 )
 from backend.storage import etf_shop_db as db
 
@@ -68,13 +69,18 @@ st.caption(
     "excluded). Buy at most one ETF per day — walk rank 1 to 10, skip anything already held; if all "
     "10 are already held, average into whichever has fallen 3.14% or more since its last buy. Sell "
     "the full position when it closes at/above avg. price + 6.28% (2×π — the live book's target). "
-    "**Honest backtest disclosure (5y, 65-ETF universe):** net return of +64% to +85% depending on "
-    "target (3.14%/4.71%/6.28%), but capital deployed at peak ran **1.4x to 1.9x over** the "
-    "strategy's own stated '40 parts' capital budget — a real risk if you follow the video's capital "
-    "sizing literally. There is no stop-loss: every closed trade shows a 100% win rate by "
-    "construction (it only closes AT its target), and the real risk sits entirely in open positions "
-    "that haven't hit target yet, some held for many months. Educational discovery tool, not a "
-    "recommendation to buy or sell."
+    "**The BACKTEST above tests the video's literal rules** (40 capital parts, no liquidity filter) "
+    "for honest historical comparison — net return +64% to +85% over 5y depending on target, but "
+    "capital deployed at peak ran 1.4x-1.9x over the stated budget. **The LIVE tracked book below "
+    f"uses two extra guardrails NOT in the original video**, added after that backtest finding: "
+    f"only ETFs ranked in the **top {LIQUIDITY_RANK_MAX} most liquid** (of 65) are eligible for a "
+    f"buy — a low-volume ETF hitting its target on paper doesn't mean it can actually be exited "
+    f"there without slippage — and no new purchase happens once **{CAPITAL_DEPLOY_CAP_PCT:.0f}%** "
+    f"of ₹{LIVE_TOTAL_CAPITAL_RS:,.0f} is already deployed, sized in **30 parts** (~₹6,667/trade) "
+    "instead of the video's 40. There is still no stop-loss on either version: every closed trade "
+    "shows a 100% win rate by construction (it only closes AT its target), and the real risk sits "
+    "entirely in open positions that haven't hit target yet, some held for many months. Educational "
+    "discovery tool, not a recommendation to buy or sell."
 )
 
 tab_signal, tab_log, tab_backtest = st.tabs(["🎯 Today's Signal", "📖 Trade Log", "📊 Backtest Results"])
@@ -91,7 +97,12 @@ with tab_signal:
             data, fetch_ts = _run_universe_fetch(5.0)
         st.session_state["etf_shop_data_ts"] = fetch_ts
         st.session_state["etf_shop_rank"] = rank_today(data)
-        st.session_state["etf_shop_decision"] = decide_todays_action(data, db.list_open_positions())
+        _open_now = db.list_open_positions()
+        _deployed_now = sum(p["units"] * p["avg_price"] for p in _open_now)
+        st.session_state["etf_shop_decision"] = decide_todays_action(
+            data, _open_now, total_capital=LIVE_TOTAL_CAPITAL_RS, deployed_capital=_deployed_now,
+            liquidity_rank_max=LIQUIDITY_RANK_MAX, capital_deploy_cap_pct=CAPITAL_DEPLOY_CAP_PCT,
+        )
 
     fetch_ts = st.session_state.get("etf_shop_data_ts")
     if fetch_ts is not None:

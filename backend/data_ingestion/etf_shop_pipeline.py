@@ -15,16 +15,31 @@ batch. The backtest (backend/calculations/etf_shop.py::run_backtest) still
 uses the stricter next-day-open convention for its own historical
 validation; this live-tracking simplification is a deliberate, documented
 difference, not an inconsistency.
+
+Live-book guardrails (added after this session's own backtest comparison —
+see backend/calculations/etf_shop.py's module docstring for the numbers):
+  - LIQUIDITY_RANK_MAX (25): only the top 25 most liquid ETFs are eligible
+    for a new/averaging buy, even if a thinner ETF ranks higher on 52-week
+    proximity — avoids buying something you might struggle to actually
+    exit at its "target."
+  - CAPITAL_DEPLOY_CAP_PCT (80%): once 80% of LIVE_TOTAL_CAPITAL_RS is
+    already deployed across open positions, no new buy happens regardless
+    of signal — self-enforces the capital reserve the backtest showed is
+    genuinely needed (peak deployment hit 1.7-1.9x the video's own "40
+    parts" budget with no cap).
 """
 import logging
 from datetime import date
 
-from backend.calculations.etf_shop import fetch_universe, decide_todays_action, check_exits, LIVE_TARGET_PCT
+from backend.calculations.etf_shop import (
+    fetch_universe, decide_todays_action, check_exits, LIVE_TARGET_PCT,
+    LIQUIDITY_RANK_MAX, CAPITAL_DEPLOY_CAP_PCT, LIVE_TOTAL_CAPITAL_RS, LIVE_CAPITAL_PARTS,
+)
 from backend.storage import etf_shop_db as db
 
 logger = logging.getLogger(__name__)
 
-CAPITAL_PART_RS = 5000.0  # capital / 40 parts, using the video's own Rs 2 lakh / 40 example
+CAPITAL_PART_RS = LIVE_TOTAL_CAPITAL_RS / LIVE_CAPITAL_PARTS  # Rs 2,00,000 / 30 parts ≈ Rs 6,667/trade
 
 
 def run_etf_shop_daily_update(triggered_by: str = "scheduler") -> dict:
@@ -55,7 +70,12 @@ def run_etf_shop_daily_update(triggered_by: str = "scheduler") -> dict:
         open_positions = db.list_open_positions()  # refresh after closes
 
     # ---- Entry decision ----
-    decision = decide_todays_action(data, open_positions)
+    deployed_capital = sum(p["units"] * p["avg_price"] for p in open_positions)
+    decision = decide_todays_action(
+        data, open_positions,
+        total_capital=LIVE_TOTAL_CAPITAL_RS, deployed_capital=deployed_capital,
+        liquidity_rank_max=LIQUIDITY_RANK_MAX, capital_deploy_cap_pct=CAPITAL_DEPLOY_CAP_PCT,
+    )
     if decision["action"] in ("NEW_ENTRY", "AVERAGE"):
         code = decision["symbol"]
         df = data[code]

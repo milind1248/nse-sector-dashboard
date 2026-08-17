@@ -25,9 +25,20 @@ import yfinance as yf
 PI_TARGETS = {"3.14% (1xPi)": 3.14, "4.71% (1.5xPi)": 4.71, "6.28% (2xPi)": 6.28}
 LIVE_TARGET_PCT = 6.28
 AVERAGE_DROP_PCT = 3.14
-CAPITAL_PARTS = 40
+CAPITAL_PARTS = 40          # video's own literal rule — used by run_backtest() for honest historical testing
 RANK_DEPTH = 10
 LOOKBACK_52W = 252
+
+# Live-book-only guardrails (NOT part of the video's original rules — added
+# after this session's own backtest showed the literal 40-part rule
+# overruns its own budget by 1.4-1.9x, and that restricting to liquid names
+# costs ~2 points of return for a meaningful drop in stuck-open-position and
+# capital-overrun risk). See backend/data_ingestion/etf_shop_pipeline.py for
+# where these are actually applied to the daily live decision.
+LIQUIDITY_RANK_MAX = 25     # only rank-1-10 candidates within the top 25 most liquid ETFs are eligible
+CAPITAL_DEPLOY_CAP_PCT = 80.0   # stop taking new signals once this % of total capital is deployed
+LIVE_TOTAL_CAPITAL_RS = 200_000.0
+LIVE_CAPITAL_PARTS = 30     # vs the video's 40 — bigger per-trade size, fewer simultaneous positions
 
 ETF_UNIVERSE = [
     "MOM30IETF", "NIFTYQLITY", "VAL30IETF", "ABSLPSE", "UTISXN50", "CPSEETF",
@@ -209,28 +220,70 @@ def rank_today(data: dict[str, pd.DataFrame]) -> pd.DataFrame:
     return out
 
 
-def decide_todays_action(data: dict[str, pd.DataFrame], open_positions: list[dict]) -> dict | None:
+def decide_todays_action(
+    data: dict[str, pd.DataFrame],
+    open_positions: list[dict],
+    total_capital: float | None = None,
+    deployed_capital: float | None = None,
+    liquidity_rank_max: int | None = LIQUIDITY_RANK_MAX,
+    capital_deploy_cap_pct: float = CAPITAL_DEPLOY_CAP_PCT,
+) -> dict | None:
     """
     Same rank-1-to-10 / skip-already-held / averaging-on-3.14%-drop logic as
     the backtest's entry step, applied to TODAY's live rank against the
-    CURRENT persisted open-position set. Returns
-    {"action": "NEW_ENTRY"|"AVERAGE"|"SKIP", "symbol": str|None, "reason": str}.
+    CURRENT persisted open-position set. Two live-only guardrails layer on
+    top (both no-ops if their inputs aren't supplied, so callers that just
+    want the raw video rule — e.g. anything testing against the pure
+    backtest logic — are unaffected):
+
+      1. CAPITAL CAP: if deployed_capital/total_capital are both given and
+         deployed_capital already exceeds capital_deploy_cap_pct% of
+         total_capital, skip immediately — no rank/averaging logic runs at
+         all, since there's no real capital left to safely deploy.
+      2. LIQUIDITY FILTER: if liquidity_rank_max is given, any rank-1-10
+         candidate whose liquidity_rank is worse (a bigger number) than
+         liquidity_rank_max is skipped over for BOTH new-entry and
+         averaging — a low-volume ETF hitting its "target" on paper doesn't
+         mean it can actually be exited there without slippage.
+
+    Returns {"action": "NEW_ENTRY"|"AVERAGE"|"SKIP", "symbol": str|None, "reason": str}.
     """
+    if total_capital is not None and deployed_capital is not None:
+        deployed_pct = (deployed_capital / total_capital * 100) if total_capital else 0
+        if deployed_pct >= capital_deploy_cap_pct:
+            return {"action": "SKIP", "symbol": None,
+                    "reason": f"Capital cap reached: Rs {deployed_capital:,.0f} of Rs {total_capital:,.0f} "
+                              f"already deployed ({deployed_pct:.1f}% >= {capital_deploy_cap_pct:.0f}% cap) — "
+                              f"no new purchase today regardless of signal."}
+
     ranked = rank_today(data)
     held_symbols = {p["symbol"] for p in open_positions}
     top_ranks = ranked.head(RANK_DEPTH)
 
+    def _liquid_enough(row) -> bool:
+        if liquidity_rank_max is None:
+            return True
+        lr = row.get("liquidity_rank")
+        return pd.notna(lr) and lr <= liquidity_rank_max
+
+    skipped_illiquid = []
     for _, row in top_ranks.iterrows():
         if row["symbol"] not in held_symbols:
+            if not _liquid_enough(row):
+                skipped_illiquid.append(row["symbol"])
+                continue
             return {"action": "NEW_ENTRY", "symbol": row["symbol"],
-                     "reason": f"Rank {int(row['rank'])}, {row['pct_above_52w_low']:.2f}% above 52w low — "
-                               f"not currently held."}
+                     "reason": f"Rank {int(row['rank'])}, {row['pct_above_52w_low']:.2f}% above 52w low, "
+                               f"liquidity rank {int(row['liquidity_rank'])} — not currently held."}
 
     candidates = []
     for _, row in top_ranks.iterrows():
         code = row["symbol"]
         held = next((p for p in open_positions if p["symbol"] == code), None)
         if held is None:
+            continue
+        if not _liquid_enough(row):
+            skipped_illiquid.append(code)
             continue
         df = data.get(code)
         if df is None or df.empty:
@@ -245,12 +298,14 @@ def decide_todays_action(data: dict[str, pd.DataFrame], open_positions: list[dic
         candidates.sort(key=lambda x: x[1], reverse=True)
         code, drop = candidates[0]
         return {"action": "AVERAGE", "symbol": code,
-                "reason": f"All rank 1-{RANK_DEPTH} already held; {code} has fallen {drop:.2f}% "
+                "reason": f"All liquid rank 1-{RANK_DEPTH} already held; {code} has fallen {drop:.2f}% "
                           f"since last buy (>= {AVERAGE_DROP_PCT}% threshold) — averaging in."}
 
+    illiquid_note = (f" ({len(set(skipped_illiquid))} candidate(s) skipped for being outside the top "
+                      f"{liquidity_rank_max} most liquid ETFs)" if skipped_illiquid else "")
     return {"action": "SKIP", "symbol": None,
-            "reason": f"All rank 1-{RANK_DEPTH} already held, none has fallen {AVERAGE_DROP_PCT}%+ "
-                      f"since last buy — no purchase today."}
+            "reason": f"All rank 1-{RANK_DEPTH} already held or too illiquid, none eligible has fallen "
+                      f"{AVERAGE_DROP_PCT}%+ since last buy — no purchase today{illiquid_note}."}
 
 
 def check_exits(data: dict[str, pd.DataFrame], open_positions: list[dict],
