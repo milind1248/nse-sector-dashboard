@@ -123,6 +123,18 @@ def fetch_symbol(symbol: str, period: str) -> pd.DataFrame:
     return df.dropna(how="all")
 
 
+def _rsi_wilder(close: pd.Series, period: int = 14) -> pd.Series:
+    """Standard Wilder-smoothed RSI — same convention used elsewhere in this
+    codebase (backend/calculations/hm_indicators.py::rsi_tv)."""
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    avg_loss = loss.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    rs = avg_gain / avg_loss.replace(0, pd.NA)
+    return 100 - (100 / (1 + rs))
+
+
 def fetch_universe(years: float = 5.0) -> dict[str, pd.DataFrame]:
     period = f"{max(1, round(years)) + 1}y"
     data = {}
@@ -132,6 +144,10 @@ def fetch_universe(years: float = 5.0) -> dict[str, pd.DataFrame]:
             if len(df) > LOOKBACK_52W + 30:
                 df["PCT_ABOVE_52W_LOW"] = (df["Close"] - df["Low"].rolling(LOOKBACK_52W).min()) / \
                                            df["Low"].rolling(LOOKBACK_52W).min() * 100
+                df["SMA20"] = df["Close"].rolling(20).mean()
+                df["SMA50"] = df["Close"].rolling(50).mean()
+                df["SMA200"] = df["Close"].rolling(200).mean()
+                df["RSI14"] = _rsi_wilder(df["Close"], 14)
                 data[code] = df
         except Exception:
             continue
@@ -145,11 +161,24 @@ def report_liquidity(data: dict[str, pd.DataFrame]) -> pd.DataFrame:
         avg_close = float(df["Close"].tail(60).mean())
         rows.append({"symbol": code, "avg_volume_60d": int(avg_vol), "avg_price": round(avg_close, 2),
                       "avg_traded_value_cr_60d": round(avg_vol * avg_close / 1e7, 2)})
-    return pd.DataFrame(rows).sort_values("avg_traded_value_cr_60d", ascending=False)
+    out = pd.DataFrame(rows).sort_values("avg_traded_value_cr_60d", ascending=False).reset_index(drop=True)
+    out["liquidity_rank"] = out.index + 1
+    return out
+
+
+def compute_liquidity_ranks(data: dict[str, pd.DataFrame]) -> dict[str, int]:
+    """symbol -> liquidity rank across the FULL universe (1 = most liquid,
+    by 60-day avg traded value), not just among the top-10-by-52w-low
+    subset — a stock's liquidity standing should reflect all 65 ETFs."""
+    liq = report_liquidity(data)
+    return dict(zip(liq["symbol"], liq["liquidity_rank"]))
 
 
 def rank_today(data: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Today's live rank table — closest to 52-week low = rank 1."""
+    """Today's live rank table — closest to 52-week low = rank 1. Includes
+    SMA20/50/200, RSI(14), and liquidity rank (across the FULL 65-ETF
+    universe, not just this table's rows) for each qualifying ETF."""
+    liquidity_ranks = compute_liquidity_ranks(data)
     rows = []
     for code, df in data.items():
         if df.empty or len(df) < 2:
@@ -161,12 +190,19 @@ def rank_today(data: dict[str, pd.DataFrame]) -> pd.DataFrame:
             continue
         low_52w = float(df["Low"].tail(LOOKBACK_52W).min())
         day_chg_pct = (float(last["Close"]) / float(prev["Close"]) - 1) * 100 if float(prev["Close"]) else None
+
+        def _fnum(v):
+            return round(float(v), 2) if pd.notna(v) else None
+
         rows.append({
             "symbol": code, "underlying_asset": ETF_UNDERLYING_ASSET.get(code, code),
             "close": round(float(last["Close"]), 2), "low_52w": round(low_52w, 2),
             "pct_above_52w_low": round(float(pct), 2),
             "volume": int(last["Volume"]) if pd.notna(last["Volume"]) else None,
             "day_change_pct": round(day_chg_pct, 2) if day_chg_pct is not None else None,
+            "sma20": _fnum(last.get("SMA20")), "sma50": _fnum(last.get("SMA50")),
+            "sma200": _fnum(last.get("SMA200")), "rsi14": _fnum(last.get("RSI14")),
+            "liquidity_rank": liquidity_ranks.get(code),
         })
     out = pd.DataFrame(rows).sort_values("pct_above_52w_low").reset_index(drop=True)
     out["rank"] = out.index + 1

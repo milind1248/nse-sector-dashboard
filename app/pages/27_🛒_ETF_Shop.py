@@ -100,30 +100,61 @@ with tab_signal:
 
     rank_df = st.session_state.get("etf_shop_rank")
     _rank_required_cols = {"rank", "symbol", "underlying_asset", "close", "low_52w",
-                            "pct_above_52w_low", "volume", "day_change_pct"}
+                            "pct_above_52w_low", "volume", "day_change_pct",
+                            "sma20", "sma50", "sma200", "rsi14", "liquidity_rank"}
     if rank_df is not None and not rank_df.empty and not _rank_required_cols.issubset(rank_df.columns):
-        # Stale session-state from before the Underlying Asset/52W Low/Volume/
-        # % Change columns were added — clear and prompt a fresh scan instead
-        # of crashing (same guard pattern used on HM Scanner's Positional Setup tab).
+        # Stale session-state from before a column set was added — clear and
+        # prompt a fresh scan instead of crashing (same guard pattern used on
+        # HM Scanner's Positional Setup tab).
         st.session_state.pop("etf_shop_rank", None)
         st.session_state.pop("etf_shop_decision", None)
         st.session_state.pop("etf_shop_data_ts", None)
         rank_df = None
         st.info("Rank data format was updated — click **Refresh Today's Rank & Signal** above to reload.")
 
-    if rank_df is not None and not rank_df.empty:
-        st.markdown("##### Top 10 by proximity to 52-week low")
-        show_cols = ["rank", "symbol", "underlying_asset", "close", "low_52w",
-                     "pct_above_52w_low", "volume", "day_change_pct"]
+    _ETF_TABLE_COLS = ["rank_display", "symbol", "underlying_asset", "close", "low_52w",
+                        "pct_above_52w_low", "volume", "day_change_pct",
+                        "sma20", "sma50", "sma200", "rsi14", "liquidity_rank"]
+    _ETF_TABLE_RENAME = {
+        "rank_display": "Rank", "symbol": "Symbol", "underlying_asset": "Underlying Asset",
+        "close": "Close", "low_52w": "52W Low", "pct_above_52w_low": "% Above 52W Low",
+        "volume": "Volume", "day_change_pct": "% Change", "sma20": "20 MA", "sma50": "50 MA",
+        "sma200": "200 MA", "rsi14": "RSI", "liquidity_rank": "Liquidity Rank",
+    }
+    _GREEN = "color:#00C853;font-weight:600"
+    _RED = "color:#D50000"
+
+    def _style_ma_rsi_row(row):
+        styles = pd.Series("", index=row.index)
+        close = row.get("Close")
+        if pd.notna(close):
+            for col in ("20 MA", "50 MA", "200 MA"):
+                ma = row.get(col)
+                if pd.notna(ma):
+                    styles[col] = _GREEN if close > ma else _RED
+        rsi = row.get("RSI")
+        if pd.notna(rsi):
+            styles["RSI"] = _GREEN if rsi > 50 else _RED
+        return styles
+
+    def _render_etf_table(df: pd.DataFrame, rank_col_source: str):
+        show = df.reindex(columns=_ETF_TABLE_COLS[1:] + [rank_col_source])
+        show = show.rename(columns={rank_col_source: "rank_display"})[_ETF_TABLE_COLS]
+        show = show.rename(columns=_ETF_TABLE_RENAME)
         st.dataframe(
-            rank_df.head(10).reindex(columns=show_cols).rename(columns={
-                "underlying_asset": "Underlying Asset", "close": "Close", "low_52w": "52W Low",
-                "pct_above_52w_low": "% Above 52W Low", "volume": "Volume", "day_change_pct": "% Change",
-                "rank": "Rank", "symbol": "Symbol",
-            }).style.format({"Close": "₹{:,.2f}", "52W Low": "₹{:,.2f}", "% Above 52W Low": "{:.2f}%",
-                              "Volume": "{:,.0f}", "% Change": "{:+.2f}%"}, na_rep="—"),
+            show.style
+                .apply(_style_ma_rsi_row, axis=1)
+                .format({"Close": "₹{:,.2f}", "52W Low": "₹{:,.2f}", "% Above 52W Low": "{:.2f}%",
+                          "Volume": "{:,.0f}", "% Change": "{:+.2f}%", "20 MA": "₹{:,.2f}",
+                          "50 MA": "₹{:,.2f}", "200 MA": "₹{:,.2f}", "RSI": "{:.1f}",
+                          "Liquidity Rank": "{:.0f}"}, na_rep="—"),
             width='stretch', hide_index=True,
         )
+
+    if rank_df is not None and not rank_df.empty:
+        st.markdown("##### Top 10 by proximity to 52-week low")
+        st.caption("20/50/200 MA and RSI columns are green when Close is above that MA (RSI green when >50).")
+        _render_etf_table(rank_df.head(10), "rank")
     elif run_scan:
         st.info("No usable rank data — try again.")
 
@@ -134,17 +165,7 @@ with tab_signal:
                    "among ETFs that have fallen 3.14%+ since your last buy.")
         fallers_df = rank_df.dropna(subset=["day_change_pct"]).sort_values("day_change_pct").head(10).copy()
         fallers_df["faller_rank"] = range(1, len(fallers_df) + 1)
-        faller_cols = ["faller_rank", "symbol", "underlying_asset", "close", "low_52w",
-                       "pct_above_52w_low", "volume", "day_change_pct"]
-        st.dataframe(
-            fallers_df.reindex(columns=faller_cols).rename(columns={
-                "faller_rank": "Rank", "symbol": "Symbol", "underlying_asset": "Underlying Asset",
-                "close": "Close", "low_52w": "52W Low", "pct_above_52w_low": "% Above 52W Low",
-                "volume": "Volume", "day_change_pct": "% Change",
-            }).style.format({"Close": "₹{:,.2f}", "52W Low": "₹{:,.2f}", "% Above 52W Low": "{:.2f}%",
-                              "Volume": "{:,.0f}", "% Change": "{:+.2f}%"}, na_rep="—"),
-            width='stretch', hide_index=True,
-        )
+        _render_etf_table(fallers_df, "faller_rank")
 
     st.markdown("---")
     st.markdown("##### Current Open Positions (live, from the tracked book)")
