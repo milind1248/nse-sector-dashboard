@@ -29,7 +29,7 @@ import pytz as _pytz
 
 from backend.calculations.etf_shop import (
     fetch_universe, rank_today, decide_todays_action, report_liquidity, run_backtest,
-    PI_TARGETS, LIVE_TARGET_PCT,
+    PI_TARGETS, LIVE_TARGET_PCT, ETF_UNDERLYING_ASSET,
 )
 from backend.storage import etf_shop_db as db
 
@@ -352,5 +352,46 @@ with tab_backtest:
                     f"flags: not every trade resolves in a predictable number of days — some just sit "
                     f"open indefinitely waiting for the target."
                 )
+
+        st.markdown("---")
+        st.markdown("##### ⚡ Fastest-to-Target ETFs — quick-turnover ranking")
+        st.caption(
+            "Ranks every ETF that had at least one COMPLETED (target-hit) trade at the selected "
+            "target, by average days-to-target — fastest first. Useful for picking ETFs that "
+            "historically cycled quick profits rather than sitting open for months. Every completed "
+            "trade in this table always hit its full target % (that's what 'completed' means here) — "
+            "the difference between rows is purely SPEED, not size of profit. Symbols with only 1-2 "
+            "trades are a much less reliable speed estimate than ones with 5+ — check the Trades "
+            "column before trusting a fast average."
+        )
+        speed_target_label = st.selectbox(
+            "Target", list(results.keys()),
+            index=list(results.keys()).index("6.28% (2xPi)") if "6.28% (2xPi)" in results else 0,
+            key="etf_speed_target",
+        )
+        speed_trades = results[speed_target_label]["trades"]
+        if speed_trades.empty:
+            st.info("No completed trades at this target in the backtest window.")
+        else:
+            speed_agg = speed_trades.groupby("symbol").agg(
+                trades=("hold_days", "count"), avg_days=("hold_days", "mean"),
+                median_days=("hold_days", "median"), fastest_days=("hold_days", "min"),
+                slowest_days=("hold_days", "max"), total_pnl_rs=("pnl_rs", "sum"),
+            ).reset_index()
+            speed_agg["underlying_asset"] = speed_agg["symbol"].map(ETF_UNDERLYING_ASSET).fillna(speed_agg["symbol"])
+            speed_agg = speed_agg.sort_values("avg_days").reset_index(drop=True)
+            speed_agg["rank"] = speed_agg.index + 1
+            show_speed_cols = ["rank", "symbol", "underlying_asset", "trades", "avg_days",
+                               "median_days", "fastest_days", "slowest_days", "total_pnl_rs"]
+            st.dataframe(
+                speed_agg[show_speed_cols].rename(columns={
+                    "rank": "Rank", "symbol": "Symbol", "underlying_asset": "Underlying Asset",
+                    "trades": "Trades", "avg_days": "Avg Days to Target", "median_days": "Median Days",
+                    "fastest_days": "Fastest (days)", "slowest_days": "Slowest (days)",
+                    "total_pnl_rs": "Total P&L ₹",
+                }).style.format({"Avg Days to Target": "{:.0f}", "Median Days": "{:.0f}",
+                                  "Total P&L ₹": "₹{:,.0f}"}),
+                width='stretch', hide_index=True, height=450,
+            )
     elif run_bt:
         st.info("No backtest results — try again.")
