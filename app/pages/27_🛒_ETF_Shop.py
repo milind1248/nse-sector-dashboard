@@ -291,5 +291,66 @@ with tab_backtest:
             liq.style.format({"avg_traded_value_cr_60d": "₹{:.2f} Cr", "avg_price": "₹{:,.2f}"}),
             width='stretch', hide_index=True, height=400,
         )
+
+        st.markdown("---")
+        st.markdown("##### 🔍 Deep Dive — every entry & exit for one symbol")
+        st.caption("Answers: if I'd bought this ETF whenever the strategy signalled it, how many days "
+                   "did it actually take to hit the profit target each time (and did it vary trade to "
+                   "trade)?")
+        dc1, dc2 = st.columns(2)
+        with dc1:
+            target_label = st.selectbox("Target", list(results.keys()),
+                                         index=list(results.keys()).index("6.28% (2xPi)")
+                                         if "6.28% (2xPi)" in results else 0,
+                                         key="etf_deep_dive_target")
+        target_trades = results[target_label]["trades"]
+        target_open = results[target_label]["open_positions"]
+        all_symbols = sorted(set(target_trades["symbol"]).union({p["symbol"] for p in target_open})) \
+            if not target_trades.empty or target_open else []
+        with dc2:
+            symbol_pick = st.selectbox("Symbol", all_symbols, key="etf_deep_dive_symbol") if all_symbols else None
+
+        if symbol_pick:
+            sym_trades = target_trades[target_trades["symbol"] == symbol_pick].sort_values("exit_date").copy()
+            sym_open = [p for p in target_open if p["symbol"] == symbol_pick]
+
+            if not sym_trades.empty:
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Completed Trades", len(sym_trades))
+                m2.metric("Avg Days to Target", f"{sym_trades['hold_days'].mean():.0f}")
+                m3.metric("Fastest / Slowest", f"{sym_trades['hold_days'].min()} / {sym_trades['hold_days'].max()} days")
+                m4.metric("Total Realized P&L", f"₹{sym_trades['pnl_rs'].sum():,.0f}")
+
+                display_trades = sym_trades.copy()
+                display_trades["first_entry"] = display_trades["entry_dates"].apply(
+                    lambda d: d[0].date() if isinstance(d, list) and d else None)
+                display_trades["all_entries"] = display_trades["entry_dates"].apply(
+                    lambda d: ", ".join(str(x.date()) for x in d) if isinstance(d, list) else "")
+                show_cols = ["first_entry", "exit_date", "hold_days", "n_buys", "avg_entry_price",
+                             "exit_price", "pnl_pct", "pnl_rs", "all_entries"]
+                st.dataframe(
+                    display_trades[show_cols].rename(columns={
+                        "first_entry": "First Entry", "exit_date": "Exit Date", "hold_days": "Days to Target",
+                        "n_buys": "N Buys (incl. averaging)", "avg_entry_price": "Avg Entry Price",
+                        "exit_price": "Exit Price (Target)", "pnl_pct": "P&L %", "pnl_rs": "P&L ₹",
+                        "all_entries": "All Buy Dates",
+                    }).style.format({"Avg Entry Price": "₹{:,.2f}", "Exit Price (Target)": "₹{:,.2f}",
+                                      "P&L %": "{:+.2f}%", "P&L ₹": "₹{:,.0f}"}),
+                    width='stretch', hide_index=True,
+                )
+            else:
+                st.info(f"No completed (target-hit) trades for {symbol_pick} at this target in the "
+                        f"backtest window — see below if it's still an open position.")
+
+            if sym_open:
+                p = sym_open[0]
+                st.warning(
+                    f"⚠️ **{symbol_pick} was still an OPEN position at the end of the backtest** "
+                    f"(bought {p['first_buy']}, {p['n_buys']} buy(s), avg price ₹{p['avg_price']:,.2f}) — "
+                    f"it had NOT reached its {PI_TARGETS[target_label]:.2f}% target by the last day of "
+                    f"the backtest window. This is exactly the real risk this page's own disclaimer "
+                    f"flags: not every trade resolves in a predictable number of days — some just sit "
+                    f"open indefinitely waiting for the target."
+                )
     elif run_bt:
         st.info("No backtest results — try again.")
