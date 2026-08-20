@@ -143,13 +143,19 @@ def rank_today(data: dict[str, pd.DataFrame]) -> pd.DataFrame:
         ret_1d = float(df["Close"].pct_change().iloc[-1] * 100) if len(df) > 1 else 0.0
         ret_5d = float((close_now / df["Close"].iloc[-6] - 1) * 100) if len(df) > 5 else 0.0
         theme, underlying = ETF_UNIVERSE_META.get(sym, ("Unclassified", sym))
+        vol_window = df["Volume"].tail(20) if "Volume" in df.columns else pd.Series(dtype=float)
+        avg_volume = float(vol_window.mean()) if len(vol_window) else 0.0
+        avg_traded_value = avg_volume * close_now
         rows.append({
             "symbol": sym, "theme": theme, "underlying": underlying,
             "close": close_now, "rsi14": rsi, "ret_1d_pct": ret_1d, "ret_5d_pct": ret_5d,
+            "avg_volume_20d": avg_volume, "avg_traded_value_20d": avg_traded_value,
         })
     out = pd.DataFrame(rows)
     if out.empty:
         return out
+    # Liquidity rank: 1 = most liquid (highest 20-day avg traded value)
+    out["liquidity_rank"] = out["avg_traded_value_20d"].rank(ascending=False, method="min").astype(int)
     out = out.sort_values("rsi14", ascending=True).reset_index(drop=True)
     out.insert(0, "rank", range(1, len(out) + 1))
     return out

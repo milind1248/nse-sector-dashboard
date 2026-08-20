@@ -43,6 +43,90 @@ def _run_universe_fetch(years: float) -> tuple:
     return data, fetch_ts
 
 
+_TILE_BOARD_TEMPLATE = r"""
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #f6f5f1; --surface: #ffffff; --border: #dfdcd2; --border-soft: #eae7dd;
+    --ink: #17201c; --ink-muted: #626b62; --accent: #0f6b52;
+    --up: #1a7a4c; --up-soft: #1a7a4c14; --down: #b0432b; --down-soft: #b0432b14;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10140f; --surface: #171d16; --border: #2a332a; --border-soft: #202821;
+      --ink: #e8ece3; --ink-muted: #97a293; --accent: #35b892;
+      --up: #4bc48c; --up-soft: #4bc48c1c; --down: #e2755a; --down-soft: #e2755a1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); }
+  .board { background: var(--bg); color: var(--ink); font-family: "IBM Plex Sans", sans-serif; padding: 4px 2px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); gap: 11px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 13px 11px; }
+  .tile-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1px; gap: 6px; }
+  .sym { font-family: "IBM Plex Mono", monospace; font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chg { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-weight: 600; padding: 1px 6px; border-radius: 5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .chg.up { color: var(--up); background: var(--up-soft); }
+  .chg.down { color: var(--down); background: var(--down-soft); }
+  .theme { font-size: 10.5px; color: var(--ink-muted); margin-bottom: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .spark { width: 100%; height: 42px; display: block; }
+  .price { font-family: "IBM Plex Mono", monospace; font-size: 13px; margin-top: 5px; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 500; }
+  .price .unit { color: var(--ink-muted); font-weight: 400; margin-right: 2px; }
+</style>
+<div class="board"><div class="grid" id="grid"></div></div>
+<script>
+  const DATA = __DATA_JSON__;
+  function sparkSVG(prices, up) {
+    const w = 156, h = 42, pad = 4;
+    const min = Math.min(...prices), max = Math.max(...prices);
+    const range = (max - min) || 1;
+    const innerH = h - pad * 2;
+    const step = w / (prices.length - 1);
+    const pts = prices.map((p, i) => [i * step, pad + innerH - ((p - min) / range) * innerH]);
+    const line = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+    const area = line + ` L${w},${h} L0,${h} Z`;
+    const color = up ? 'var(--up)' : 'var(--down)';
+    const last = pts[pts.length - 1];
+    return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      <line x1="0" y1="${pts[0][1].toFixed(1)}" x2="${w}" y2="${pts[0][1].toFixed(1)}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,2"/>
+      <path d="${area}" fill="${color}" opacity="0.12" stroke="none"/>
+      <path d="${line}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+      <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.1" fill="${color}"/>
+    </svg>`;
+  }
+  const grid = document.getElementById('grid');
+  DATA.forEach(v => {
+    const up = v.chg >= 0;
+    const tile = document.createElement('div');
+    tile.className = 'tile';
+    tile.innerHTML = `
+      <div class="tile-top"><span class="sym">${v.symbol}</span><span class="chg ${up ? 'up' : 'down'}">${up ? '+' : ''}${v.chg.toFixed(2)}%</span></div>
+      <div class="theme">${v.theme}</div>
+      ${sparkSVG(v.prices, up)}
+      <div class="price"><span class="unit">₹</span>${v.last.toFixed(2)}</div>
+    `;
+    grid.appendChild(tile);
+  });
+</script>
+"""
+
+
+def _build_tile_board_html(rank_df: pd.DataFrame, data: dict) -> str:
+    import json
+    tiles = []
+    for _, row in rank_df.iterrows():
+        sym = row["symbol"]
+        df = data.get(sym)
+        if df is None or df.empty:
+            continue
+        prices = [round(float(c), 2) for c in df["Close"].tail(90).tolist()]
+        if len(prices) < 2:
+            continue
+        chg = round((prices[-1] / prices[0] - 1) * 100, 2)
+        tiles.append({"symbol": sym, "theme": row["theme"], "prices": prices, "last": prices[-1], "chg": chg})
+    return _TILE_BOARD_TEMPLATE.replace("__DATA_JSON__", json.dumps(tiles))
+
+
 # ─── Page title & disclaimer ─────────────────────────────────────────────────
 st.title("🏪 ETF Dukan 3")
 from app.utils.disclaimer import show_sebi_notice
@@ -80,7 +164,8 @@ with tab_signal:
         st.session_state["d3_exits"] = check_exits(data, _open_now, target_pct=_config["target_pct"])
         st.session_state["d3_fetch_ts"] = fetch_ts
 
-    _rank_required_cols = {"rank", "symbol", "theme", "underlying", "close", "rsi14", "ret_1d_pct", "ret_5d_pct"}
+    _rank_required_cols = {"rank", "symbol", "theme", "underlying", "close", "rsi14", "ret_1d_pct", "ret_5d_pct",
+                            "avg_volume_20d", "avg_traded_value_20d", "liquidity_rank"}
     rank_df = st.session_state.get("d3_rank")
     if rank_df is not None and not _rank_required_cols.issubset(rank_df.columns):
         for k in ("d3_rank", "d3_decision", "d3_exits", "d3_fetch_ts"):
@@ -123,10 +208,12 @@ with tab_signal:
         disp = rank_df.copy()
         disp["Held?"] = disp["symbol"].map(lambda s: "✅" if s in held_syms else "—")
         disp = disp.rename(columns={
-            "rank": "Rank", "symbol": "Symbol", "theme": "Theme", "close": "Close",
-            "rsi14": "RSI(14)", "ret_1d_pct": "1D %", "ret_5d_pct": "5D %",
+            "rank": "Rank", "symbol": "Symbol", "theme": "Theme", "underlying": "Underlying Asset",
+            "close": "Close", "rsi14": "RSI(14)", "ret_1d_pct": "1D %", "ret_5d_pct": "5D %",
+            "avg_volume_20d": "Avg Volume (20D)", "liquidity_rank": "Liquidity Rank",
         })
-        show_cols = ["Rank", "Symbol", "Theme", "Close", "RSI(14)", "1D %", "5D %", "Held?"]
+        show_cols = ["Rank", "Symbol", "Theme", "Underlying Asset", "Close", "RSI(14)", "1D %", "5D %",
+                     "Avg Volume (20D)", "Liquidity Rank", "Held?"]
 
         def _rsi_color(v):
             try:
@@ -139,12 +226,32 @@ with tab_signal:
                 return "background-color: rgba(200,0,0,0.14)"
             return ""
 
+        def _liquidity_color(v):
+            try:
+                v = int(v)
+            except (TypeError, ValueError):
+                return ""
+            if v <= 10:
+                return "background-color: rgba(0,150,0,0.12)"
+            if v > 30:
+                return "background-color: rgba(200,0,0,0.10)"
+            return ""
+
         st.dataframe(
             disp.reindex(columns=show_cols).style
                 .map(_rsi_color, subset=["RSI(14)"])
-                .format({"Close": "{:.2f}", "RSI(14)": "{:.1f}", "1D %": "{:.2f}", "5D %": "{:.2f}"}),
+                .map(_liquidity_color, subset=["Liquidity Rank"])
+                .format({"Close": "{:.2f}", "RSI(14)": "{:.1f}", "1D %": "{:.2f}", "5D %": "{:.2f}",
+                         "Avg Volume (20D)": "{:,.0f}", "Liquidity Rank": "{:.0f}"}),
             use_container_width=True, hide_index=True, height=460,
         )
+
+        st.markdown("---")
+        st.markdown("##### ETF Tile Board")
+        st.caption("Same order as the rank table above — one tile per ETF, 90-day sparkline.")
+        import streamlit.components.v1 as components
+        _tile_data, _ = _run_universe_fetch(2.0)  # cached — free after the first fetch above
+        components.html(_build_tile_board_html(rank_df, _tile_data), height=560, scrolling=True)
 
         if open_positions:
             st.markdown("##### Open Positions")
