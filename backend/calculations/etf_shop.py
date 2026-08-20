@@ -1,6 +1,6 @@
 """
 "ETF Shop 2025" strategy — Mahesh Chandra Kaushik (SEBI RA), YouTube video.
-Powers app/pages/27_🛒_ETF_Shop.py. Streamlit-free (matches every other
+Powers app/pages/27_🛒_ETF_Shop_1.py. Streamlit-free (matches every other
 backend/calculations module) — caching/DB persistence is the caller's job.
 
 Ported from scripts/etf_shop_backtest.py (see that file's own docstring for
