@@ -44,6 +44,8 @@ _PAGE_PREVIEWS: dict[str, str] = {
     "Export": "app/assets/page_previews/export.png",
     "Paper Trading": "app/assets/page_previews/paper_trading.png",
     "Momentum Scanner": "app/assets/page_previews/momentum_scanner.png",
+    "ETF Shop": "app/assets/page_previews/ETF_Shop_1.png",
+    "ETF Dukan 3": "app/assets/page_previews/ETF_Shop_3.png",
 }
 
 # Pages using the CSS Ken-Burns pan/zoom + shimmer overlay (see
