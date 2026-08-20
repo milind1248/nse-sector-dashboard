@@ -25,6 +25,7 @@ _DEFAULTS = {
     "bulk_deals_daily":      {"hour": 18, "minute": 45},
     "momentum_portfolio_snapshot": {"hour": 22, "minute": 0},
     "etf_shop_daily_update": {"hour": 20, "minute": 15},
+    "etf_dukan3_daily_update": {"hour": 20, "minute": 30},
 }
 
 

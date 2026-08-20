@@ -1009,6 +1009,7 @@ _SCH_JOBS = [
     ("bulk_deals_daily",      "Bulk & Block Deals Sync (NSE Archive CSVs)",     "6:45 PM"),
     ("momentum_portfolio_snapshot", "Momentum Portfolio Snapshot (NAV + Holdings)", "10:00 PM"),
     ("etf_shop_daily_update", "ETF Shop Daily Update (Signal + Trade Log)", "8:15 PM"),
+    ("etf_dukan3_daily_update", "ETF Dukan 3 Daily Update (RSI Rotation, Curated Universe)", "8:30 PM"),
 ]
 
 _hour_options   = list(range(0, 24))

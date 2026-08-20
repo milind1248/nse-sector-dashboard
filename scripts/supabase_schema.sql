@@ -718,3 +718,49 @@ CREATE TABLE IF NOT EXISTS etf_shop_closed_trades (
     closed_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_etf_shop_closed_exit_date ON etf_shop_closed_trades(exit_date);
+
+-- Daily snapshot of a systematic virtual book run on "ETF Dukan 3"
+-- (backend/calculations/etf_dukan3.py, RSI(14)-ranking rotation over a
+-- curated, theme-deduplicated 45-ETF universe — one buy/day + averaging on
+-- a 3% drop, 4.71% profit target, 50-part capital sizing). Written daily by
+-- the etf_dukan3_daily_update scheduler job (backend/data_ingestion/etf_dukan3_pipeline.py).
+CREATE TABLE IF NOT EXISTS etf_dukan3_open_positions (
+    id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    symbol          TEXT NOT NULL UNIQUE,
+    units           DOUBLE PRECISION NOT NULL,
+    avg_price       DOUBLE PRECISION NOT NULL,
+    last_buy_price  DOUBLE PRECISION NOT NULL,
+    invested_cost   DOUBLE PRECISION NOT NULL,
+    first_buy_date  DATE NOT NULL,
+    n_buys          INT NOT NULL DEFAULT 1,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS etf_dukan3_closed_trades (
+    id                       BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    symbol                   TEXT NOT NULL,
+    entry_date               DATE NOT NULL,
+    exit_date                DATE NOT NULL,
+    units                    DOUBLE PRECISION NOT NULL,
+    avg_entry_price          DOUBLE PRECISION NOT NULL,
+    exit_price               DOUBLE PRECISION NOT NULL,
+    gross_profit_pct         DOUBLE PRECISION NOT NULL,
+    gross_profit_rs          DOUBLE PRECISION NOT NULL,
+    net_profit_rs            DOUBLE PRECISION NOT NULL,
+    self_dividend_withdrawn  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    n_buys                   INT NOT NULL,
+    closed_at                TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_etf_dukan3_closed_exit_date ON etf_dukan3_closed_trades(exit_date);
+
+-- Single-row config: lets Admin toggle the tax/self-dividend compounding mode
+-- and adjust capital parameters without a redeploy.
+CREATE TABLE IF NOT EXISTS etf_dukan3_config (
+    id                     TEXT PRIMARY KEY DEFAULT 'default',
+    total_capital_rs       DOUBLE PRECISION NOT NULL DEFAULT 500000,
+    capital_parts          INT NOT NULL DEFAULT 50,
+    target_pct             DOUBLE PRECISION NOT NULL DEFAULT 4.71,
+    average_drop_pct       DOUBLE PRECISION NOT NULL DEFAULT 3.0,
+    apply_tax_dividend     BOOLEAN NOT NULL DEFAULT FALSE,
+    self_dividend_bank_rs  DOUBLE PRECISION NOT NULL DEFAULT 0
+);
+INSERT INTO etf_dukan3_config (id) VALUES ('default') ON CONFLICT (id) DO NOTHING;
