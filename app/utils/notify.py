@@ -1,6 +1,6 @@
 """
 Admin email notifications via Web3Forms — the same access key already used
-by app/pages/19_📧_Contact.py.
+by app/pages/21_📧_Contact.py.
 
 Web3Forms' free plan rejects server-side (Python) POST requests — confirmed:
 calling https://api.web3forms.com/submit directly from Python returns
