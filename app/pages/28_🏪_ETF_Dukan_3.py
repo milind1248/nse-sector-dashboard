@@ -70,8 +70,11 @@ _TILE_BOARD_TEMPLATE = r"""
   .chg.down { color: var(--down); background: var(--down-soft); }
   .theme { font-size: 10.5px; color: var(--ink-muted); margin-bottom: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .spark { width: 100%; height: 42px; display: block; }
-  .price { font-family: "IBM Plex Mono", monospace; font-size: 13px; margin-top: 5px; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 500; }
+  .bottom-row { display: flex; justify-content: space-between; align-items: baseline; margin-top: 5px; gap: 6px; }
+  .price { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 500; }
   .price .unit { color: var(--ink-muted); font-weight: 400; margin-right: 2px; }
+  .chg-1d { font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .chg-1d.up { color: var(--up); } .chg-1d.down { color: var(--down); }
 </style>
 <div class="board"><div class="grid" id="grid"></div></div>
 <script>
@@ -97,13 +100,17 @@ _TILE_BOARD_TEMPLATE = r"""
   const grid = document.getElementById('grid');
   DATA.forEach(v => {
     const up = v.chg >= 0;
+    const up1d = v.chg_1d >= 0;
     const tile = document.createElement('div');
     tile.className = 'tile';
     tile.innerHTML = `
       <div class="tile-top"><span class="sym">${v.symbol}</span><span class="chg ${up ? 'up' : 'down'}">${up ? '+' : ''}${v.chg.toFixed(2)}%</span></div>
       <div class="theme">${v.theme}</div>
       ${sparkSVG(v.prices, up)}
-      <div class="price"><span class="unit">₹</span>${v.last.toFixed(2)}</div>
+      <div class="bottom-row">
+        <div class="price"><span class="unit">₹</span>${v.last.toFixed(2)}</div>
+        <span class="chg-1d ${up1d ? 'up' : 'down'}">${up1d ? '+' : ''}${v.chg_1d.toFixed(2)}% 1D</span>
+      </div>
     `;
     grid.appendChild(tile);
   });
@@ -123,7 +130,9 @@ def _build_tile_board_html(rank_df: pd.DataFrame, data: dict) -> str:
         if len(prices) < 2:
             continue
         chg = round((prices[-1] / prices[0] - 1) * 100, 2)
-        tiles.append({"symbol": sym, "theme": row["theme"], "prices": prices, "last": prices[-1], "chg": chg})
+        chg_1d = round(float(row["ret_1d_pct"]), 2) if pd.notna(row.get("ret_1d_pct")) else 0.0
+        tiles.append({"symbol": sym, "theme": row["theme"], "prices": prices, "last": prices[-1],
+                      "chg": chg, "chg_1d": chg_1d})
     return _TILE_BOARD_TEMPLATE.replace("__DATA_JSON__", json.dumps(tiles))
 
 
