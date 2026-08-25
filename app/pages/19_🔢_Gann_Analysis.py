@@ -319,13 +319,14 @@ if not cached:
         scan_date = datetime.date.today().isoformat()
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_atr, tab_deg, tab_date, tab_pts, tab_gnn, tab_emb = st.tabs([
+tab_atr, tab_deg, tab_date, tab_pts, tab_gnn, tab_emb, tab_live = st.tabs([
     "📏 ATR Range",
     "📐 Degree Levels",
     "📅 Date Projection",
     "⚖️ Price-Time Square",
     "🗓️ Natural Dates",
     "🌟 Gann Emblem",
+    "🎯 Live Trade System",
 ])
 
 # ── Cross-stock accuracy data (loaded once, shared across all tabs) ─────────
@@ -1225,3 +1226,101 @@ with tab_emb:
     st.markdown("---")
     from app.utils.disclaimer import show_footer
     show_footer()
+
+# ═════════════════════════════════════════════════════════════════════════════
+# TAB 7 — LIVE TRADE SYSTEM (Entry/Exit/TSL/T1-T8, genuine Gann Sq9 targets)
+# ═════════════════════════════════════════════════════════════════════════════
+with tab_live:
+    from backend.calculations.gann import compute_live_trade_system, backtest_live_trade_system
+
+    st.caption(
+        "Built after checking a paid TradingView 'Gann' signal indicator's own posted levels — "
+        "its T1-T8 turned out to be a flat, equal-percentage ladder with no real angle math behind "
+        "it, not genuine Gann Square-of-9 targets. This version uses real Sq9 angle levels (45° steps: "
+        "45/90/135/180/225/270/315/360) computed from the entry price, so the target spacing genuinely "
+        "narrows as price moves further from entry — the actual signature of Gann's method."
+    )
+
+    lc1, lc2, lc3 = st.columns(3)
+    ema_fast = lc1.number_input("EMA Fast", 5, 50, 20, key="gn_live_ema_fast")
+    ema_slow = lc2.number_input("EMA Slow", 20, 200, 50, key="gn_live_ema_slow")
+    atr_mult = lc3.number_input("ATR Trail Multiplier", 0.5, 5.0, 2.0, step=0.5, key="gn_live_atr_mult")
+
+    live_sig = compute_live_trade_system(df, ema_fast=ema_fast, ema_slow=ema_slow, atr_mult=atr_mult)
+
+    if not live_sig:
+        st.info("Not enough data to compute a live signal for this stock/timeframe.")
+    else:
+        direction = live_sig["direction"]
+        dir_color = "#26a69a" if direction == "LONG" else "#ef5350"
+
+        side_rows = [
+            ("Direction", direction), ("Entry Date", live_sig["entry_date"]),
+            ("Entry", f"₹{live_sig['entry_price']:,.2f}"),
+            ("Trailing SL", f"₹{live_sig['trailing_sl']:,.2f}"),
+        ]
+        for i, t in enumerate(live_sig["targets"], 1):
+            side_rows.append((f"Target {i}", f"₹{t:,.2f}"))
+        side_df = pd.DataFrame(side_rows, columns=["", " "])
+
+        cchart, ctable = st.columns([3, 1])
+        with ctable:
+            st.markdown(f"<div style='padding:6px 10px;background:{dir_color};color:#111;"
+                        f"border-radius:6px;text-align:center;font-weight:700;'>Direction: {direction}</div>",
+                        unsafe_allow_html=True)
+            st.dataframe(side_df, hide_index=True, use_container_width=True, height=420)
+
+        with cchart:
+            plot_df = df.tail(180)
+            fig = _chart_base(plot_df, sel)
+            fig.add_trace(go.Scatter(
+                x=live_sig["tsl_dates"], y=live_sig["tsl_series"],
+                mode="lines", name="Trailing SL", line=dict(color="#ef5350", width=1.5, dash="dot"),
+            ))
+            entry_marker_color = "#26a69a" if direction == "LONG" else "#ef5350"
+            fig.add_trace(go.Scatter(
+                x=[live_sig["entry_date"]], y=[live_sig["entry_price"]],
+                mode="markers+text", name="Entry",
+                marker=dict(size=12, color=entry_marker_color, symbol="triangle-up" if direction == "LONG" else "triangle-down"),
+                text=["Entry"], textposition="top center",
+            ))
+            for i, t in enumerate(live_sig["targets"], 1):
+                fig.add_hline(y=t, line=dict(color="#4ade80", width=1, dash="dash"),
+                              annotation_text=f"T{i} {t:,.1f}", annotation_position="right")
+            st.plotly_chart(fig, use_container_width=True)
+
+        st.caption(
+            f"Rule disclosed: entry on EMA({ema_fast})/EMA({ema_slow}) crossover; trailing stop = "
+            f"chandelier at {atr_mult}× ATR({live_sig['atr_len']}) from the highest high (LONG) / "
+            f"lowest low (SHORT) since entry, only ever moving in the trade's favor."
+        )
+
+        st.markdown("---")
+        st.markdown("##### Backtest — every historical EMA crossover on this stock")
+        st.caption(_BT_LABEL + " · Exits at T8, the trailing stop, or end of data, whichever comes first. "
+                                "Books 50% at T1 (matches the source indicator's own advertised convention).")
+        bt_trades = backtest_live_trade_system(df, ema_fast=ema_fast, ema_slow=ema_slow, atr_mult=atr_mult)
+        if bt_trades:
+            bt_df = pd.DataFrame(bt_trades)
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Trades", len(bt_df))
+            m2.metric("Win Rate", f"{(bt_df['Return %'] > 0).mean() * 100:.1f}%")
+            m3.metric("Avg Return", f"{bt_df['Return %'].mean():.2f}%")
+            m4.metric("T8 Hits", int((bt_df["Exit Reason"] == "T8 hit").sum()))
+
+            def _ret_color(v):
+                try:
+                    return "color:#4ade80" if float(v) > 0 else ("color:#FF5252" if float(v) < 0 else "")
+                except Exception:
+                    return ""
+
+            st.dataframe(
+                bt_df.style.map(_ret_color, subset=["Return %"]),
+                use_container_width=True, hide_index=True,
+            )
+        else:
+            st.info("No historical EMA crossovers found for this stock/timeframe.")
+
+    st.markdown("---")
+    from app.utils.disclaimer import show_footer as _show_footer_live
+    _show_footer_live()

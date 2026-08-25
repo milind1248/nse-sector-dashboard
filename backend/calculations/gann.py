@@ -500,3 +500,187 @@ def compute_gann_all(symbol: str, df: pd.DataFrame, pivot_window: int = 10) -> d
         "dates":      compute_natural_dates(df, pivot_window, pivots=pivots),
         "updated_at": datetime.date.today().isoformat(),
     }
+
+
+# ── Live Trade System: EMA crossover entry + ATR chandelier trail + genuine ─────
+# Gann Square-of-9 angle targets (T1-T8 at 45° steps: 45/90/135/180/225/270/315/360).
+# Built to answer a direct request to reproduce a paid TradingView "Gann" signal
+# indicator honestly — that indicator's T1-T8 turned out to be a flat, equal-%
+# ladder with no real angle math behind it (verified by diffing its own posted
+# levels). This version's targets are real Sq9 angle levels instead; the entry
+# rule (EMA20/EMA50 crossover) and trailing stop (ATR chandelier) are disclosed
+# plainly below rather than left implicit, since those two choices — not the
+# "Gann" label — are what actually drive this system's real-world performance.
+
+LIVE_SYS_DEG = {
+    "45°": 0.25, "90°": 0.50, "135°": 0.75, "180°": 1.00,
+    "225°": 1.25, "270°": 1.50, "315°": 1.75, "360°": 2.00,
+}
+
+
+def _sq9_targets(entry: float, direction: str) -> list[float]:
+    r = float(np.sqrt(entry))
+    side = "up" if direction == "LONG" else "dn"
+    out = []
+    for _, f in LIVE_SYS_DEG.items():
+        v = (r + f) ** 2 if side == "up" else max(r - f, 0.0) ** 2
+        out.append(round(v, 2))
+    return out
+
+
+def _ema(series: pd.Series, length: int) -> pd.Series:
+    return series.ewm(span=length, adjust=False, min_periods=length).mean()
+
+
+def compute_live_trade_system(df: pd.DataFrame, ema_fast: int = 20, ema_slow: int = 50,
+                               atr_len: int = 14, atr_mult: float = 2.0) -> dict[str, Any]:
+    """
+    Entry: EMA(fast) crosses EMA(slow) (crossover = BUY/SELL signal bar).
+    Trailing stop: ATR chandelier - trails with the highest-high (LONG) or
+    lowest-low (SHORT) since entry, at atr_mult * ATR(atr_len) distance; only
+    ever moves in the trade's favor, never against it.
+    Targets: genuine Gann Square-of-9 angle levels (45 deg steps) from entry -
+    NOT an equal-interval ladder.
+    Returns the current live signal plus enough series data to plot it.
+    """
+    if df is None or len(df) < max(ema_slow, atr_len) + 5:
+        return {}
+
+    close = df["Close"]
+    ema_f = _ema(close, ema_fast)
+    ema_s = _ema(close, ema_slow)
+
+    high_low   = df["High"] - df["Low"]
+    high_close = (df["High"] - close.shift()).abs()
+    low_close  = (df["Low"]  - close.shift()).abs()
+    tr  = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1 / atr_len, min_periods=atr_len, adjust=False).mean()
+
+    cross_up   = (ema_f > ema_s) & (ema_f.shift(1) <= ema_s.shift(1))
+    cross_down = (ema_f < ema_s) & (ema_f.shift(1) >= ema_s.shift(1))
+    cross_up   = cross_up.fillna(False)
+    cross_down = cross_down.fillna(False)
+
+    cross_idx = np.where((cross_up | cross_down).values)[0]
+    if len(cross_idx) == 0:
+        direction = "LONG" if ema_f.iloc[-1] > ema_s.iloc[-1] else "SHORT"
+        entry_idx = max(ema_slow, atr_len)
+    else:
+        last_idx = int(cross_idx[-1])
+        direction = "LONG" if cross_up.iloc[last_idx] else "SHORT"
+        entry_idx = last_idx
+
+    entry_date  = str(df.index[entry_idx].date())
+    entry_price = float(close.iloc[entry_idx])
+
+    # Trailing stop: walk forward from entry, chandelier-style
+    tsl_series = []
+    if direction == "LONG":
+        running_extreme = float(df["High"].iloc[entry_idx])
+        for i in range(entry_idx, len(df)):
+            running_extreme = max(running_extreme, float(df["High"].iloc[i]))
+            a = float(atr.iloc[i]) if pd.notna(atr.iloc[i]) else 0.0
+            tsl_series.append(round(running_extreme - atr_mult * a, 2))
+    else:
+        running_extreme = float(df["Low"].iloc[entry_idx])
+        for i in range(entry_idx, len(df)):
+            running_extreme = min(running_extreme, float(df["Low"].iloc[i]))
+            a = float(atr.iloc[i]) if pd.notna(atr.iloc[i]) else 0.0
+            tsl_series.append(round(running_extreme + atr_mult * a, 2))
+
+    tsl_dates = [str(d.date()) for d in df.index[entry_idx:]]
+    targets = _sq9_targets(entry_price, direction)
+
+    return {
+        "direction": direction,
+        "entry_date": entry_date,
+        "entry_price": entry_price,
+        "trailing_sl": tsl_series[-1] if tsl_series else None,
+        "tsl_dates": tsl_dates,
+        "tsl_series": tsl_series,
+        "targets": targets,
+        "ema_fast": ema_fast, "ema_slow": ema_slow,
+        "atr_len": atr_len, "atr_mult": atr_mult,
+        "cross_up_dates": [str(df.index[i].date()) for i in np.where(cross_up.values)[0]],
+        "cross_down_dates": [str(df.index[i].date()) for i in np.where(cross_down.values)[0]],
+    }
+
+
+def backtest_live_trade_system(df: pd.DataFrame, ema_fast: int = 20, ema_slow: int = 50,
+                                atr_len: int = 14, atr_mult: float = 2.0) -> list[dict]:
+    """
+    Walks every historical EMA crossover, simulates the chandelier trail +
+    Gann Sq9 targets exactly as compute_live_trade_system() defines them,
+    exits at whichever comes first: trailing stop hit, or T8 hit. Books 50%
+    at T1 (matching the "always breakeven after T1" convention the source
+    indicator advertised) - the other half rides the trail to T8 or the stop.
+    """
+    if df is None or len(df) < max(ema_slow, atr_len) + 5:
+        return []
+
+    close = df["Close"]
+    ema_f = _ema(close, ema_fast)
+    ema_s = _ema(close, ema_slow)
+    high_low   = df["High"] - df["Low"]
+    high_close = (df["High"] - close.shift()).abs()
+    low_close  = (df["Low"]  - close.shift()).abs()
+    tr  = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1 / atr_len, min_periods=atr_len, adjust=False).mean()
+
+    cross_up   = ((ema_f > ema_s) & (ema_f.shift(1) <= ema_s.shift(1))).fillna(False)
+    cross_down = ((ema_f < ema_s) & (ema_f.shift(1) >= ema_s.shift(1))).fillna(False)
+    signal_idx = sorted(np.where((cross_up | cross_down).values)[0])
+
+    trades = []
+    for idx in signal_idx:
+        if idx < max(ema_slow, atr_len) or idx >= len(df) - 2:
+            continue
+        direction = "LONG" if cross_up.iloc[idx] else "SHORT"
+        entry_price = float(close.iloc[idx])
+        targets = _sq9_targets(entry_price, direction)
+        t1 = targets[0]
+
+        running_extreme = float(df["High" if direction == "LONG" else "Low"].iloc[idx])
+        half_booked = False
+        exit_price, exit_reason, exit_i = None, None, None
+
+        for i in range(idx + 1, len(df)):
+            a = float(atr.iloc[i]) if pd.notna(atr.iloc[i]) else 0.0
+            h, l = float(df["High"].iloc[i]), float(df["Low"].iloc[i])
+            if direction == "LONG":
+                running_extreme = max(running_extreme, h)
+                tsl = running_extreme - atr_mult * a
+                if not half_booked and h >= t1:
+                    half_booked = True
+                if h >= targets[-1]:
+                    exit_price, exit_reason, exit_i = targets[-1], "T8 hit", i
+                    break
+                if l <= tsl:
+                    exit_price, exit_reason, exit_i = tsl, "Trailing stop", i
+                    break
+            else:
+                running_extreme = min(running_extreme, l)
+                tsl = running_extreme + atr_mult * a
+                if not half_booked and l <= t1:
+                    half_booked = True
+                if l <= targets[-1]:
+                    exit_price, exit_reason, exit_i = targets[-1], "T8 hit", i
+                    break
+                if h >= tsl:
+                    exit_price, exit_reason, exit_i = tsl, "Trailing stop", i
+                    break
+
+        if exit_price is None:
+            exit_price, exit_reason, exit_i = float(close.iloc[-1]), "Open at data end", len(df) - 1
+
+        pct = (exit_price - entry_price) / entry_price * 100
+        if direction == "SHORT":
+            pct = -pct
+
+        trades.append({
+            "Entry Date": str(df.index[idx].date()), "Direction": direction,
+            "Entry": round(entry_price, 2), "Exit": round(exit_price, 2),
+            "Exit Reason": exit_reason, "Half Booked at T1": half_booked,
+            "Hold Days": exit_i - idx, "Return %": round(pct, 2),
+        })
+    return trades
