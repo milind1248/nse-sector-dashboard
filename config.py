@@ -53,7 +53,7 @@ SECTOR_INDICES = {
     "Consumer Durables":   "NIFTYCONSUM.NS",
     "Defence":             "NIFTYDEF.NS",
     "Energy":              "^CNXENERGY",
-    "Financial Services":  "^CNXFINANCE",
+    "Financial Services":  "NIFTY_FIN_SERVICE.NS",
     "FMCG":                "^CNXFMCG",
     "Healthcare":          "NIFTYHEALTH.NS",
     "Infrastructure":      "^CNXINFRA",
@@ -63,7 +63,7 @@ SECTOR_INDICES = {
     "Oil & Gas":           "NIFTYOILGAS.NS",
     "Pharma":              "^CNXPHARMA",
     "Power":               "NIFTYPSE.NS",
-    "Private Bank":        "NIFPVTBNK.NS",
+    "Private Bank":        "NIFTY_PVT_BANK.NS",
     "PSU Bank":            "^CNXPSUBANK",
     "Real Estate":         "^CNXREALTY",
     "Telecom":             "NIFTYTELCOM.NS",   # not on yfinance; composite fallback used

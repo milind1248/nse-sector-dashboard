@@ -18,6 +18,165 @@ from backend.calculations.relative_strength import compute_rs_ratio
 from backend.calculations.advance_decline import compute_sector_advance_decline
 from backend.data_ingestion.yfinance_fetcher import fetch_sector_stocks
 
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _load_trending_sectors_board(months: int = 3) -> list[dict]:
+    """
+    For every sector: 3-month sparkline for the sector index itself, plus a
+    3-month sparkline for every stock in that sector. Sorted sector-first by
+    3-month performance (trending sectors on top), stocks within each sector
+    sorted the same way.
+    """
+    period = f"{months}mo"
+    bars = 63 * months // 3  # ~63 trading days per 3mo window
+
+    out = []
+    for sector, idx_symbol in SECTOR_INDICES.items():
+        try:
+            idx_df = yf.download(idx_symbol, period=period, interval="1d", auto_adjust=True, progress=False)
+            if hasattr(idx_df.columns, "get_level_values"):
+                idx_df.columns = idx_df.columns.get_level_values(0)
+            idx_df = idx_df.dropna(subset=["Close"])
+            if len(idx_df) < 10:
+                continue
+            idx_prices = [round(float(c), 2) for c in idx_df["Close"].tail(bars).tolist()]
+            idx_chg = round((idx_prices[-1] / idx_prices[0] - 1) * 100, 2)
+        except Exception:
+            continue
+
+        stock_syms = SECTOR_STOCKS.get(sector, [])
+        if not stock_syms:
+            continue
+        try:
+            batch = yf.download(stock_syms, period=period, interval="1d", auto_adjust=True,
+                                 group_by="ticker", threads=True, progress=False)
+        except Exception:
+            batch = None
+
+        stocks_out = []
+        for sym in stock_syms:
+            try:
+                sdf = batch[sym] if (batch is not None and isinstance(batch.columns, pd.MultiIndex)
+                                      and sym in batch.columns.get_level_values(0)) else None
+                if sdf is None:
+                    continue
+                sdf = sdf.dropna(subset=["Close"])
+                if len(sdf) < 10:
+                    continue
+                prices = [round(float(c), 2) for c in sdf["Close"].tail(bars).tolist()]
+                chg = round((prices[-1] / prices[0] - 1) * 100, 2)
+                stocks_out.append({"symbol": sym.replace(".NS", ""), "prices": prices,
+                                    "last": prices[-1], "chg": chg})
+            except Exception:
+                continue
+
+        if not stocks_out:
+            continue
+        stocks_out.sort(key=lambda x: x["chg"], reverse=True)
+        out.append({"sector": sector, "idx_prices": idx_prices, "idx_last": idx_prices[-1],
+                     "idx_chg": idx_chg, "stocks": stocks_out})
+
+    out.sort(key=lambda x: x["idx_chg"], reverse=True)
+    return out
+
+
+_TRENDING_BOARD_TEMPLATE = r"""
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #f6f5f1; --surface: #ffffff; --border: #dfdcd2; --border-soft: #eae7dd;
+    --ink: #17201c; --ink-muted: #626b62; --accent: #0f6b52; --accent-soft: #0f6b521a;
+    --up: #1a7a4c; --up-soft: #1a7a4c14; --down: #b0432b; --down-soft: #b0432b14;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10140f; --surface: #171d16; --border: #2a332a; --border-soft: #202821;
+      --ink: #e8ece3; --ink-muted: #97a293; --accent: #35b892; --accent-soft: #35b8921f;
+      --up: #4bc48c; --up-soft: #4bc48c1c; --down: #e2755a; --down-soft: #e2755a1c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10140f; --surface: #171d16; --border: #2a332a; --border-soft: #202821;
+    --ink: #e8ece3; --ink-muted: #97a293; --accent: #35b892; --accent-soft: #35b8921f;
+    --up: #4bc48c; --up-soft: #4bc48c1c; --down: #e2755a; --down-soft: #e2755a1c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); }
+  .board { background: var(--bg); color: var(--ink); font-family: "IBM Plex Sans", sans-serif; padding: 4px 2px; }
+  .row { display: grid; grid-template-columns: 190px 1fr; gap: 14px; align-items: start;
+    padding: 12px 0; border-bottom: 1px solid var(--border-soft); }
+  .row:last-child { border-bottom: none; }
+  .sector-tile { background: var(--surface); border: 1.5px solid var(--accent); border-radius: 10px;
+    padding: 12px 13px 11px; }
+  .sector-name { font-family: "IBM Plex Mono", monospace; font-weight: 700; font-size: 13px; }
+  .sector-chg { font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 700;
+    padding: 2px 7px; border-radius: 5px; display: inline-block; margin-top: 4px; }
+  .sector-chg.up { color: var(--up); background: var(--up-soft); }
+  .sector-chg.down { color: var(--down); background: var(--down-soft); }
+  .sector-price { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--ink-muted);
+    margin-top: 5px; }
+  .stocks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 9px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 9px;
+    padding: 9px 10px 8px; }
+  .tile-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1px; gap: 5px; }
+  .sym { font-family: "IBM Plex Mono", monospace; font-weight: 600; font-size: 11.5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chg { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 600;
+    white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .chg.up { color: var(--up); } .chg.down { color: var(--down); }
+  .spark { width: 100%; height: 34px; display: block; }
+  .price { font-family: "IBM Plex Mono", monospace; font-size: 11px; margin-top: 3px;
+    color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+</style>
+<div class="board" id="board"></div>
+<script>
+  const DATA = __DATA_JSON__;
+  function sparkSVG(prices, up, w, h) {
+    const min = Math.min(...prices), max = Math.max(...prices);
+    const range = (max - min) || 1;
+    const pad = 3;
+    const innerH = h - pad * 2;
+    const step = w / (prices.length - 1);
+    const pts = prices.map((p, i) => [i * step, pad + innerH - ((p - min) / range) * innerH]);
+    const line = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+    const area = line + ` L${w},${h} L0,${h} Z`;
+    const color = up ? 'var(--up)' : 'var(--down)';
+    return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      <path d="${area}" fill="${color}" opacity="0.12" stroke="none"/>
+      <path d="${line}" fill="none" stroke="${color}" stroke-width="1.4" vector-effect="non-scaling-stroke"/>
+    </svg>`;
+  }
+  const board = document.getElementById('board');
+  DATA.forEach(sec => {
+    const secUp = sec.idx_chg >= 0;
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `
+      <div class="sector-tile">
+        <div class="sector-name">${sec.sector}</div>
+        <div class="sector-chg ${secUp ? 'up' : 'down'}">${secUp ? '+' : ''}${sec.idx_chg.toFixed(2)}%</div>
+        ${sparkSVG(sec.idx_prices, secUp, 160, 40)}
+        <div class="sector-price">${sec.idx_last.toLocaleString()}</div>
+      </div>
+      <div class="stocks-grid"></div>
+    `;
+    const grid = row.querySelector('.stocks-grid');
+    sec.stocks.forEach(v => {
+      const up = v.chg >= 0;
+      const tile = document.createElement('div');
+      tile.className = 'tile';
+      tile.innerHTML = `
+        <div class="tile-top"><span class="sym">${v.symbol}</span><span class="chg ${up ? 'up' : 'down'}">${up ? '+' : ''}${v.chg.toFixed(2)}%</span></div>
+        ${sparkSVG(v.prices, up, 130, 34)}
+        <div class="price">Rs ${v.last}</div>
+      `;
+      grid.appendChild(tile);
+    });
+    board.appendChild(row);
+  });
+</script>
+"""
+
 st.set_page_config(page_title="NSE Sector Price Analysis | FII Flow vs Price | Market Sector Analysis", layout="wide")
 from app.utils.guard import enforce_deployment_gate
 enforce_deployment_gate()
@@ -132,7 +291,9 @@ st.markdown("---")
 
 # ── Charts ─────────────────────────────────────────────────────────────────────
 if sector_df is not None and not sector_df.empty:
-    tab1, tab2, tab3, tab4 = st.tabs(["Price + EMAs", "RSI", "RS vs Nifty", "📊 Stock RS"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(
+        ["Price + EMAs", "RSI", "RS vs Nifty", "📊 Stock RS", "🔥 Trending Sectors"]
+    )
 
     with tab1:
         fig = go.Figure()
@@ -345,6 +506,23 @@ if sector_df is not None and not sector_df.empty:
                         "Positive = stock outperformed the benchmark over the period. "
                         "Not a buy/sell signal — for research reference only."
                     )
+
+    with tab5:
+        st.caption(
+            "Every sector, ranked by its own 3-month performance (trending sectors first), with every "
+            "stock in that sector alongside it — one view, sparkline for each. Use the sector selector "
+            "above to drill into a specific sector for the full price/RSI/RS charts."
+        )
+        import streamlit.components.v1 as components
+        with st.spinner("Loading all sectors and stocks (cached 30 min)…"):
+            board_data = _load_trending_sectors_board(months=3)
+        if not board_data:
+            st.info("No sector/stock data available right now.")
+        else:
+            import json as _json
+            board_html = _TRENDING_BOARD_TEMPLATE.replace("__DATA_JSON__", _json.dumps(board_data))
+            row_height = 190
+            components.html(board_html, height=min(row_height * len(board_data) + 40, 4000), scrolling=True)
 
 else:
     st.warning(f"No price data available for {sector} index. Check config.py for the correct market symbol.")
