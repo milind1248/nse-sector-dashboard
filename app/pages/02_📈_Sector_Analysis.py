@@ -41,6 +41,31 @@ def _pct_change(prices: list[float], lookback: int) -> float | None:
     return round((prices[-1] / prices[-1 - effective_lookback] - 1) * 100, 2)
 
 
+def _fetch_daily_fresh(symbol: str, long_period: str = "5y") -> pd.DataFrame:
+    """
+    yf.download() confirmed to serve STALE tail data for some "^"-prefixed NSE
+    index tickers on long-period requests (e.g. ^CNXAUTO's period="5y" fetch was
+    frozen ~7 weeks behind its own period="1mo" fetch, verified against a live
+    TradingView chart). Fetches the long history for context, then always
+    patches the tail with a short, fresh fetch so today's price is never stale.
+    """
+    df = yf.download(symbol, period=long_period, interval="1d", auto_adjust=True, progress=False)
+    if hasattr(df.columns, "get_level_values"):
+        df.columns = df.columns.get_level_values(0)
+    df = df.dropna(subset=["Close"])
+    try:
+        fresh = yf.download(symbol, period="5d", interval="1d", auto_adjust=True, progress=False)
+        if hasattr(fresh.columns, "get_level_values"):
+            fresh.columns = fresh.columns.get_level_values(0)
+        fresh = fresh.dropna(subset=["Close"])
+        if not fresh.empty:
+            combined = pd.concat([df, fresh])
+            df = combined[~combined.index.duplicated(keep="last")].sort_index()
+    except Exception:
+        pass  # long-period data alone is still usable if the patch fetch fails
+    return df
+
+
 def _spark_series(close: pd.Series, period_label: str) -> list[float]:
     """Resample the daily close series to the selected period's own bar size
     (weekly/monthly/quarterly/yearly close), then take the trailing N bars -
@@ -68,10 +93,7 @@ def _load_trending_sectors_board(period_label: str = "Day") -> list[dict]:
     out = []
     for sector, idx_symbol in SECTOR_INDICES.items():
         try:
-            idx_df = yf.download(idx_symbol, period=_FETCH_PERIOD, interval="1d", auto_adjust=True, progress=False)
-            if hasattr(idx_df.columns, "get_level_values"):
-                idx_df.columns = idx_df.columns.get_level_values(0)
-            idx_df = idx_df.dropna(subset=["Close"])
+            idx_df = _fetch_daily_fresh(idx_symbol, _FETCH_PERIOD)
             if len(idx_df) < 10:
                 continue
             idx_close = idx_df["Close"]
