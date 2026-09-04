@@ -43,11 +43,25 @@ def _pct_change(prices: list[float], lookback: int) -> float | None:
 
 def _fetch_daily_fresh(symbol: str, long_period: str = "5y") -> pd.DataFrame:
     """
-    yf.download() confirmed to serve STALE tail data for some "^"-prefixed NSE
-    index tickers on long-period requests (e.g. ^CNXAUTO's period="5y" fetch was
-    frozen ~7 weeks behind its own period="1mo" fetch, verified against a live
-    TradingView chart). Fetches the long history for context, then always
-    patches the tail with a short, fresh fetch so today's price is never stale.
+    yf.download() confirmed to serve genuinely GAPPY data for some "^"-prefixed
+    NSE index tickers - not just a stale tail, but a multi-week HOLE in the
+    middle of the series (e.g. ^CNXMETAL's long-period fetch jumped straight
+    from 2026-07-17 to 2026-09-03, silently skipping ~34 trading days). Verified
+    against live TradingView bars for the same symbol, which are fully
+    continuous over that window (Aug 3/17/24/31 all present) - so this is a
+    Yahoo Finance backend data defect on their end, not a real market gap and
+    not fixable by changing the request shape (period= vs start=/end= both hit
+    the same hole).
+
+    Fetches long history for context, patches the tail with a fresh short
+    fetch, then - critically - DISCARDS everything before the most recent
+    calendar gap wider than 7 days. Trading-day lookback math (_pct_change)
+    and pandas .resample() both assume a genuinely consecutive daily series;
+    silently leaving a multi-week hole in place would make "Week"/"Month"/
+    etc. quietly compare today's price against a pre-gap price several weeks
+    older than intended. Keeping only the post-gap contiguous block is honest
+    (it under-serves the longer lookbacks by clamping to less history) rather
+    than plausible-looking but wrong.
     """
     df = yf.download(symbol, period=long_period, interval="1d", auto_adjust=True, progress=False)
     if hasattr(df.columns, "get_level_values"):
@@ -63,6 +77,14 @@ def _fetch_daily_fresh(symbol: str, long_period: str = "5y") -> pd.DataFrame:
             df = combined[~combined.index.duplicated(keep="last")].sort_index()
     except Exception:
         pass  # long-period data alone is still usable if the patch fetch fails
+
+    if len(df) > 1:
+        gaps_days = df.index.to_series().diff().dt.days
+        gap_positions = gaps_days[gaps_days > 7].index
+        if len(gap_positions) > 0:
+            last_gap_start = gap_positions[-1]
+            df = df.loc[df.index >= last_gap_start]
+
     return df
 
 
