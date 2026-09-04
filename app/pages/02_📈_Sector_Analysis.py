@@ -20,48 +20,66 @@ from backend.data_ingestion.yfinance_fetcher import fetch_sector_stocks
 
 
 # Period options match the Trendlyne-style Change% selector (Day/Week/Month/Quarter/Year).
-# Values are trading-day lookbacks used against the 1y daily history fetched below.
+# Values are trading-day lookbacks (against the daily series) used for the % badge.
 TRENDING_PERIODS = {"Day": 1, "Week": 5, "Month": 21, "Quarter": 63, "Year": 252}
-_SPARK_BARS = 63  # sparkline always shows the trailing ~3 months regardless of selected period
+# How many resampled bars the SPARKLINE itself shows per period, and the pandas
+# resample rule used to genuinely re-aggregate the daily closes into that period
+# (not just relabel a daily chart) - this is what makes "Weekly"/"Monthly" etc.
+# actually show weekly/monthly bars, answering "check the prices display correctly".
+_SPARK_RULE = {"Day": (None, 63), "Week": ("W", 26), "Month": ("ME", 24), "Quarter": ("QE", 12), "Year": ("YE", 5)}
+_FETCH_PERIOD = "5y"  # long enough for genuine weekly/monthly/quarterly/yearly resampling
 
 
 def _pct_change(prices: list[float], lookback: int) -> float | None:
     """% change over `lookback` trading days. If fewer bars exist than requested
-    (e.g. a 1y fetch landing just under 252 trading days for the "Year" option
-    due to holidays), falls back to the earliest available bar rather than
-    silently dropping the row entirely."""
+    (e.g. a fetch landing just under 252 trading days for the "Year" option due
+    to holidays), falls back to the earliest available bar rather than silently
+    dropping the row entirely."""
     if len(prices) < 2:
         return None
     effective_lookback = min(lookback, len(prices) - 1)
     return round((prices[-1] / prices[-1 - effective_lookback] - 1) * 100, 2)
 
 
+def _spark_series(close: pd.Series, period_label: str) -> list[float]:
+    """Resample the daily close series to the selected period's own bar size
+    (weekly/monthly/quarterly/yearly close), then take the trailing N bars -
+    genuine re-aggregation, not a daily chart relabeled."""
+    rule, n_bars = _SPARK_RULE.get(period_label, (None, 63))
+    if rule is None:
+        s = close
+    else:
+        s = close.resample(rule).last().dropna()
+    return [round(float(v), 2) for v in s.tail(n_bars).tolist()]
+
+
 @st.cache_data(ttl=1800, show_spinner=False)
 def _load_trending_sectors_board(period_label: str = "Day") -> list[dict]:
     """
-    For every sector: a sparkline (trailing ~3 months) for the sector index and
-    every stock in it, a % change badge for the SELECTED period (Day/Week/Month/
-    Quarter/Year), and a separate always-on 1-day % change shown in the corner
-    of each tile. Sorted sector-first by the selected period's performance.
+    For every sector: a sparkline genuinely resampled to the SELECTED period's
+    own bar size (Day=daily, Week=weekly closes, Month=monthly closes, etc.) for
+    the sector index and every stock in it, a % change badge for that same
+    period (Day/Week/Month/Quarter/Year lookback on the daily series), and a
+    separate always-on 1-day % change shown in the corner of each tile. Sorted
+    sector-first by the selected period's performance.
     """
     lookback = TRENDING_PERIODS.get(period_label, 1)
-    # 1y history covers the "Year" lookback (252 trading days) plus buffer.
-    fetch_period = "1y" if lookback <= 252 else f"{lookback // 21 + 2}mo"
 
     out = []
     for sector, idx_symbol in SECTOR_INDICES.items():
         try:
-            idx_df = yf.download(idx_symbol, period=fetch_period, interval="1d", auto_adjust=True, progress=False)
+            idx_df = yf.download(idx_symbol, period=_FETCH_PERIOD, interval="1d", auto_adjust=True, progress=False)
             if hasattr(idx_df.columns, "get_level_values"):
                 idx_df.columns = idx_df.columns.get_level_values(0)
             idx_df = idx_df.dropna(subset=["Close"])
             if len(idx_df) < 10:
                 continue
-            idx_all = [round(float(c), 2) for c in idx_df["Close"].tolist()]
-            idx_prices = idx_all[-_SPARK_BARS:]
+            idx_close = idx_df["Close"]
+            idx_all = [round(float(c), 2) for c in idx_close.tolist()]
+            idx_prices = _spark_series(idx_close, period_label)
             idx_chg = _pct_change(idx_all, lookback)
             idx_day_chg = _pct_change(idx_all, 1)
-            if idx_chg is None:
+            if idx_chg is None or not idx_prices:
                 continue
         except Exception:
             continue
@@ -70,7 +88,7 @@ def _load_trending_sectors_board(period_label: str = "Day") -> list[dict]:
         if not stock_syms:
             continue
         try:
-            batch = yf.download(stock_syms, period=fetch_period, interval="1d", auto_adjust=True,
+            batch = yf.download(stock_syms, period=_FETCH_PERIOD, interval="1d", auto_adjust=True,
                                  group_by="ticker", threads=True, progress=False)
         except Exception:
             batch = None
@@ -85,13 +103,15 @@ def _load_trending_sectors_board(period_label: str = "Day") -> list[dict]:
                 sdf = sdf.dropna(subset=["Close"])
                 if len(sdf) < 10:
                     continue
-                all_prices = [round(float(c), 2) for c in sdf["Close"].tolist()]
+                s_close = sdf["Close"]
+                all_prices = [round(float(c), 2) for c in s_close.tolist()]
+                spark = _spark_series(s_close, period_label)
                 chg = _pct_change(all_prices, lookback)
                 day_chg = _pct_change(all_prices, 1)
-                if chg is None:
+                if chg is None or not spark:
                     continue
                 stocks_out.append({
-                    "symbol": sym.replace(".NS", ""), "prices": all_prices[-_SPARK_BARS:],
+                    "symbol": sym.replace(".NS", ""), "prices": spark,
                     "last": all_prices[-1], "chg": chg, "day_chg": day_chg if day_chg is not None else 0.0,
                 })
             except Exception:
@@ -101,7 +121,7 @@ def _load_trending_sectors_board(period_label: str = "Day") -> list[dict]:
             continue
         stocks_out.sort(key=lambda x: x["chg"], reverse=True)
         out.append({
-            "sector": sector, "idx_prices": idx_prices, "idx_last": idx_prices[-1],
+            "sector": sector, "symbol": idx_symbol, "idx_prices": idx_prices, "idx_last": idx_prices[-1],
             "idx_chg": idx_chg, "idx_day_chg": idx_day_chg if idx_day_chg is not None else 0.0,
             "stocks": stocks_out,
         })
@@ -138,7 +158,10 @@ _TRENDING_BOARD_TEMPLATE = r"""
   .row:last-child { border-bottom: none; }
   .sector-tile { background: var(--surface); border: 1.5px solid var(--accent); border-radius: 10px;
     padding: 12px 13px 11px; }
+  .sector-top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
   .sector-name { font-family: "IBM Plex Mono", monospace; font-weight: 700; font-size: 13px; }
+  .sector-symbol { font-family: "IBM Plex Mono", monospace; font-size: 9.5px; color: var(--ink-muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70px; }
   .sector-chg { font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 700;
     padding: 2px 7px; border-radius: 5px; display: inline-block; margin-top: 4px; }
   .sector-chg.up { color: var(--up); background: var(--up-soft); }
@@ -189,7 +212,10 @@ _TRENDING_BOARD_TEMPLATE = r"""
     const secDayUp = sec.idx_day_chg >= 0;
     row.innerHTML = `
       <div class="sector-tile">
-        <div class="sector-name">${sec.sector}</div>
+        <div class="sector-top">
+          <span class="sector-name">${sec.sector}</span>
+          <span class="sector-symbol" title="${sec.symbol}">${sec.symbol}</span>
+        </div>
         <div class="sector-chg ${secUp ? 'up' : 'down'}">${secUp ? '+' : ''}${sec.idx_chg.toFixed(2)}%</div>
         ${sparkSVG(sec.idx_prices, secUp, 160, 40)}
         <div class="sector-bottom-row">
