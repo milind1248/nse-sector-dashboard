@@ -19,28 +19,50 @@ from backend.calculations.advance_decline import compute_sector_advance_decline
 from backend.data_ingestion.yfinance_fetcher import fetch_sector_stocks
 
 
+# Period options match the Trendlyne-style Change% selector (Day/Week/Month/Quarter/Year).
+# Values are trading-day lookbacks used against the 1y daily history fetched below.
+TRENDING_PERIODS = {"Day": 1, "Week": 5, "Month": 21, "Quarter": 63, "Year": 252}
+_SPARK_BARS = 63  # sparkline always shows the trailing ~3 months regardless of selected period
+
+
+def _pct_change(prices: list[float], lookback: int) -> float | None:
+    """% change over `lookback` trading days. If fewer bars exist than requested
+    (e.g. a 1y fetch landing just under 252 trading days for the "Year" option
+    due to holidays), falls back to the earliest available bar rather than
+    silently dropping the row entirely."""
+    if len(prices) < 2:
+        return None
+    effective_lookback = min(lookback, len(prices) - 1)
+    return round((prices[-1] / prices[-1 - effective_lookback] - 1) * 100, 2)
+
+
 @st.cache_data(ttl=1800, show_spinner=False)
-def _load_trending_sectors_board(months: int = 3) -> list[dict]:
+def _load_trending_sectors_board(period_label: str = "Day") -> list[dict]:
     """
-    For every sector: 3-month sparkline for the sector index itself, plus a
-    3-month sparkline for every stock in that sector. Sorted sector-first by
-    3-month performance (trending sectors on top), stocks within each sector
-    sorted the same way.
+    For every sector: a sparkline (trailing ~3 months) for the sector index and
+    every stock in it, a % change badge for the SELECTED period (Day/Week/Month/
+    Quarter/Year), and a separate always-on 1-day % change shown in the corner
+    of each tile. Sorted sector-first by the selected period's performance.
     """
-    period = f"{months}mo"
-    bars = 63 * months // 3  # ~63 trading days per 3mo window
+    lookback = TRENDING_PERIODS.get(period_label, 1)
+    # 1y history covers the "Year" lookback (252 trading days) plus buffer.
+    fetch_period = "1y" if lookback <= 252 else f"{lookback // 21 + 2}mo"
 
     out = []
     for sector, idx_symbol in SECTOR_INDICES.items():
         try:
-            idx_df = yf.download(idx_symbol, period=period, interval="1d", auto_adjust=True, progress=False)
+            idx_df = yf.download(idx_symbol, period=fetch_period, interval="1d", auto_adjust=True, progress=False)
             if hasattr(idx_df.columns, "get_level_values"):
                 idx_df.columns = idx_df.columns.get_level_values(0)
             idx_df = idx_df.dropna(subset=["Close"])
             if len(idx_df) < 10:
                 continue
-            idx_prices = [round(float(c), 2) for c in idx_df["Close"].tail(bars).tolist()]
-            idx_chg = round((idx_prices[-1] / idx_prices[0] - 1) * 100, 2)
+            idx_all = [round(float(c), 2) for c in idx_df["Close"].tolist()]
+            idx_prices = idx_all[-_SPARK_BARS:]
+            idx_chg = _pct_change(idx_all, lookback)
+            idx_day_chg = _pct_change(idx_all, 1)
+            if idx_chg is None:
+                continue
         except Exception:
             continue
 
@@ -48,7 +70,7 @@ def _load_trending_sectors_board(months: int = 3) -> list[dict]:
         if not stock_syms:
             continue
         try:
-            batch = yf.download(stock_syms, period=period, interval="1d", auto_adjust=True,
+            batch = yf.download(stock_syms, period=fetch_period, interval="1d", auto_adjust=True,
                                  group_by="ticker", threads=True, progress=False)
         except Exception:
             batch = None
@@ -63,18 +85,26 @@ def _load_trending_sectors_board(months: int = 3) -> list[dict]:
                 sdf = sdf.dropna(subset=["Close"])
                 if len(sdf) < 10:
                     continue
-                prices = [round(float(c), 2) for c in sdf["Close"].tail(bars).tolist()]
-                chg = round((prices[-1] / prices[0] - 1) * 100, 2)
-                stocks_out.append({"symbol": sym.replace(".NS", ""), "prices": prices,
-                                    "last": prices[-1], "chg": chg})
+                all_prices = [round(float(c), 2) for c in sdf["Close"].tolist()]
+                chg = _pct_change(all_prices, lookback)
+                day_chg = _pct_change(all_prices, 1)
+                if chg is None:
+                    continue
+                stocks_out.append({
+                    "symbol": sym.replace(".NS", ""), "prices": all_prices[-_SPARK_BARS:],
+                    "last": all_prices[-1], "chg": chg, "day_chg": day_chg if day_chg is not None else 0.0,
+                })
             except Exception:
                 continue
 
         if not stocks_out:
             continue
         stocks_out.sort(key=lambda x: x["chg"], reverse=True)
-        out.append({"sector": sector, "idx_prices": idx_prices, "idx_last": idx_prices[-1],
-                     "idx_chg": idx_chg, "stocks": stocks_out})
+        out.append({
+            "sector": sector, "idx_prices": idx_prices, "idx_last": idx_prices[-1],
+            "idx_chg": idx_chg, "idx_day_chg": idx_day_chg if idx_day_chg is not None else 0.0,
+            "stocks": stocks_out,
+        })
 
     out.sort(key=lambda x: x["idx_chg"], reverse=True)
     return out
@@ -113,8 +143,8 @@ _TRENDING_BOARD_TEMPLATE = r"""
     padding: 2px 7px; border-radius: 5px; display: inline-block; margin-top: 4px; }
   .sector-chg.up { color: var(--up); background: var(--up-soft); }
   .sector-chg.down { color: var(--down); background: var(--down-soft); }
-  .sector-price { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--ink-muted);
-    margin-top: 5px; }
+  .sector-bottom-row { display: flex; justify-content: space-between; align-items: baseline; margin-top: 5px; gap: 6px; }
+  .sector-price { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--ink-muted); }
   .stocks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 9px; }
   .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 9px;
     padding: 9px 10px 8px; }
@@ -125,8 +155,13 @@ _TRENDING_BOARD_TEMPLATE = r"""
     white-space: nowrap; font-variant-numeric: tabular-nums; }
   .chg.up { color: var(--up); } .chg.down { color: var(--down); }
   .spark { width: 100%; height: 34px; display: block; }
-  .price { font-family: "IBM Plex Mono", monospace; font-size: 11px; margin-top: 3px;
+  .bottom-row { display: flex; justify-content: space-between; align-items: baseline; margin-top: 3px; gap: 5px; }
+  .price { font-family: "IBM Plex Mono", monospace; font-size: 11px;
     color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+  .day-chg { font-family: "IBM Plex Mono", monospace; font-size: 10px; font-weight: 600;
+    white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .day-chg.up { color: var(--up); } .day-chg.down { color: var(--down); }
+  .day-chg::before { content: "1D "; color: var(--ink-muted); font-weight: 400; }
 </style>
 <div class="board" id="board"></div>
 <script>
@@ -151,24 +186,32 @@ _TRENDING_BOARD_TEMPLATE = r"""
     const secUp = sec.idx_chg >= 0;
     const row = document.createElement('div');
     row.className = 'row';
+    const secDayUp = sec.idx_day_chg >= 0;
     row.innerHTML = `
       <div class="sector-tile">
         <div class="sector-name">${sec.sector}</div>
         <div class="sector-chg ${secUp ? 'up' : 'down'}">${secUp ? '+' : ''}${sec.idx_chg.toFixed(2)}%</div>
         ${sparkSVG(sec.idx_prices, secUp, 160, 40)}
-        <div class="sector-price">${sec.idx_last.toLocaleString()}</div>
+        <div class="sector-bottom-row">
+          <span class="sector-price">${sec.idx_last.toLocaleString()}</span>
+          <span class="day-chg ${secDayUp ? 'up' : 'down'}">${secDayUp ? '+' : ''}${sec.idx_day_chg.toFixed(2)}%</span>
+        </div>
       </div>
       <div class="stocks-grid"></div>
     `;
     const grid = row.querySelector('.stocks-grid');
     sec.stocks.forEach(v => {
       const up = v.chg >= 0;
+      const dayUp = v.day_chg >= 0;
       const tile = document.createElement('div');
       tile.className = 'tile';
       tile.innerHTML = `
         <div class="tile-top"><span class="sym">${v.symbol}</span><span class="chg ${up ? 'up' : 'down'}">${up ? '+' : ''}${v.chg.toFixed(2)}%</span></div>
         ${sparkSVG(v.prices, up, 130, 34)}
-        <div class="price">Rs ${v.last}</div>
+        <div class="bottom-row">
+          <span class="price">Rs ${v.last}</span>
+          <span class="day-chg ${dayUp ? 'up' : 'down'}">${dayUp ? '+' : ''}${v.day_chg.toFixed(2)}%</span>
+        </div>
       `;
       grid.appendChild(tile);
     });
@@ -509,13 +552,18 @@ if sector_df is not None and not sector_df.empty:
 
     with tab5:
         st.caption(
-            "Every sector, ranked by its own 3-month performance (trending sectors first), with every "
-            "stock in that sector alongside it — one view, sparkline for each. Use the sector selector "
-            "above to drill into a specific sector for the full price/RSI/RS charts."
+            "Every sector, ranked by its own performance for the selected period (trending sectors "
+            "first), with every stock in that sector alongside it — one view, sparkline for each. "
+            "The badge in the bottom-right corner of every tile is always the 1-day change, regardless "
+            "of the period selected above. Use the sector selector above to drill into a specific "
+            "sector for the full price/RSI/RS charts."
+        )
+        period_label = st.radio(
+            "Change %", list(TRENDING_PERIODS.keys()), index=0, horizontal=True, key="sa_trend_period",
         )
         import streamlit.components.v1 as components
         with st.spinner("Loading all sectors and stocks (cached 30 min)…"):
-            board_data = _load_trending_sectors_board(months=3)
+            board_data = _load_trending_sectors_board(period_label=period_label)
         if not board_data:
             st.info("No sector/stock data available right now.")
         else:
