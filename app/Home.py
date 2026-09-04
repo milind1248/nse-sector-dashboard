@@ -332,7 +332,7 @@ _SPLASH_HTML = """
 """
 
 # ── Load NSDL data (all available fortnights) ─────────────────────────────────
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def load_nsdl_history():
     from backend.data_ingestion.nsdl_fetcher import fetch_nsdl_fii_sectors
     return fetch_nsdl_fii_sectors()
