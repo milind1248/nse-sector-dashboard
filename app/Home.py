@@ -333,9 +333,20 @@ _SPLASH_HTML = """
 
 # ── Load NSDL data (all available fortnights) ─────────────────────────────────
 @st.cache_data(ttl=1800, show_spinner=False)
-def load_nsdl_history():
+def _load_nsdl_history_cached():
     from backend.data_ingestion.nsdl_fetcher import fetch_nsdl_fii_sectors
-    return fetch_nsdl_fii_sectors()
+    data = fetch_nsdl_fii_sectors()
+    if not data:
+        # Raising keeps st.cache_data from caching a transient empty result
+        raise RuntimeError("NSDL history empty")
+    return data
+
+
+def load_nsdl_history():
+    try:
+        return _load_nsdl_history_cached()
+    except Exception:
+        return {}
 
 with st.status("📂 Loading NSE market intelligence…", expanded=True) as _load_status:
     # Splash fills the expanded status area while data loads
