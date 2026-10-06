@@ -294,31 +294,26 @@ def _save_to_db(report_date: date, df: pd.DataFrame) -> None:
 def _load_all_from_db() -> dict[date, pd.DataFrame]:
     """Load all stored reports from DB → dict{date: DataFrame}."""
     try:
-        from backend.storage.database import db_session, get_engine
-        from backend.storage.models import NsdlFiiSector, Base
-        get_engine()   # ensure tables exist
-        with db_session() as s:
-            rows = s.query(NsdlFiiSector).order_by(
-                NsdlFiiSector.report_date, NsdlFiiSector.nsdl_sector
-            ).all()
+        from backend.storage.db import get_conn
+        cols = ["report_date", "nsdl_sector", "sector", "auc_prev_eq",
+                "net_prev_eq", "net_curr_eq", "auc_curr_eq", "auc_change",
+                "auc_pct_change", "net_flow_change", "signal"]
+        # Plain query: the ORM engine's create_all() schema check cost ~9s of
+        # round-trips to the remote DB on every cold start.
+        conn = get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                f"SELECT {', '.join(cols)} FROM nsdl_fii_sector "
+                "ORDER BY report_date, nsdl_sector"
+            )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
         if not rows:
             return {}
 
-        records = [{
-            "report_date":    r.report_date,
-            "nsdl_sector":    r.nsdl_sector,
-            "sector":         r.sector,
-            "auc_prev_eq":    r.auc_prev_eq,
-            "net_prev_eq":    r.net_prev_eq,
-            "net_curr_eq":    r.net_curr_eq,
-            "auc_curr_eq":    r.auc_curr_eq,
-            "auc_change":     r.auc_change,
-            "auc_pct_change": r.auc_pct_change,
-            "net_flow_change":r.net_flow_change,
-            "signal":         r.signal,
-        } for r in rows]
-
-        df_all = pd.DataFrame(records)
+        df_all = pd.DataFrame(rows, columns=cols)
         result = {}
         for d, grp in df_all.groupby("report_date"):
             result[d] = grp.drop(columns=["report_date"]).sort_values(
