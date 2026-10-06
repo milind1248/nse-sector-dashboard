@@ -8,17 +8,26 @@ on:
 jobs:
   ping:
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     steps:
-      - name: Install Chromium
-        run: sudo apt-get install -y chromium-browser
+      - uses: actions/checkout@v4
 
-      - name: Wake Streamlit app via headless browser
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright
         run: |
-          chromium-browser \
-            --headless \
-            --disable-gpu \
-            --no-sandbox \
-            --disable-dev-shm-usage \
-            --timeout=25000 \
-            https://marketsector.streamlit.app/ || true
-          echo "Ping done"
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Wake app and hold a real browser session
+        run: python .github/scripts/ping_streamlit.py
+
+      - name: Upload failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ping-failure
+          path: ping_failure.png
+          if-no-files-found: ignore
