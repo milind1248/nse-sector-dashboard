@@ -11,7 +11,14 @@ _SessionLocal = None
 def get_engine():
     global _engine
     if _engine is None:
-        _engine = create_engine(_connection_string(), echo=False)
+        url = _connection_string()
+        # Pin psycopg2: unpinned SQLAlchemy can default to psycopg v3, which
+        # Streamlit Cloud doesn't have ("No module named 'psycopg'").
+        for prefix in ("postgresql://", "postgres://"):
+            if url.startswith(prefix):
+                url = "postgresql+psycopg2://" + url[len(prefix):]
+                break
+        _engine = create_engine(url, echo=False)
         Base.metadata.create_all(_engine)  # no-op for tables that already exist
     return _engine
 
