@@ -338,6 +338,10 @@ st.caption("Compare the sector price trend with FII flow data for research purpo
 def load_sector_analysis(sector: str):
     sym = SECTOR_INDICES.get(sector)
     sector_df = fetch_index_ohlcv(sym, period="1y") if sym else None
+    # The data provider sometimes returns a single bar for an index; that is
+    # too little for indicators/charts, so treat it as unavailable.
+    if sector_df is not None and len(sector_df) < 30:
+        sector_df = None
 
     nifty_raw = yf.download(NIFTY_SYMBOL, period="1y", interval="1d",
                              progress=False, auto_adjust=True)
@@ -442,7 +446,7 @@ if sector_df is not None and not sector_df.empty:
         # Shade FII buying period (last 15 days)
         if sector_df.index[-1]:
             fig.add_vrect(
-                x0=str(sector_df.index[-15]), x1=str(sector_df.index[-1]),
+                x0=str(sector_df.index[max(-15, -len(sector_df))]), x1=str(sector_df.index[-1]),
                 fillcolor="#00C853" if (net_curr or 0) > 0 else "#D50000",
                 opacity=0.05, line_width=0,
                 annotation_text="FII period", annotation_position="top left",
@@ -649,7 +653,11 @@ if sector_df is not None and not sector_df.empty:
             components.html(board_html, height=min(row_height * len(board_data) + 40, 4000), scrolling=True)
 
 else:
-    st.warning(f"No price data available for {sector} index. Check config.py for the correct market symbol.")
+    st.warning(
+        f"Price history for the {sector} index is temporarily unavailable from the "
+        "data provider, so charts and indicators can't be shown right now. "
+        "Please try again later."
+    )
 
 # ── EMA levels table ──────────────────────────────────────────────────────────
 if close and any(v for v in [ema20, ema50, ema200]):
