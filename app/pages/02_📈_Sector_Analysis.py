@@ -117,16 +117,9 @@ def _load_trending_sectors_board(period_label: str = "Day") -> list[dict]:
         try:
             idx_df = _fetch_daily_fresh(idx_symbol, _FETCH_PERIOD)
             if len(idx_df) < 10:
-                continue
-            idx_close = idx_df["Close"]
-            idx_all = [round(float(c), 2) for c in idx_close.tolist()]
-            idx_prices = _spark_series(idx_close, period_label)
-            idx_chg = _pct_change(idx_all, lookback)
-            idx_day_chg = _pct_change(idx_all, 1)
-            if idx_chg is None or not idx_prices:
-                continue
+                idx_df = None
         except Exception:
-            continue
+            idx_df = None
 
         stock_syms = SECTOR_STOCKS.get(sector, [])
         if not stock_syms:
@@ -137,7 +130,7 @@ def _load_trending_sectors_board(period_label: str = "Day") -> list[dict]:
         except Exception:
             batch = None
 
-        stocks_out = []
+        stock_dfs = {}
         for sym in stock_syms:
             try:
                 sdf = batch[sym] if (batch is not None and isinstance(batch.columns, pd.MultiIndex)
@@ -145,8 +138,32 @@ def _load_trending_sectors_board(period_label: str = "Day") -> list[dict]:
                 if sdf is None:
                     continue
                 sdf = sdf.dropna(subset=["Close"])
-                if len(sdf) < 10:
-                    continue
+                if len(sdf) >= 10:
+                    stock_dfs[sym] = sdf
+            except Exception:
+                continue
+
+        symbol_label = idx_symbol
+        if idx_df is None:
+            from backend.calculations.sector_basket import build_basket_ohlcv
+            idx_df = build_basket_ohlcv(stock_dfs)
+            symbol_label = "BASKET"
+        if idx_df is None:
+            continue
+        try:
+            idx_close = idx_df["Close"]
+            idx_all = [round(float(c), 2) for c in idx_close.tolist()]
+            idx_prices = _spark_series(idx_close, period_label)
+            idx_chg = _pct_change(idx_all, lookback)
+            idx_day_chg = _pct_change(idx_all, 1)
+            if idx_chg is None or not idx_prices:
+                continue
+        except Exception:
+            continue
+
+        stocks_out = []
+        for sym, sdf in stock_dfs.items():
+            try:
                 s_close = sdf["Close"]
                 all_prices = [round(float(c), 2) for c in s_close.tolist()]
                 spark = _spark_series(s_close, period_label)
@@ -165,7 +182,7 @@ def _load_trending_sectors_board(period_label: str = "Day") -> list[dict]:
             continue
         stocks_out.sort(key=lambda x: x["chg"], reverse=True)
         out.append({
-            "sector": sector, "symbol": idx_symbol, "idx_prices": idx_prices, "idx_last": idx_prices[-1],
+            "sector": sector, "symbol": symbol_label, "idx_prices": idx_prices, "idx_last": idx_prices[-1],
             "idx_chg": idx_chg, "idx_day_chg": idx_day_chg if idx_day_chg is not None else 0.0,
             "stocks": stocks_out,
         })
@@ -351,6 +368,12 @@ def load_sector_analysis(sector: str):
     ad = compute_sector_advance_decline(stock_prices, lookback_days=1)
     ad_week = compute_sector_advance_decline(stock_prices, lookback_days=5)
 
+    is_basket = False
+    if sector_df is None:
+        from backend.calculations.sector_basket import build_basket_ohlcv
+        sector_df = build_basket_ohlcv(stock_prices)
+        is_basket = sector_df is not None
+
     if sector_df is not None and not sector_df.empty:
         indic = compute_all_indicators(sector_df)
         rets  = compute_pct_returns(sector_df)
@@ -364,10 +387,17 @@ def load_sector_analysis(sector: str):
     else:
         indic, rets, close, rs, score = {}, {}, None, None, 50
 
-    return sector_df, nifty_raw, indic, rets, close, rs, score, ad, ad_week
+    return sector_df, nifty_raw, indic, rets, close, rs, score, ad, ad_week, is_basket
 
 with st.spinner("Loading sector data..."):
-    sector_df, nifty_raw, indic, rets, close, rs, score, ad, ad_week = load_sector_analysis(sector)
+    sector_df, nifty_raw, indic, rets, close, rs, score, ad, ad_week, is_basket = load_sector_analysis(sector)
+
+if is_basket:
+    st.info(
+        f"Official {sector} index history is unavailable from the data provider right now. "
+        f"Charts and indicators below use an equal-weighted basket of the sector's constituent "
+        f"stocks (rebased to 1,000), so levels differ from the published index."
+    )
 
 # ── Verdict banner ────────────────────────────────────────────────────────────
 rsi = indic.get("rsi_14")
@@ -454,7 +484,7 @@ if sector_df is not None and not sector_df.empty:
 
         fig.update_layout(template="plotly_dark", height=450,
                            xaxis_rangeslider_visible=False,
-                           title=f"{sector} Index — Last 1 Year",
+                           title=f"{sector} {'Constituent Basket' if is_basket else 'Index'} — Last 1 Year",
                            margin=dict(t=50,b=20,l=10,r=10))
         st.plotly_chart(fig, width='stretch')
 
